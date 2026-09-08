@@ -46,7 +46,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         96 tests, including the replay property everything rests on
+tests/         106 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld, wild encounters, a
@@ -55,8 +55,21 @@ stages, five status conditions, drain, recoil and healing — plus catching,
 experience, levelling, move learning, evolution, breeding, the box, save/load,
 and **1v1 duels over WebRTC**.
 
-Not yet: trainers, and a tournament bracket — though a bracket is a
-spreadsheet and a series of 1v1s, which already work.
+Not yet: a tournament bracket — though a bracket is a spreadsheet and a series
+of 1v1s, which already work.
+
+### Trainers
+
+People stand on the paths, not in the grass, so they are visible and
+avoidable: walking into one starts a fight, walking around one does not. Their
+teams come from the same encounter table the route's grass uses, a couple of
+levels above it, which makes a trainer a reason to come back to a route rather
+than a wall across it. Beaten ones stay beaten and grey out on the map.
+
+They also forced a small correction. Battles used to ask one question — "is
+this wild?" — which decided both whether you could throw a ball and whether
+you gained experience. A trainer is worth experience but cannot be caught, and
+a person is neither, so the flag became two.
 
 ### Duels
 

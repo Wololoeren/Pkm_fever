@@ -235,6 +235,11 @@ export default function Page() {
               the daycare back in Hearth.
             </p>
           ) : null}
+          {state.notice?.t === "beatTrainer" ? (
+            <p className="good">
+              You beat {state.notice.name}, and they handed over {state.notice.balls} balls.
+            </p>
+          ) : null}
           {state.notice?.t === "hatched" ? (
             <p className="good">The egg hatched!{state.notice.boxed ? " Party was full, so it went to the box." : ""}</p>
           ) : null}

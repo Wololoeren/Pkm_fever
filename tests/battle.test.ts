@@ -6,7 +6,8 @@ import {
   maxHp,
   resolveTurn,
   startBattle,
-  wildAction,
+  aiAction,
+  DUEL_RULES,
   WILD_RULES,
   type BattleEvent,
   type BattleState,
@@ -23,14 +24,14 @@ const TAG = "wild:meadow-1:0";
 /** Runs one turn of a fresh battle and hands back everything it produced. */
 function fight(player: Individual, wild: Individual, moveIndex = 0, state?: BattleState) {
   const battle = state ?? startBattle(SEED, TAG, [player], [wild]);
-  return resolveTurn(battle, [{ t: "fight", moveIndex }, wildAction(battle)], WILD_RULES, 10);
+  return resolveTurn(battle, [{ t: "fight", moveIndex }, aiAction(battle)], WILD_RULES, 10);
 }
 
 /** Plays a battle out with both sides using their first move. */
 function playOut(ours: Individual[], theirs: Individual[], turns = 12) {
   let battle = startBattle(SEED, TAG, ours, theirs);
   for (let i = 0; i < turns && !battle.outcome && !battle.awaitingSwitch[0]; i++) {
-    battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, wildAction(battle)], WILD_RULES, 10).battle;
+    battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, aiAction(battle)], WILD_RULES, 10).battle;
   }
   return battle;
 }
@@ -139,7 +140,7 @@ describe("status and stages", () => {
     ]);
 
     for (let i = 0; i < 8 && !battle.outcome; i++) {
-      battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, wildAction(battle)], WILD_RULES, 10).battle;
+      battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, aiAction(battle)], WILD_RULES, 10).battle;
       expect(activeOf(battle, 1).status).not.toBe("brn");
     }
   });
@@ -153,7 +154,7 @@ describe("status and stages", () => {
     expect(battle.sides[0].stages.atk).toBeLessThanOrEqual(6);
 
     if (!battle.outcome && !battle.awaitingSwitch[0]) {
-      const switched = resolveTurn(battle, [{ t: "switch", partyIndex: 1 }, wildAction(battle)], WILD_RULES, 10);
+      const switched = resolveTurn(battle, [{ t: "switch", partyIndex: 1 }, aiAction(battle)], WILD_RULES, 10);
       expect(switched.battle.sides[0].stages.atk).toBe(0);
       expect(switched.battle.sides[0].active).toBe(1);
     }
@@ -235,15 +236,15 @@ describe("catching", () => {
     // The rules object is the only difference between a wild encounter and a
     // match against a person, which is what keeps them one engine.
     const battle = startBattle(SEED, "duel", [creature("machop")], [creature("machop", { uid: 2 })]);
-    expect(() => resolveTurn(battle, [{ t: "ball" }, { t: "pass" }], { wild: false }, 10)).toThrow();
-    expect(() => resolveTurn(battle, [{ t: "flee" }, { t: "pass" }], { wild: false }, 10)).toThrow();
+    expect(() => resolveTurn(battle, [{ t: "ball" }, { t: "pass" }], DUEL_RULES, 10)).toThrow();
+    expect(() => resolveTurn(battle, [{ t: "flee" }, { t: "pass" }], DUEL_RULES, 10)).toThrow();
   });
 
   it("B19: nobody gains experience from beating a person", () => {
     const battle = startBattle(SEED, "duel", [creature("machamp", { level: 80, moves: ["karatechop"] })], [
       creature("caterpie", { level: 2, iv: 0 }),
     ]);
-    const result = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], { wild: false }, 0);
+    const result = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], DUEL_RULES, 0);
 
     expect(result.battle.outcome).toEqual({ t: "win", side: 0 });
     expect(result.battle.events.some((event) => event.t === "exp")).toBe(false);

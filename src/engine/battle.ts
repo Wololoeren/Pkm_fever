@@ -95,14 +95,24 @@ export interface BattleState {
   events: BattleEvent[];
 }
 
-/** What a battle allows. A wild encounter can be caught and run from; a duel
- * cannot, and nobody gains experience from a person. */
+/**
+ * What a battle allows.
+ *
+ * Two independent questions, not one: a wild creature can be caught and run
+ * from and is worth experience; a trainer is worth experience but cannot be
+ * caught; another person is neither. Collapsing them into a single "is this
+ * wild" flag cannot express the middle case.
+ */
 export interface BattleRules {
-  wild: boolean;
+  /** Whether balls and running are legal. */
+  catchable: boolean;
+  /** Whether beating it is worth experience. */
+  awardsExp: boolean;
 }
 
-export const WILD_RULES: BattleRules = { wild: true };
-export const DUEL_RULES: BattleRules = { wild: false };
+export const WILD_RULES: BattleRules = { catchable: true, awardsExp: true };
+export const TRAINER_RULES: BattleRules = { catchable: false, awardsExp: true };
+export const DUEL_RULES: BattleRules = { catchable: false, awardsExp: false };
 
 const NO_STAGES: Stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
 
@@ -372,15 +382,26 @@ function residual(turn: Turn, side: SideIndex): void {
 }
 
 /**
- * What a wild creature does. Uniform among its moves — a wild animal is not
- * running a damage calculator, and a smarter opponent belongs to trainers,
- * who do not exist yet.
+ * What the side the player is not driving does.
+ *
+ * Uniform among its moves. A wild animal is not running a damage calculator,
+ * and a trainer who did would need a difficulty curve of its own — worth
+ * having, but it is a design problem rather than a plumbing one, and it can
+ * arrive later without anything else moving.
+ *
+ * A side owing a replacement sends out its first healthy member, because the
+ * engine will accept nothing else from it.
  */
-export function wildAction(state: BattleState): BattleAction {
-  const wild = activeOf(state, 1);
-  if (!wild.moves.length) return { t: "pass" };
+export function aiAction(state: BattleState, side: SideIndex = 1): BattleAction {
+  if (state.awaitingSwitch[side]) {
+    const next = state.sides[side].team.findIndex((creature) => !isFainted(creature));
+    return next >= 0 ? { t: "switch", partyIndex: next } : { t: "pass" };
+  }
 
-  const index = intBelow(rngFor(state.seed, state.tag, state.turn + 1, "ai"), wild.moves.length);
+  const active = activeOf(state, side);
+  if (!active.moves.length) return { t: "pass" };
+
+  const index = intBelow(rngFor(state.seed, state.tag, state.turn + 1, `ai${side}`), active.moves.length);
   return { t: "fight", moveIndex: index };
 }
 
@@ -469,7 +490,7 @@ export function resolveTurn(
   // the opponent a free move if they fail.
   const ours = actions[0];
   if (ours.t === "ball" || ours.t === "flee") {
-    if (!rules.wild) throw new IllegalAction("not a wild battle");
+    if (!rules.catchable) throw new IllegalAction("there is no running from this one");
 
     if (ours.t === "ball") {
       if (balls <= 0) {
@@ -564,8 +585,8 @@ function settle(turn: Turn, rules: BattleRules): void {
   }
   if (!down.length) return;
 
-  // Experience is for beating wild creatures, never people.
-  if (rules.wild && down.includes(1) && !down.includes(0)) {
+  // Experience is for beating creatures and trainers, never people.
+  if (rules.awardsExp && down.includes(1) && !down.includes(0)) {
     const loser = active(turn, 1);
     const victor = active(turn, 0);
     const amount = expYield(loser);

@@ -1,5 +1,5 @@
 import { NATURE_IDS } from "./natures";
-import { intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
+import { intBelow, intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
 import { clampIvs, WILD_IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type SpeciesEntry, type StatTable, type WorldConfig } from "./types";
 import { PLACED_VARIANTS } from "./variants";
@@ -42,12 +42,31 @@ export interface Route {
   entry: { x: number; y: number };
 }
 
+/**
+ * Somebody standing on a route who will fight you.
+ *
+ * Stored as species and levels rather than as creatures: an Individual needs a
+ * uid, and uids belong to game state rather than to the world. The engine
+ * materialises the team when the battle actually starts.
+ */
+export interface TrainerSpec {
+  id: string;
+  routeId: string;
+  x: number;
+  y: number;
+  name: string;
+  team: { speciesId: string; level: number }[];
+}
+
 export interface World {
   config: WorldConfig;
   seed: string;
   /** The six starters this world offers, drawn from every starter in the dex. */
   starters: string[];
   routes: Map<string, Route>;
+  /** Who is standing where, by route. Derived from the seed like everything
+   * else, so two players on one seed meet the same people. */
+  trainers: Map<string, TrainerSpec[]>;
   /**
    * Which encounter slots hold something unusual: "routeId:slot" -> variantId.
    *
@@ -250,7 +269,89 @@ export function generateWorld(
     }
   }
 
-  return { config, seed, starters, routes, census };
+  const trainers = new Map<string, TrainerSpec[]>();
+  for (const route of routes.values()) {
+    const here = buildTrainers(seed, route, allSpecies, config.rings);
+    if (here.length) trainers.set(route.id, here);
+  }
+
+  return { config, seed, starters, routes, census, trainers };
+}
+
+/**
+ * How strong things are at this distance from the hub.
+ *
+ * Ring 1 has to sit *below* the level 5 starter, or the first patch of grass
+ * outside the hub is unwinnable and the game opens by killing you. Each ring
+ * out is worth another eight levels, which puts the outermost in the forties.
+ */
+export function levelForRing(ring: number): number {
+  return 3 + (ring - 1) * 8;
+}
+
+/** Names for the people standing on routes. Deliberately plain: a trainer is
+ * furniture with a team, and inventing lore for each one is a different job. */
+const TRAINER_NAMES = [
+  "Alder", "Briony", "Cass", "Dov", "Esme", "Fen", "Greta", "Hal",
+  "Ida", "Jem", "Kit", "Lore", "Mira", "Nils", "Orla", "Pike",
+  "Quill", "Rune", "Sable", "Tor", "Uma", "Vero", "Wren", "Zosia",
+];
+
+/**
+ * Who stands on a route, and what they bring.
+ *
+ * Placed on the path rather than in the grass, so they are visible and
+ * avoidable: walking into one starts a fight, walking around one does not.
+ * Their teams are drawn from the same encounter table the route uses, a couple
+ * of levels above the wild creatures, which makes a trainer the reason to
+ * come back to a route rather than a wall across it.
+ */
+function buildTrainers(seed: string, route: Route, allSpecies: readonly SpeciesEntry[], rings: number): TrainerSpec[] {
+  if (route.ring < 1) return [];
+
+  const rng = rngFor(seed, "trainers", route.id);
+  const table = encounterTable(allSpecies, route.biome, route.ring, rings);
+  if (!table.length) return [];
+
+  const midY = Math.floor(route.height / 2);
+  const midX = Math.floor(route.width / 2);
+
+  // Path tiles only, and never the two entry tiles: arriving on a route
+  // already inside a battle reads as a bug rather than an ambush.
+  const spots: { x: number; y: number }[] = [];
+  for (let x = 4; x < route.width - 4; x++) {
+    if (x !== midX) spots.push({ x, y: midY });
+  }
+  for (let y = 3; y < route.height - 3; y++) {
+    if (y !== midY) spots.push({ x: midX, y });
+  }
+
+  const chosen = shuffle(rng, spots).slice(0, 1 + intBelow(rng, 3));
+
+  return chosen.map((spot, index) => {
+    const size = 1 + intBelow(rng, Math.min(3, route.ring));
+    const team = [];
+    for (let member = 0; member < size; member++) {
+      team.push({
+        speciesId: weighted(rng, table, (row) => row.weight).speciesId,
+        level: Math.max(2, levelForRing(route.ring) + 2 + intBetween(rng, -1, 1)),
+      });
+    }
+    return {
+      id: `${route.id}:${index}`,
+      routeId: route.id,
+      x: spot.x,
+      y: spot.y,
+      name: TRAINER_NAMES[intBelow(rng, TRAINER_NAMES.length)],
+      team,
+    };
+  });
+}
+
+/** Whoever is standing on this tile, if anyone. */
+export function trainerAt(world: World, routeId: string, x: number, y: number): TrainerSpec | null {
+  const here = world.trainers.get(routeId);
+  return here?.find((trainer) => trainer.x === x && trainer.y === y) ?? null;
 }
 
 /** Does a step in grass start an encounter? Derived from the step counter, so
@@ -279,11 +380,7 @@ export function wildAt(
   const table = encounterTable(allSpecies, target.biome, target.ring, world.config.rings);
   const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
 
-  // Ring 1 has to sit *below* the level 5 starter, or the first patch of grass
-  // outside the hub is unwinnable and the game opens by killing you. Ring 1
-  // lands on 1-5, and each ring out is worth another eight levels, which puts
-  // the outermost ring in the low forties.
-  const level = Math.max(2, 3 + (target.ring - 1) * 8 + intBetween(rng, -2, 2));
+  const level = Math.max(2, levelForRing(target.ring) + intBetween(rng, -2, 2));
   const exp = level * level * level;
   const ivs = rollWildIvs(rng);
   const natureId = pickNature(rng);

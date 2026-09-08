@@ -3,7 +3,8 @@ import {
   maxHp,
   resolveTurn,
   startBattle,
-  wildAction,
+  aiAction,
+  TRAINER_RULES,
   WILD_RULES,
   type BattleAction,
   type BattleState,
@@ -28,6 +29,7 @@ import {
   TILE_BLOCK,
   TILE_GRASS,
   TILE_PATH,
+  trainerAt,
   wildAt,
   type World,
 } from "./world";
@@ -80,7 +82,8 @@ export type Notice =
   | { t: "fled" }
   | { t: "whiteout" }
   | { t: "found"; item: BreedingItem }
-  | { t: "hatched"; boxed: boolean };
+  | { t: "hatched"; boxed: boolean }
+  | { t: "beatTrainer"; name: string; balls: number };
 
 export interface GameState {
   tick: number;
@@ -109,7 +112,17 @@ export interface GameState {
   /** Routes stepped on, sorted. Drives the one-off item finds, and is the
    * beginning of an exploration record. */
   visited: string[];
+  /** Trainers already beaten, sorted. They stay beaten. */
+  beaten: string[];
 }
+
+/** What a trainer hands over. There is no money yet, and balls are the one
+ * thing the game already spends, so they are the reward that fits. */
+const TRAINER_REWARD_BALLS = 5;
+
+/** A battle against somebody standing on a route, rather than against the
+ * grass. Encoded in the tag so nothing extra has to live in state. */
+const TRAINER_TAG = "trainer:";
 
 /**
  * Reaching further out is what pays for the breeding items.
@@ -161,7 +174,12 @@ export function initialState(world: World): GameState {
     daycare: emptyDaycare(),
     items: [],
     visited: [HUB_ID],
+    beaten: [],
   };
+}
+
+function trainerIdOf(battle: BattleState | null): string | null {
+  return battle?.tag.startsWith(TRAINER_TAG) ? battle.tag.slice(TRAINER_TAG.length) : null;
 }
 
 function withMoves(individual: Individual): Individual {
@@ -457,6 +475,44 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   }
 
   const moved: GameState = walked({ ...state, tick: state.tick + 1, x: nx, y: ny, notice: null });
+
+  // Somebody standing in the way. They are on the path and therefore visible,
+  // so walking into one is a choice rather than an ambush.
+  const trainer = trainerAt(world, state.route, nx, ny);
+  if (trainer && !state.beaten.includes(trainer.id)) {
+    const lead = state.party.findIndex((creature) => !isFainted(creature));
+    if (lead >= 0) {
+      let uid = state.nextUid;
+      const team = trainer.team.map((member) => {
+        const built = withMoves({
+          uid: uid++,
+          speciesId: member.speciesId,
+          level: member.level,
+          exp: member.level * member.level * member.level,
+          ivs: { hp: 8, atk: 8, def: 8, spa: 8, spd: 8, spe: 8 },
+          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+          natureId: NATURE_IDS[member.level % NATURE_IDS.length],
+          variantId: "normal",
+          hp: 0,
+          status: null,
+          sleepTurns: 0,
+          moves: [],
+          nickname: null,
+          parents: null,
+        });
+        return atFullHealth(built);
+      });
+
+      return {
+        ...moved,
+        phase: "battle",
+        battle: startBattle(world.seed, `${TRAINER_TAG}${trainer.id}`, state.party, team, lead),
+        nextUid: uid,
+        notice: null,
+      };
+    }
+  }
+
   if (tile !== TILE_GRASS || route.ring < 1) return moved;
 
   const stepped = (state.steps[state.route] ?? 0) + 1;
@@ -491,7 +547,8 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
   try {
     // Side 1 is the wild creature; its move is derived from the battle's own
     // seed, so it is as unrerollable as the encounter that produced it.
-    result = resolveTurn(state.battle, [action, wildAction(state.battle)], WILD_RULES, state.balls);
+    const rules = trainerIdOf(state.battle) ? TRAINER_RULES : WILD_RULES;
+    result = resolveTurn(state.battle, [action, aiAction(state.battle)], rules, state.balls);
   } catch (error) {
     throw new IllegalInput(error instanceof Error ? error.message : "bad battle action");
   }
@@ -547,10 +604,21 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     case "draw":
       return whiteout(world, base);
 
-    case "win":
-      return outcome.side === 1 || wipedOut
-        ? whiteout(world, base)
-        : { ...base, phase: "battleEnd", notice: { t: "won" } };
+    case "win": {
+      if (outcome.side === 1 || wipedOut) return whiteout(world, base);
+
+      const trainerId = trainerIdOf(result.battle);
+      if (!trainerId) return { ...base, phase: "battleEnd", notice: { t: "won" } };
+
+      const trainer = [...world.trainers.values()].flat().find((who) => who.id === trainerId);
+      return {
+        ...base,
+        phase: "battleEnd",
+        beaten: [...base.beaten, trainerId].sort(),
+        balls: base.balls + TRAINER_REWARD_BALLS,
+        notice: { t: "beatTrainer", name: trainer?.name ?? "They", balls: TRAINER_REWARD_BALLS },
+      };
+    }
   }
 }
 
@@ -668,6 +736,7 @@ export function stateHash(state: GameState): string {
     daycare,
     state.items.join(","),
     state.visited.join(","),
+    state.beaten.join(","),
   ].join(";");
 
   return hash32(canonical).toString(16).padStart(8, "0");

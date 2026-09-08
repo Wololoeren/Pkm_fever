@@ -46,6 +46,41 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       }
     }
 
+    // Trainers, drawn before the player so walking onto one puts you in front.
+    // A beaten trainer stays on the map but greys out: the route should not
+    // silently change shape once you have cleared it.
+    for (const trainer of world.trainers.get(route.id) ?? []) {
+      const beaten = state.beaten.includes(trainer.id);
+      const tx = trainer.x * TILE_PX + TILE_PX / 2;
+      const ty = trainer.y * TILE_PX + TILE_PX / 2;
+
+      ctx.globalAlpha = beaten ? 0.35 : 1;
+      ctx.beginPath();
+      ctx.ellipse(tx, ty + TILE_PX * 0.34, TILE_PX * 0.3, TILE_PX * 0.12, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.roundRect(tx - 7, ty - 3, 14, 13, 3);
+      ctx.fillStyle = beaten ? "#6b7280" : "#4a6fb5";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#1b2330";
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(tx, ty - 7, 7, 0, Math.PI * 2);
+      ctx.fillStyle = "#e8c9a0";
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(tx, ty - 9, 7, Math.PI, Math.PI * 2);
+      ctx.fillStyle = beaten ? "#4b5563" : "#2f3b57";
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     // The player: a small figure rather than a dot, so facing reads at a
     // glance even at this size.
     const px = state.x * TILE_PX + TILE_PX / 2;
