@@ -1,0 +1,249 @@
+import { describe, expect, it } from "vitest";
+import {
+  breed,
+  compatible,
+  generationsToMax,
+  STEPS_PER_EGG,
+  type BreedingItem,
+  type DaycareState,
+} from "@/engine/breeding";
+import { applyInput, initialState } from "@/engine/engine";
+import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
+import { intBetween, rngFor } from "@/engine/rng";
+import { STAT_IDS, type Individual, type StatTable } from "@/engine/types";
+import { creature, testWorld } from "./helpers";
+
+/**
+ * Breeding, and the hole it was built to fill.
+ *
+ * Wild IVs cap at 6 on purpose. If inheritance only copied, 6 would be the
+ * permanent ceiling for the whole game and the breeding pillar would do
+ * nothing at all — so the tests that matter most here are the ones about
+ * climbing past the parents.
+ */
+
+const SEED = "BREED1";
+
+/** A daycare holding a pair, ready to walk. */
+function pairing(first: Individual, second: Individual, steps: number): DaycareState {
+  return { slots: [first, second], steps, eggIndex: 0, eggReady: false, applied: [] };
+}
+
+/** A wild-strength creature: IVs somewhere in 0..6, like anything caught. */
+function wild(speciesId: string, uid: number, salt: string): Individual {
+  const rng = rngFor(salt, uid);
+  const ivs = {} as StatTable;
+  for (const stat of STAT_IDS) ivs[stat] = intBetween(rng, 0, WILD_IV_MAX);
+  return { ...creature(speciesId, { uid, level: 20 }), ivs };
+}
+
+/**
+ * Breeds a line forward, always keeping the best child as one parent.
+ *
+ * This is what a player actually does, and it is the only way to see whether
+ * the curve arrives anywhere.
+ */
+function breedForward(
+  first: Individual,
+  second: Individual,
+  generations: number,
+  applied: BreedingItem[] = [],
+): Individual {
+  let mother = first;
+  let father = second;
+  let uid = 1000;
+
+  for (let generation = 0; generation < generations; generation++) {
+    // A few eggs per generation, as anybody breeding would take, and the best
+    // two carry the line forward — which is what a player actually does.
+    const brood = [mother, father];
+    for (let egg = 0; egg < 5; egg++) {
+      brood.push({ ...breed(SEED, mother, father, generation * 5 + egg, applied), uid: uid++, level: 20 });
+    }
+    brood.sort((a, b) => ivTotal(b.ivs) - ivTotal(a.ivs));
+    [mother, father] = brood;
+  }
+
+  return mother;
+}
+
+describe("the ceiling", () => {
+  it("BR1: a child can exceed both its parents — the whole point", () => {
+    // Without the mutation this is impossible by construction, and the wild
+    // ceiling of 6 would be the game's ceiling forever.
+    const mother = wild("bulbasaur", 1, "m");
+    const father = wild("bulbasaur", 2, "f");
+
+    let exceeded = false;
+    for (let egg = 0; egg < 40 && !exceeded; egg++) {
+      const child = breed(SEED, mother, father, egg, []);
+      exceeded = STAT_IDS.some(
+        (stat) => child.ivs[stat] > Math.max(mother.ivs[stat], father.ivs[stat]),
+      );
+    }
+    expect(exceeded).toBe(true);
+  });
+
+  it("BR2: a line bred from two wild catches reaches perfect stats", () => {
+    const mother = wild("bulbasaur", 1, "m");
+    const father = wild("bulbasaur", 2, "f");
+    expect(ivTotal(mother.ivs)).toBeLessThanOrEqual(WILD_IV_MAX * STAT_IDS.length);
+
+    const descendant = breedForward(mother, father, 20);
+    expect(ivTotal(descendant.ivs)).toBeGreaterThan(ivTotal(mother.ivs));
+    expect(STAT_IDS.some((stat) => descendant.ivs[stat] === IV_MAX)).toBe(true);
+  });
+
+  it("BR3: no IV ever escapes the legal range", () => {
+    const mother = { ...wild("bulbasaur", 1, "m"), ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 } };
+    const father = { ...mother, uid: 2 };
+
+    for (let egg = 0; egg < 30; egg++) {
+      const child = breed(SEED, mother, father, egg, ["catalyst"]);
+      for (const stat of STAT_IDS) {
+        expect(child.ivs[stat]).toBeGreaterThanOrEqual(0);
+        expect(child.ivs[stat]).toBeLessThanOrEqual(IV_MAX);
+      }
+    }
+  });
+
+  it("BR4: the catalyst gets there faster than going without", () => {
+    const mother = wild("bulbasaur", 1, "m");
+    const father = wild("bulbasaur", 2, "f");
+
+    const plain = breedForward(mother, father, 6);
+    const boosted = breedForward(mother, father, 6, ["catalyst"]);
+    expect(ivTotal(boosted.ivs)).toBeGreaterThan(ivTotal(plain.ivs));
+  });
+
+  it("BR5: the climb is a project, not an afternoon or a career", () => {
+    expect(generationsToMax()).toBeGreaterThanOrEqual(15);
+    expect(generationsToMax()).toBeLessThanOrEqual(40);
+    expect(generationsToMax(["catalyst"])).toBeLessThan(generationsToMax());
+    expect(generationsToMax(["heirloom"])).toBeLessThan(generationsToMax());
+  });
+});
+
+describe("what comes out", () => {
+  it("BR6: breeding is deterministic in the parents and the egg number", () => {
+    const mother = wild("bulbasaur", 1, "m");
+    const father = wild("bulbasaur", 2, "f");
+    expect(breed(SEED, mother, father, 7, [])).toEqual(breed(SEED, mother, father, 7, []));
+    expect(breed(SEED, mother, father, 8, [])).not.toEqual(breed(SEED, mother, father, 7, []));
+  });
+
+  it("BR7: the child is the bottom of the line, at level one", () => {
+    const mother = creature("venusaur", { uid: 1 });
+    const father = creature("venusaur", { uid: 2 });
+    const child = breed(SEED, mother, father, 0, []);
+
+    expect(child.speciesId).toBe("bulbasaur");
+    expect(child.level).toBe(1);
+    expect(child.moves.length).toBeGreaterThan(0);
+    expect(child.parents).toEqual([1, 2]);
+  });
+
+  it("BR8: a Ditto lends a slot, not a species", () => {
+    const ditto = creature("ditto", { uid: 1 });
+    const partner = creature("charmander", { uid: 2 });
+    expect(breed(SEED, ditto, partner, 0, []).speciesId).toBe("charmander");
+    expect(breed(SEED, partner, ditto, 0, []).speciesId).toBe("charmander");
+  });
+
+  it("BR9: nothing bred is ever a variant, so the census stays exact", () => {
+    // A shiny parent must not be able to mint more shinies — the world holds
+    // exactly one, placed when it was made, and breeding may not forge them.
+    const mother = creature("bulbasaur", { uid: 1, variantId: "shiny" });
+    const father = creature("bulbasaur", { uid: 2, variantId: "ember" });
+
+    for (let egg = 0; egg < 20; egg++) {
+      expect(breed(SEED, mother, father, egg, []).variantId).toBe("normal");
+    }
+  });
+
+  it("BR10: the talisman fixes the nature to the first parent's", () => {
+    const mother = creature("bulbasaur", { uid: 1, natureId: "adamant" });
+    const father = creature("bulbasaur", { uid: 2, natureId: "timid" });
+
+    for (let egg = 0; egg < 12; egg++) {
+      expect(breed(SEED, mother, father, egg, ["talisman"]).natureId).toBe("adamant");
+    }
+  });
+});
+
+describe("who can breed with whom", () => {
+  it("BR11: shared egg groups, and Ditto with anything", () => {
+    expect(compatible(creature("bulbasaur", { uid: 1 }), creature("oddish", { uid: 2 }))).toBe(true);
+    expect(compatible(creature("ditto", { uid: 1 }), creature("bulbasaur", { uid: 2 }))).toBe(true);
+    // Two Dittos have nothing to work from.
+    expect(compatible(creature("ditto", { uid: 1 }), creature("ditto", { uid: 2 }))).toBe(false);
+    // Nothing breeds with itself.
+    const one = creature("bulbasaur", { uid: 1 });
+    expect(compatible(one, one)).toBe(false);
+  });
+
+  it("BR12: legendaries are in the group that cannot breed", () => {
+    expect(compatible(creature("mewtwo", { uid: 1 }), creature("ditto", { uid: 2 }))).toBe(false);
+  });
+});
+
+describe("the daycare", () => {
+  it("BR13: it is a place in the hub, not a menu you carry", () => {
+    const world = testWorld("PKMFEVER1");
+    let state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    // In the hub, depositing your only creature is refused for a different
+    // reason: you would have nothing left to walk with.
+    expect(() => applyInput(world, state, { t: "deposit", from: "party", index: 0 })).toThrow();
+
+    // Walk out, and the daycare is no longer reachable at all.
+    for (let i = 0; i < 12; i++) {
+      try {
+        state = applyInput(world, state, { t: "move", dir: "e" });
+      } catch {
+        break;
+      }
+    }
+    expect(state.route).not.toBe("hub-0");
+    expect(() => applyInput(world, state, { t: "deposit", from: "party", index: 0 })).toThrow();
+  });
+
+  it("BR14: an egg costs footsteps, and only from a compatible pair", () => {
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    const pair = {
+      ...base,
+      party: [creature("machop", { uid: 90 }), creature("bulbasaur", { uid: 91 })],
+      daycare: pairing(creature("bulbasaur", { uid: 92 }), creature("oddish", { uid: 93 }), STEPS_PER_EGG - 1),
+    };
+
+    expect(pair.daycare.eggReady).toBe(false);
+    const walked = applyInput(world, pair, { t: "move", dir: "n" });
+    expect(walked.daycare.eggReady).toBe(true);
+
+    // Collecting is only possible back in the hub, and yields a level one.
+    const collected = applyInput(world, { ...walked, route: "hub-0" }, { t: "collectEgg" });
+    const hatchling = [...collected.party, ...collected.box].at(-1)!;
+    expect(hatchling.level).toBe(1);
+    expect(hatchling.speciesId).toBe("bulbasaur");
+    expect(collected.daycare.eggReady).toBe(false);
+    expect(collected.daycare.eggIndex).toBe(1);
+  });
+
+  it("BR15: an incompatible pair never produces anything", () => {
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    let state = {
+      ...base,
+      daycare: pairing(creature("mewtwo", { uid: 92 }), creature("ditto", { uid: 93 }), 0),
+    };
+
+    for (let i = 0; i < 40; i++) {
+      state = applyInput(world, state, { t: "move", dir: i % 2 === 0 ? "n" : "s" });
+    }
+    expect(state.daycare.steps).toBe(0);
+    expect(state.daycare.eggReady).toBe(false);
+  });
+});
