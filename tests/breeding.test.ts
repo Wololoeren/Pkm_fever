@@ -3,6 +3,8 @@ import {
   breed,
   breedingRefusal,
   compatible,
+  chromaOdds,
+  climbChance,
   generationsToMax,
   inheritChroma,
   inheritTier,
@@ -18,7 +20,7 @@ import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
 import { STAT_IDS, type Individual, type StatTable } from "@/engine/types";
 import { wildAt } from "@/engine/world";
-import { TIER_COUNT, TOP_TIER, variant } from "@/engine/variants";
+import { CHROMA_IDS, TIER_COUNT, TOP_TIER, variant } from "@/engine/variants";
 import { creature, standInside, testWorld } from "./helpers";
 
 /**
@@ -504,5 +506,103 @@ describe("colour", () => {
     expect(share("none")).toBeLessThan(670);
     expect(share("onyx")).toBeGreaterThan(150);
     expect(share("teal")).toBeGreaterThan(130);
+  });
+});
+
+describe("levels feed the climb", () => {
+  it("BR28: a twentieth of a percent per level, on top of the base one percent", () => {
+    // Basis points, because 0.05% is not a whole number of per mille and the
+    // rest of the pipeline is integers on purpose.
+    expect(climbChance([], 0)).toBe(100);
+    expect(climbChance([], 100)).toBe(600);
+    expect(climbChance([], 200)).toBe(1100);
+
+    // The prism raises the floor, not the slope.
+    expect(climbChance(["prism"], 0)).toBe(500);
+    expect(climbChance(["prism"], 200)).toBe(1500);
+  });
+
+  it("BR29: and it cannot run past certainty", () => {
+    expect(climbChance(["prism"], 100_000)).toBe(10_000);
+    expect(climbChance([], -50)).toBe(100);
+  });
+
+  it("BR30: well-raised parents really do climb more often", () => {
+    const roll = (levelSum: number, count = 40000) => {
+      let climbed = 0;
+      for (let i = 0; i < count; i++) {
+        if (inheritTier(rngFor("levels", levelSum, i), 0, 0, [], levelSum) > 0) climbed++;
+      }
+      return (climbed / count) * 10_000;
+    };
+
+    // A pair of level ones against a pair of hundreds: 1.1% against 11%.
+    expect(roll(2)).toBeGreaterThan(50);
+    expect(roll(2)).toBeLessThan(200);
+    expect(roll(200)).toBeGreaterThan(950);
+    expect(roll(200)).toBeLessThan(1250);
+  });
+
+  it("BR31: the matrix the daycare shows agrees with the roll it describes", () => {
+    // The panel quoting odds the engine does not use would be worse than
+    // quoting none, so this is checked at the levels a real pair would have.
+    for (const levelSum of [0, 60, 200]) {
+      const predicted = tierMatrix(0, 0, [], levelSum);
+
+      const seen = new Array(TIER_COUNT).fill(0);
+      const count = 40000;
+      for (let i = 0; i < count; i++) {
+        seen[inheritTier(rngFor("agree", levelSum, i), 0, 0, [], levelSum)]++;
+      }
+
+      for (let tier = 0; tier < TIER_COUNT; tier++) {
+        const measured = (seen[tier] / count) * 1000;
+        expect(Math.abs(measured - predicted[tier]), `tier ${tier} at ${levelSum}`).toBeLessThan(12);
+      }
+    }
+  });
+});
+
+describe("the odds on a colour", () => {
+  const measure = (a: string | null, b: string | null, applied: BreedingItem[] = [], count = 30000) => {
+    const seen = new Map<string, number>();
+    for (let i = 0; i < count; i++) {
+      const got = inheritChroma(rngFor("odds", a ?? "-", b ?? "-", i), a, b, applied) ?? "none";
+      seen.set(got, (seen.get(got) ?? 0) + 1);
+    }
+    return (id: string | null) => ((seen.get(id ?? "none") ?? 0) / count) * 1000;
+  };
+
+  const predicted = (rows: { id: string | null; share: number }[]) => (id: string | null) =>
+    rows.find((row) => row.id === id)?.share ?? 0;
+
+  it("BR32: computed odds match rolled ones, for every shape of pairing", () => {
+    const cases: [string | null, string | null, BreedingItem[]][] = [
+      [null, null, []],
+      ["tide", null, []],
+      ["tide", "tide", []],
+      ["tide", "ember", []],
+      [null, null, ["lens-onyx"]],
+      ["tide", "ember", ["lens-onyx", "lens-teal"]],
+    ];
+
+    for (const [a, b, applied] of cases) {
+      const rolled = measure(a, b, applied);
+      const shown = predicted(chromaOdds(a, b, applied));
+
+      for (const id of [null, ...CHROMA_IDS]) {
+        expect(
+          Math.abs(rolled(id) - shown(id)),
+          `${a}/${b} ${applied.join("+")} -> ${id}`,
+        ).toBeLessThan(20);
+      }
+    }
+  });
+
+  it("BR33: and they always add up to one", () => {
+    for (const applied of [[], ["lens-onyx"], ["lens-onyx", "lens-teal", "lens-ember"]]) {
+      const total = chromaOdds("tide", "ember", applied).reduce((sum, row) => sum + row.share, 0);
+      expect(total).toBeCloseTo(1000, 6);
+    }
   });
 });

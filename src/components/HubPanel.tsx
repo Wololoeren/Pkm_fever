@@ -4,6 +4,8 @@ import {
   BREEDING_ITEMS,
   breedingRefusal,
   generationsToMax,
+  chromaOdds,
+  climbChance,
   tierMatrix,
   type DaycareState,
   STEPS_PER_EGG,
@@ -14,7 +16,8 @@ import { depositRefusal, partyOrderRefusal, type GameState, type Input } from "@
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
-import { variant } from "@/engine/variants";
+import { chroma, variant } from "@/engine/variants";
+import { swatchFor } from "@/render/palette";
 import { hasItem, item as itemSpec } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 import { ReleaseButton } from "./ReleaseButton";
@@ -46,7 +49,13 @@ function ShineMatrix({
 }) {
   const first = pair[0] ? variant(pair[0].variantId).tier : 0;
   const second = pair[1] ? variant(pair[1].variantId).tier : 0;
-  const odds = tierMatrix(first, second, applied);
+  const levelSum = (pair[0]?.level ?? 0) + (pair[1]?.level ?? 0);
+  const odds = tierMatrix(first, second, applied, levelSum);
+  const colours = chromaOdds(
+    pair[0] ? variant(pair[0].variantId).chromaId : null,
+    pair[1] ? variant(pair[1].variantId).chromaId : null,
+    applied,
+  );
 
   return (
     <div className="ladder">
@@ -60,6 +69,27 @@ function ShineMatrix({
           <div key={tier} className={`rung${share > 0 ? " lit" : ""}`} title={`${TIER_LABELS[tier]}`}>
             <span className="rungName">{TIER_LABELS[tier]}</span>
             <span className="rungOdds">{formatShare(share)}</span>
+          </div>
+        ))}
+      </div>
+
+      <p className="muted ladderNote">
+        A climb is worth {(climbChance(applied, levelSum) / 100).toFixed(2)}% here — one percent to
+        begin with, and a twentieth of a percent for every level across the pair
+        {levelSum ? ` (${levelSum} of them)` : ""}. Raising them is worth something too.
+      </p>
+
+      <h4 className="ladderSub">Colour</h4>
+      <div className="chromaRow">
+        {colours.map((row) => (
+          <div key={row.id ?? "none"} className="rung lit">
+            <span
+              className="rungName"
+              style={row.id ? { color: swatchFor(variant(row.id)) } : undefined}
+            >
+              {row.id ? chroma(row.id).name : "None"}
+            </span>
+            <span className="rungOdds">{formatShare(row.share)}</span>
           </div>
         ))}
       </div>

@@ -486,6 +486,18 @@ button.small { padding: 5px 9px; font-size: 0.78rem; white-space: nowrap; }
   opacity: 0.4;
 }
 .rung.lit { opacity: 1; }
+.ladderNote { font-size: 0.76rem; margin-top: 6px; line-height: 1.5; }
+.ladderSub { margin: 10px 0 0; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+/* However many colours are in play, which depends on the pair and the lenses
+   in the drawer. */
+.chromaRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 4px;
+  margin-top: 6px;
+}
+
 .rungName { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .rungOdds { font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 

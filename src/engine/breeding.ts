@@ -198,8 +198,23 @@ export function breed(
  * under every pairing rather than a strategy, and it means no lineage is
  * permanently locked out of the ladder.
  */
-const CLIMB_CHANCE = 10;
-const CLIMB_CHANCE_WITH_PRISM = 50;
+const CLIMB_CHANCE = 100;
+const CLIMB_CHANCE_WITH_PRISM = 500;
+
+/**
+ * What every level between the two parents adds to the climb.
+ *
+ * Five basis points — a twentieth of a percent — for each level on each
+ * parent, so a pair of level fifties is worth another five percent and a pair
+ * of hundreds another ten. It is the one thing in breeding that rewards work
+ * you did somewhere else entirely: a lineage raised as well as it was bred
+ * climbs faster than one merely bred.
+ *
+ * Everything here is basis points rather than per mille, because 0.05% is not
+ * a whole number of per mille and the whole pipeline is integers on purpose.
+ */
+const LEVEL_BASIS_POINTS = 5;
+const BASIS = 10_000;
 
 /** Given a climb, how often it climbs again. */
 const CASCADE = 0.1;
@@ -222,7 +237,8 @@ function inheritAppearance(
 ): string {
   const a = variant(first.variantId);
   const b = variant(second.variantId);
-  return appearanceId(inheritTier(rng, a.tier, b.tier, applied), inheritChroma(rng, a.chromaId, b.chromaId, applied));
+  const tier = inheritTier(rng, a.tier, b.tier, applied, first.level + second.level);
+  return appearanceId(tier, inheritChroma(rng, a.chromaId, b.chromaId, applied));
 }
 
 /**
@@ -234,24 +250,39 @@ function inheritAppearance(
  * symmetric rather than quietly rounding every pairing downward.
  *
  * On top of that sits the climb, which is the only way a lineage gains ground
- * it was not given.
+ * it was not given — and how likely it is depends on how well the parents were
+ * raised as well as on what they were.
  */
 export function inheritTier(
   rng: Rng,
   first: number,
   second: number,
   applied: readonly BreedingItem[] = [],
+  /** The two parents' levels added together. */
+  levelSum = 0,
 ): number {
   const sum = first + second;
   let tier = sum % 2 === 0 ? sum / 2 : (sum - 1) / 2 + (rng() < 0.5 ? 0 : 1);
 
-  const chance = applied.includes("prism") ? CLIMB_CHANCE_WITH_PRISM : CLIMB_CHANCE;
-  if (rng() * 1000 < chance) {
+  const chance = climbChance(applied, levelSum);
+  if (rng() * BASIS < chance) {
     tier += 1;
     while (tier < TOP_TIER && rng() < CASCADE) tier += 1;
   }
 
   return Math.min(TOP_TIER, tier);
+}
+
+/**
+ * How likely a child is to climb a rung, in basis points.
+ *
+ * One predicate, two callers, as everywhere else: the panel showing the odds
+ * and the roll that decides them are the same arithmetic, so the daycare can
+ * never quote a number the engine does not use.
+ */
+export function climbChance(applied: readonly BreedingItem[], levelSum: number): number {
+  const base = applied.includes("prism") ? CLIMB_CHANCE_WITH_PRISM : CLIMB_CHANCE;
+  return Math.min(BASIS, base + Math.max(0, levelSum) * LEVEL_BASIS_POINTS);
 }
 
 /**
@@ -303,10 +334,15 @@ export function inheritChroma(
  * beside them, because a matrix that can disagree with the code is worse than
  * no matrix. Shown in the daycare, and asserted in a test.
  */
-export function tierMatrix(first: number, second: number, applied: readonly BreedingItem[] = []): number[] {
+export function tierMatrix(
+  first: number,
+  second: number,
+  applied: readonly BreedingItem[] = [],
+  levelSum = 0,
+): number[] {
   const odds = new Array<number>(TIER_COUNT).fill(0);
   const sum = first + second;
-  const climb = applied.includes("prism") ? CLIMB_CHANCE_WITH_PRISM : CLIMB_CHANCE;
+  const climb = climbChance(applied, levelSum);
 
   const starts = sum % 2 === 0 ? [[sum / 2, 1]] : [[(sum - 1) / 2, 0.5], [(sum + 1) / 2, 0.5]];
 
@@ -320,11 +356,11 @@ export function tierMatrix(first: number, second: number, applied: readonly Bree
     }
 
     // Not climbing at all.
-    odds[start] += share * (1 - climb / 1000) * 1000;
+    odds[start] += share * (1 - climb / BASIS) * 1000;
 
     // Climbing, then cascading: each further rung is a tenth as likely, and
     // anything that would pass the top rung stops there.
-    let mass = share * (climb / 1000);
+    let mass = share * (climb / BASIS);
     for (let step = 1; start + step <= TOP_TIER; step++) {
       const lands = start + step === TOP_TIER ? mass : mass * (1 - CASCADE);
       odds[start + step] += lands * 1000;
@@ -333,6 +369,54 @@ export function tierMatrix(first: number, second: number, applied: readonly Bree
   }
 
   return odds;
+}
+
+/**
+ * What colour a pairing is likely to produce, as per-mille odds.
+ *
+ * Computed rather than sampled, and from the same rules `inheritChroma` rolls
+ * against. The lenses are the fiddly part: they are checked in a fixed order
+ * and the first to land wins, so lens *i* only gets its chance if none of the
+ * ones before it fired — which is a geometric series, not a sum.
+ */
+export function chromaOdds(
+  first: string | null,
+  second: string | null,
+  applied: readonly BreedingItem[] = [],
+): { id: string | null; share: number }[] {
+  const share = new Map<string | null, number>();
+  const add = (id: string | null, amount: number) =>
+    share.set(id, (share.get(id) ?? 0) + amount);
+
+  // What the parents alone would give.
+  if (first && second && first === second) {
+    add(first, 1);
+  } else if (first && second) {
+    add(first, 0.4);
+    add(second, 0.4);
+    for (const id of CHROMA_IDS) add(id, 0.2 / CHROMA_IDS.length);
+  } else if (first || second) {
+    add(first ?? second, 0.5);
+    add(null, 0.5);
+  } else {
+    add(null, 1);
+  }
+
+  const lenses = [...applied].sort().map(lensChroma).filter((id): id is string => id !== null);
+  if (lenses.length) {
+    // Everything above survives only if no lens fires at all.
+    const survives = (1 - LENS_CHANCE) ** lenses.length;
+    for (const [id, amount] of [...share]) share.set(id, amount * survives);
+
+    lenses.forEach((id, index) => {
+      add(id, (1 - LENS_CHANCE) ** index * LENS_CHANCE);
+    });
+  }
+
+  return [...share]
+    .map(([id, amount]) => ({ id, share: amount * 1000 }))
+    .filter((row) => row.share > 0.05)
+    .sort((a, b) => b.share - a.share || String(a.id).localeCompare(String(b.id)));
 }
 
 /**
