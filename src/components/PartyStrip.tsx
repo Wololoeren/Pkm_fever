@@ -1,6 +1,7 @@
 "use client";
 
 import { maxHp } from "@/engine/battle";
+import { expForLevel, MAX_LEVEL } from "@/engine/progression";
 import { species as speciesById } from "@/engine/dex";
 import { computeStats } from "@/engine/stats";
 import { GENDER_NAMES, GENDER_SYMBOLS } from "@/engine/gender";
@@ -15,6 +16,34 @@ export function hpClass(current: number, max: number): string {
   if (share <= 0.2) return "hp low";
   if (share <= 0.5) return "hp mid";
   return "hp";
+}
+
+/**
+ * How far into the level it is.
+ *
+ * Thin on purpose, and above the health bar rather than beside it: health is
+ * the number you read in a battle and experience is the one you read between
+ * them, so they should not compete. At the cap it is simply full — a bar that
+ * empties itself at level 100 would be reporting a countdown to nothing.
+ */
+export function ExpBar({ creature }: { creature: Individual }) {
+  const floor = expForLevel(creature.level);
+  const ceiling = creature.level >= MAX_LEVEL ? floor : expForLevel(creature.level + 1);
+  const span = ceiling - floor;
+  const share = span > 0 ? Math.max(0, Math.min(1, (creature.exp - floor) / span)) : 1;
+
+  return (
+    <div
+      className="expTrack"
+      title={
+        creature.level >= MAX_LEVEL
+          ? "At the level cap"
+          : `${ceiling - creature.exp} experience to level ${creature.level + 1}`
+      }
+    >
+      <div className="expFill" style={{ width: `${share * 100}%` }} />
+    </div>
+  );
 }
 
 export function HpBar({ creature }: { creature: Individual }) {
@@ -114,6 +143,7 @@ export function PartyStrip({
                 </strong>
                 <span className="muted">Lv{creature.level}</span>
               </div>
+              <ExpBar creature={creature} />
               <HpBar creature={creature} />
               <div className="cardFoot">
                 <span className="muted">

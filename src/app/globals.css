@@ -314,6 +314,16 @@ button.card:hover:not(:disabled) { border-color: var(--accent); }
 .card.active { border-color: var(--accent); }
 .card.fainted { opacity: 0.55; }
 .cardBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+/* Thinner than the health bar, and a colour that is not competing with it —
+   experience is the number you read between fights, not during one. */
+.expTrack {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.expFill { height: 100%; background: #5b86d6; }
 .cardTop strong, .plateTop strong { font-size: 0.92rem; }
 
 /* ------------------------------------------------------------------ tags */
@@ -815,6 +825,43 @@ kbd {
 }
 .questFill { height: 100%; background: var(--accent); }
 .questCard button { align-self: flex-start; }
+
+/* What a move does, on hover. Anchored to the button rather than the pointer,
+   so it does not chase the cursor across four of them at once. */
+.moveBtn, .moveRow { position: relative; }
+
+.moveNote {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 270px;
+  max-width: 80vw;
+  padding: 9px 11px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 110ms ease;
+}
+.moveBtn:hover .moveNote,
+.moveBtn:focus-visible .moveNote,
+.moveRow:hover .moveNote,
+.moveRow:focus-visible .moveNote { opacity: 1; }
+
+.moveNoteHead { display: flex; align-items: center; gap: 6px; }
+.moveFacts { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); }
 
 /* --------------------------------------------------------------- inspect */
 

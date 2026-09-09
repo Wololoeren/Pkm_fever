@@ -8,6 +8,7 @@ import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, PartyStrip, VariantTag } from "./PartyStrip";
+import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
 
@@ -146,6 +147,9 @@ export function BattleView({
                   <span className="moveMeta">
                     {entry.type} · {entry.category === "status" ? "status" : `${entry.power} pow`}
                   </span>
+                  {/* The rest of it, including how it lands on whatever is
+                      actually standing there. */}
+                  <MoveNote moveId={moveId} against={speciesById(foe.speciesId).types} />
                 </button>
               );
             })}

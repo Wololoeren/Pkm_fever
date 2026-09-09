@@ -20,6 +20,7 @@ import { typeColor } from "@/render/palette";
 import { GenderMark } from "./PartyStrip";
 import type { World } from "@/engine/world";
 import { InfoDot } from "./InfoDot";
+import { MoveNote } from "./MoveNote";
 import { Sprite } from "./Sprite";
 
 /**
@@ -69,6 +70,7 @@ function MoveRow({
         {entry.accuracy ? ` · ${entry.accuracy}%` : " · never misses"}
       </span>
       {chosen ? <span className="muted">✓</span> : null}
+      <MoveNote moveId={entry.id} />
     </Tag>
   );
 }
