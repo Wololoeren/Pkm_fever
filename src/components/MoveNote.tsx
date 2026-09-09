@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { effectiveness, move as moveById } from "@/engine/dex";
 import { typeColor } from "@/render/palette";
 
@@ -15,7 +16,19 @@ import { typeColor } from "@/render/palette";
  * When there is something across from you it also says how the move lands
  * against it. That is the one fact here the move alone cannot tell you, and
  * the type chart is right there.
+ *
+ * It is placed rather than anchored, and that is not a style choice. The stat
+ * screen's move list is a scroll box, and a scroll box clips what hangs out of
+ * it however high its z-index is — so the note on the top row was cut off
+ * against the ceiling of the list, which no amount of layering could fix. A
+ * fixed note is outside the box entirely; the cost is that the coordinates
+ * have to be measured, which CSS cannot do.
  */
+
+/** Clearance between the note and the thing it belongs to. */
+const GAP = 6;
+/** How close to the window edge it may sit. */
+const MARGIN = 8;
 
 const STAT_NAMES: Record<string, string> = {
   hp: "HP",
@@ -56,9 +69,51 @@ function effectText(quarters: number): string {
 export function MoveNote({ moveId, against }: { moveId: string; against?: readonly string[] }) {
   const entry = moveById(moveId);
   const lands = against && entry.category !== "status" ? effectiveness(entry.type, against) : null;
+  const note = useRef<HTMLSpanElement>(null);
+
+  // Above the row where there is room for it, below where there is not, and
+  // never off the side. Measured when the pointer arrives rather than on every
+  // render: nothing about the note moves until something is hovered, and a
+  // hundred of these recalculating on mount would be a hundred layouts.
+  useEffect(() => {
+    const self = note.current;
+    const anchor = self?.parentElement;
+    if (!self || !anchor) return;
+
+    const place = () => {
+      const box = anchor.getBoundingClientRect();
+      const above = box.top - self.offsetHeight - GAP;
+      self.style.top = `${Math.round(above >= MARGIN ? above : box.bottom + GAP)}px`;
+      self.style.left = `${Math.round(
+        Math.max(MARGIN, Math.min(box.left, window.innerWidth - self.offsetWidth - MARGIN)),
+      )}px`;
+    };
+
+    // Ancestor scrolls are watched only while the note is up, so a list of a
+    // hundred moves is not a hundred scroll listeners.
+    const follow = () => window.addEventListener("scroll", place, true);
+    const drop = () => window.removeEventListener("scroll", place, true);
+    const enter = () => {
+      place();
+      follow();
+    };
+
+    anchor.addEventListener("mouseenter", enter);
+    anchor.addEventListener("focus", enter);
+    anchor.addEventListener("mouseleave", drop);
+    anchor.addEventListener("blur", drop);
+
+    return () => {
+      anchor.removeEventListener("mouseenter", enter);
+      anchor.removeEventListener("focus", enter);
+      anchor.removeEventListener("mouseleave", drop);
+      anchor.removeEventListener("blur", drop);
+      drop();
+    };
+  }, []);
 
   return (
-    <span className="moveNote">
+    <span className="moveNote" ref={note}>
       <span className="moveNoteHead">
         <span className="typePill" style={{ background: typeColor(entry.type) }}>
           {entry.type}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
 import { natureVector } from "@/engine/natures";
@@ -118,6 +119,25 @@ export function Inspect({
 
   const toNext = creature.level < 100 ? expForLevel(creature.level + 1) - creature.exp : 0;
 
+  // The same key that leaves a conversation and skips a cinematic. "Get me out
+  // of this" should not be a different key depending on what you are in.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      if (event.key.toLowerCase() !== "e") return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <div className="cheatBackdrop" role="dialog" aria-label={`${displayName(creature)} details`}>
       <section className="cheatPanel">
@@ -145,7 +165,7 @@ export function Inspect({
             </div>
           </div>
           <button type="button" className="ghost" onClick={onClose}>
-            Close
+            Close <kbd>E</kbd>
           </button>
         </header>
 

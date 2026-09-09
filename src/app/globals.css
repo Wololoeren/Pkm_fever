@@ -858,14 +858,20 @@ kbd {
 .questCard button { align-self: flex-start; }
 
 /* What a move does, on hover. Anchored to the button rather than the pointer,
-   so it does not chase the cursor across four of them at once. */
+   so it does not chase the cursor across four of them at once.
+
+   Fixed, and placed by MoveNote itself. The stat screen's move list is a
+   scroll box, and a scroll box clips whatever hangs out of it no matter how
+   high its z-index — so the note on the top row was cut off against the top of
+   the list. Fixed positioning takes it out of that box; the coordinates are
+   measured on hover, because CSS has no way to ask where the row ended up. */
 .moveBtn, .moveRow { position: relative; }
 
 .moveNote {
-  position: absolute;
-  bottom: calc(100% + 6px);
+  position: fixed;
+  top: 0;
   left: 0;
-  z-index: 40;
+  z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 4px;
