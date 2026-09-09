@@ -108,6 +108,16 @@ export interface Individual {
   nickname: string | null;
   /** Which egg produced it, or null for a wild catch. Breeding reads this. */
   parents: [number, number] | null;
+  /**
+   * Whether this arrived from another player's world.
+   *
+   * A save is a seed and a list of inputs, and replaying it is what proves a
+   * team was earned. A traded creature cannot be derived from *your* seed — it
+   * came from somebody else's — so the trade input carries it whole. The save
+   * still replays; it just no longer proves this one. Marked so a tournament
+   * can decide whether it cares.
+   */
+  traded: boolean;
 }
 
 // ------------------------------------------------------------------ world

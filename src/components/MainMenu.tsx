@@ -13,12 +13,10 @@ export function MainMenu({
   autosave,
   onNew,
   onLoad,
-  onDuel,
 }: {
   autosave: SaveFile | null;
   onNew: (seed: string) => void;
   onLoad: (save: SaveFile) => void;
-  onDuel: () => void;
 }) {
   const [seed, setSeed] = useState(() => randomSeed());
   const [error, setError] = useState<string | null>(null);
@@ -95,24 +93,15 @@ export function MainMenu({
         {error ? <p className="error">{error}</p> : null}
       </div>
 
-      <div className="menuCard">
-        <h2>1v1</h2>
+      <div className="menuCard dim">
+        <h2>PvP</h2>
         <p className="muted">
-          Bring three from your save and share a room code. The browsers talk to each other
-          directly — no server, no account. Moves are committed as hashes before either side
-          reveals, so neither of you can read the other&apos;s choice, and the dice come from both
-          your nonces so neither can bias a critical hit.
+          Battling and trading with other people happen in town, not from this menu — load a save
+          and walk to Hearth. A tournament is a spreadsheet and a series of PvP matches, which
+          means it needs no bracket software and no server to referee it.
         </p>
-        <div className="row">
-          <button type="button" disabled={!autosave} onClick={onDuel}>
-            1v1
-          </button>
-          <button type="button" disabled title="Run it from a spreadsheet: a bracket, and 1v1 for each match.">
-            Host tournament
-          </button>
-        </div>
-        {autosave ? null : <p className="muted">Play a little first — you need something to bring.</p>}
       </div>
+
     </section>
   );
 }

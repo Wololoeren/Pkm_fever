@@ -47,14 +47,14 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         115 tests, including the replay property everything rests on
+tests/         125 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld, wild encounters, a
 full single battle system — damage, the type chart, criticals, accuracy, stat
 stages, five status conditions, drain, recoil and healing — plus catching,
 experience, levelling, move learning, evolution, breeding, the box, save/load,
-and **1v1 duels over WebRTC**.
+and **PvP over WebRTC** — battles at any size from 1v1 to 6v6, and trading.
 
 Not yet: a tournament bracket — though a bracket is a spreadsheet and a series
 of 1v1s, which already work.
@@ -89,9 +89,13 @@ this wild?" — which decided both whether you could throw a ball and whether
 you gained experience. A trainer is worth experience but cannot be caught, and
 a person is neither, so the flag became two.
 
-### Duels
+### PvP
 
-Pick three, share a room code, and the two browsers talk to each other
+Battling and trading with other people happen **in town**, not from a menu, for
+the same reason the daycare does: walking back is what makes walking out mean
+anything.
+
+Pick a format from 1v1 to 6v6, share a room code, and the two browsers talk to each other
 directly. No server, no account, and nobody refereeing — which means the rules
 have to hold without anyone to enforce them. Three things make that true:
 
@@ -118,6 +122,39 @@ rolls are named after the side that makes them, so the two clients would
 compute `0-crit` for different creatures and desync on the first critical hit.
 `tests/duel.test.ts` wires two sessions together in memory and plays whole
 duels out, with no network and no timing involved.
+
+Both players must bring the same number, and a mismatch is stated rather than
+papered over — trimming the longer team would throw away creatures its owner
+picked on purpose.
+
+### Trading
+
+The opposite secrecy to a duel. A duel hides each move until both are
+committed, because seeing the other choice first wins the turn; a trade is the
+reverse, since seeing what is on the table before you agree *is* the
+transaction. Offers travel in the open and either side can withdraw until both
+have said yes. An acceptance names the pair it is agreeing to, so nobody can
+take your yes and quietly swap what they were offering.
+
+Trading is also the one place the design's central claim gives way. A save is a
+seed and a list of inputs, and replaying it is what proves a team was earned —
+but a traded creature came out of somebody else's world, from a seed this save
+has never seen, so the trade input carries it whole. The log still replays; it
+just no longer proves that one. Arrivals are marked `traded` so a format can
+decide whether it cares.
+
+### Testing shortcuts
+
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Z</kbd> opens a cheat
+menu: give any species at any level and variant, set levels and variants on the
+party, heal, add balls, grant the breeding items, warp to any route.
+
+Every one of them is an ordinary input rather than something that reaches in
+and edits state. A cheat therefore lands in the save log, replays with it, and
+sets `cheated` — so a save that used one says so, and the verification a
+tournament runs at check-in catches it for free. A cheat menu that bypassed the
+log would produce saves indistinguishable from honest ones, which is the
+opposite of what this design is for.
 
 ### Breeding
 

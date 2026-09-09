@@ -11,17 +11,20 @@ import {
 } from "./battle";
 import {
   breed,
+  BREEDING_ITEMS,
   compatible,
   emptyDaycare,
   STEPS_PER_EGG,
   type BreedingItem,
   type DaycareState,
 } from "./breeding";
-import { ALL_SPECIES, movesAtLevel } from "./dex";
+import { ALL_SPECIES, movesAtLevel, species as speciesById } from "./dex";
 import { NATURE_IDS } from "./natures";
+import { expForLevel } from "./progression";
 import { hash32, intBetween, rngFor } from "./rng";
 import { clampIvs, computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatTable } from "./types";
+import { variant } from "./variants";
 import {
   encounterTriggers,
   HUB_ID,
@@ -69,7 +72,37 @@ export type Input =
   | { t: "toggleItem"; item: BreedingItem }
   /** Moves a creature between the party and the box. */
   | { t: "store"; index: number }
-  | { t: "retrieve"; index: number };
+  | { t: "retrieve"; index: number }
+  /**
+   * A completed trade: `give` leaves the party, `receive` joins it.
+   *
+   * The creature received is carried whole rather than referenced, because it
+   * cannot be derived — it came out of somebody else's world, from a seed this
+   * save has never seen. That keeps the log replayable at the cost of the
+   * property that makes a log worth replaying: this one creature is taken on
+   * trust. It is marked `traded` so a format can decide whether to accept it.
+   */
+  | { t: "trade"; give: number; receive: Individual }
+  /**
+   * A testing shortcut.
+   *
+   * Deliberately an input like any other, rather than something that reaches
+   * in and edits state. A cheat then lands in the log, replays with it, and
+   * sets `cheated` — so a save that used one says so, and the verification a
+   * tournament runs at check-in catches it for free. A cheat menu that
+   * bypassed the log would produce saves indistinguishable from honest ones,
+   * which is the opposite of what this design is for.
+   */
+  | { t: "cheat"; cheat: Cheat };
+
+export type Cheat =
+  | { op: "give"; speciesId: string; level: number; variantId: string }
+  | { op: "heal" }
+  | { op: "balls"; count: number }
+  | { op: "items" }
+  | { op: "warp"; route: string }
+  | { op: "setVariant"; index: number; variantId: string }
+  | { op: "setLevel"; index: number; level: number };
 
 /** What just happened outside a battle, for the UI to phrase. Structured
  * rather than a string so display language is never part of the state hash;
@@ -83,7 +116,8 @@ export type Notice =
   | { t: "whiteout" }
   | { t: "found"; item: BreedingItem }
   | { t: "hatched"; boxed: boolean }
-  | { t: "beatTrainer"; name: string; balls: number };
+  | { t: "beatTrainer"; name: string; balls: number }
+  | { t: "traded"; given: string; received: string };
 
 export interface GameState {
   tick: number;
@@ -114,6 +148,9 @@ export interface GameState {
   visited: string[];
   /** Trainers already beaten, sorted. They stay beaten. */
   beaten: string[];
+  /** Whether a testing shortcut was ever used in this save. Once true, always
+   * true: the point is that a cheated save cannot quietly become an honest one. */
+  cheated: boolean;
 }
 
 /** What a trainer hands over. There is no money yet, and balls are the one
@@ -178,6 +215,7 @@ export function initialState(world: World): GameState {
     items: [],
     visited: [HUB_ID],
     beaten: [],
+    cheated: false,
   };
 }
 
@@ -235,13 +273,150 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return moveBetweenParty(state, input.index, "store");
     case "retrieve":
       return moveBetweenParty(state, input.index, "retrieve");
+    case "trade":
+      return trade(state, input.give, input.receive);
+    case "cheat":
+      return cheat(world, state, input.cheat);
   }
 }
 
-/** The daycare is a place, not a menu: it is in the hub, and you have to walk
- * back to it. That is most of what makes going out feel like going out. */
-function atDaycare(state: GameState): boolean {
+/**
+ * Applies a testing shortcut, and marks the save as having used one.
+ *
+ * The mark is the point. Everything else here is a convenience; `cheated` is
+ * what keeps the save honest about itself.
+ */
+function cheat(world: World, state: GameState, op: Cheat): GameState {
+  const next = { ...state, tick: state.tick + 1, cheated: true, notice: null };
+
+  switch (op.op) {
+    case "give": {
+      const level = Math.max(1, Math.min(100, Math.floor(op.level)));
+      const built = withMoves({
+        uid: state.nextUid,
+        speciesId: speciesById(op.speciesId).id,
+        level,
+        exp: expForLevel(level),
+        ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 },
+        evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+        natureId: NATURE_IDS[level % NATURE_IDS.length],
+        variantId: variant(op.variantId).id,
+        hp: 0,
+        status: null,
+        sleepTurns: 0,
+        moves: [],
+        nickname: null,
+        traded: false,
+        parents: null,
+      });
+      const arrival = atFullHealth(built);
+      const boxed = state.party.length >= PARTY_LIMIT;
+      return {
+        ...next,
+        party: boxed ? state.party : [...state.party, arrival],
+        box: boxed ? [...state.box, arrival] : state.box,
+        nextUid: state.nextUid + 1,
+      };
+    }
+
+    case "heal":
+      return {
+        ...next,
+        party: state.party.map((creature) => ({
+          ...atFullHealth(creature),
+          status: null,
+          sleepTurns: 0,
+        })),
+      };
+
+    case "balls":
+      return { ...next, balls: Math.max(0, state.balls + Math.floor(op.count)) };
+
+    case "items":
+      return { ...next, items: [...BREEDING_ITEMS].sort() };
+
+    case "warp": {
+      const route = world.routes.get(op.route);
+      if (!route) throw new IllegalInput("no such route");
+      return {
+        ...next,
+        route: route.id,
+        x: route.entry.x,
+        y: route.entry.y,
+        visited: state.visited.includes(route.id) ? state.visited : [...state.visited, route.id].sort(),
+      };
+    }
+
+    case "setVariant": {
+      if (op.index < 0 || op.index >= state.party.length) throw new IllegalInput("no such creature");
+      const variantId = variant(op.variantId).id;
+      return {
+        ...next,
+        party: state.party.map((creature, index) =>
+          index === op.index ? atFullHealth({ ...creature, variantId }) : creature,
+        ),
+      };
+    }
+
+    case "setLevel": {
+      if (op.index < 0 || op.index >= state.party.length) throw new IllegalInput("no such creature");
+      const level = Math.max(1, Math.min(100, Math.floor(op.level)));
+      return {
+        ...next,
+        party: state.party.map((creature, index) =>
+          index === op.index
+            ? atFullHealth(withMoves({ ...creature, level, exp: expForLevel(level) }))
+            : creature,
+        ),
+      };
+    }
+  }
+}
+
+/**
+ * Swaps one of ours for one of theirs.
+ *
+ * Trading happens in town for the same reason battling does: it is a place you
+ * walk to. The received creature is renumbered on arrival — uids are only
+ * unique within one save, and two players who both started a world have both
+ * been handing out uid 1.
+ */
+function trade(state: GameState, give: number, receive: Individual): GameState {
+  if (!inTown(state)) throw new IllegalInput("trading happens in town");
+  if (give < 0 || give >= state.party.length) throw new IllegalInput("no such creature");
+
+  const arrival: Individual = {
+    ...receive,
+    uid: state.nextUid,
+    traded: true,
+    // Whatever their client claimed, health is clamped to what this creature
+    // can actually have here.
+    hp: Math.max(0, Math.min(receive.hp, maxHp({ ...receive, uid: state.nextUid }))),
+  };
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.map((creature, index) => (index === give ? arrival : creature)),
+    nextUid: state.nextUid + 1,
+    notice: { t: "traded", given: state.party[give].speciesId, received: arrival.speciesId },
+  };
+}
+
+/**
+ * Whether the player is standing in a town.
+ *
+ * The daycare, trading and matches against other people all live here rather
+ * than in a menu you carry, and for the same reason: walking back is what
+ * makes walking out mean anything. Today there is one town; when there are
+ * more, this is the one place that has to learn about them.
+ */
+export function inTown(state: GameState): boolean {
   return state.phase === "field" && state.route === HUB_ID;
+}
+
+function atDaycare(state: GameState): boolean {
+  return inTown(state);
 }
 
 /**
@@ -439,6 +614,7 @@ function pickStarter(world: World, state: GameState, index: number): GameState {
     sleepTurns: 0,
     moves: [],
     nickname: null,
+    traded: false,
     parents: null,
   });
 
@@ -546,6 +722,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
           sleepTurns: 0,
           moves: [],
           nickname: null,
+          traded: false,
           parents: null,
         });
         return atFullHealth(built);
@@ -785,6 +962,7 @@ export function stateHash(state: GameState): string {
     state.items.join(","),
     state.visited.join(","),
     state.beaten.join(","),
+    state.cheated ? "1" : "0",
   ].join(";");
 
   return hash32(canonical).toString(16).padStart(8, "0");

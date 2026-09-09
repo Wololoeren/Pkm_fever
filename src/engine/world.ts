@@ -451,6 +451,7 @@ export function wildAt(
     sleepTurns: 0,
     moves: [],
     nickname: null,
+    traded: false,
     parents: null,
   };
 }

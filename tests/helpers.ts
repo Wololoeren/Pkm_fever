@@ -45,6 +45,7 @@ export function creature(
     sleepTurns: options.status === "slp" ? 3 : 0,
     moves: options.moves ?? ["tackle"],
     nickname: null,
+    traded: false,
     parents: null,
   };
   return { ...built, hp: options.hp ?? maxHp(built) };

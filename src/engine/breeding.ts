@@ -148,6 +148,7 @@ export function breed(
     sleepTurns: 0,
     moves: movesAtLevel(speciesId, 1),
     nickname: null,
+    traded: false,
     parents: [first.uid, second.uid],
   };
 }

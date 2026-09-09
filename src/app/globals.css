@@ -430,6 +430,34 @@ button.card:hover:not(:disabled) { border-color: var(--accent); }
 
 button.small { padding: 5px 9px; font-size: 0.78rem; white-space: nowrap; }
 
+/* ------------------------------------------------------------- variant mark */
+
+.spriteWrap {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  line-height: 0;
+}
+
+.mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 4px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  /* Legible on top of whatever the sprite happens to be. */
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+  pointer-events: none;
+}
+.mark.tint   { color: #9fd8bf; border-color: #3f5a4d; }
+.mark.chroma { color: #d8a8e0; border-color: #5a3f5f; }
+.mark.shiny  { color: #f0cd76; border-color: #7a6231; }
+
 /* ------------------------------------------------------------------ duel */
 
 .duelSetup { max-width: 620px; margin: 0 auto; width: 100%; }
@@ -454,3 +482,50 @@ button.boxRow:disabled { opacity: 0.45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ------------------------------------------------------------- cheat menu */
+
+.cheatBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.65);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 16px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.cheatPanel {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 18px;
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cheatPanel h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.cheatHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.cheatHead h2 { font-size: 1.15rem; }
+
+select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 8px 10px;
+  max-width: 100%;
+}
+select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -1,7 +1,9 @@
-import type { DuelMessage } from "@/engine/duel";
-
 /**
  * Getting two browsers talking, with nothing of ours in between.
+ *
+ * Generic in the message, because a duel and a trade want the same pairing and
+ * opposite protocols on top of it. The room knows only that whatever it is
+ * handed survives JSON.
  *
  * Trystero matches peers over public relays and then speaks WebRTC directly,
  * so a duel needs no server, no account and no cost — which is the only way
@@ -18,15 +20,15 @@ const APP_ID = "pkm-fever";
 
 export type RoomStatus = "connecting" | "waiting" | "paired" | "failed" | "closed";
 
-export interface RoomHandlers {
-  onMessage: (message: DuelMessage) => void;
+export interface RoomHandlers<T> {
+  onMessage: (message: T) => void;
   onStatus: (status: RoomStatus) => void;
   /** Fires once, when the other player arrives. */
   onPeer: () => void;
 }
 
-export interface DuelRoom {
-  send: (message: DuelMessage) => void;
+export interface Room<T> {
+  send: (message: T) => void;
   leave: () => void;
 }
 
@@ -34,23 +36,27 @@ export interface DuelRoom {
  * network which blocks WebRTC outright stops pretending it might work. */
 const CONNECT_GRACE_MS = 12000;
 
-export async function joinDuelRoom(code: string, handlers: RoomHandlers): Promise<DuelRoom> {
-  const { joinRoom } = await import("trystero/nostr");
+export async function joinRoom<T extends { t: string }>(
+  code: string,
+  kind: string,
+  handlers: RoomHandlers<T>,
+): Promise<Room<T>> {
+  const { joinRoom: joinTrysteroRoom } = await import("trystero/nostr");
 
   handlers.onStatus("connecting");
-  const room = joinRoom({ appId: APP_ID }, `duel-${code}`);
+  const room = joinTrysteroRoom({ appId: APP_ID }, `${kind}-${code}`);
 
   // JSON on the wire rather than the library's structured payload type: it
   // keeps DuelMessage a domain type instead of one shaped by a generic.
-  const channel = room.makeAction<string>("duel");
+  const channel = room.makeAction<string>("msg");
 
   let peer: string | null = null;
   let live = false;
 
   channel.onMessage = (raw) => {
-    let message: DuelMessage;
+    let message: T;
     try {
-      message = JSON.parse(raw) as DuelMessage;
+      message = JSON.parse(raw) as T;
     } catch {
       return;
     }

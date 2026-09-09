@@ -1,8 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { tintTier, variant, variantSummary } from "@/engine/variants";
 import { creatureSprite } from "@/render/creature";
 import { cachedSprite, loadSprite, SPRITE_SIZE } from "@/render/sprites";
+
+/**
+ * The badge that says a creature is not ordinary.
+ *
+ * The palette shift alone is not enough to read: a two-fifths tint of
+ * something already green is a colour you would have to have memorised the
+ * original to notice. The mark says which ladder it is on and how far up.
+ */
+function VariantMark({ variantId, size }: { variantId: string; size: number }) {
+  const form = variant(variantId);
+  if (form.kind === "normal") return null;
+
+  const tier = tintTier(variantId);
+  const glyph = form.kind === "shiny" ? "★" : form.kind === "chroma" ? "◆" : `✦${tier}`;
+
+  return (
+    <span className={`mark ${form.kind}`} style={{ fontSize: Math.max(9, Math.round(size * 0.16)) }}>
+      {glyph}
+    </span>
+  );
+}
 
 /**
  * Draws a creature at a given size.
@@ -62,5 +84,10 @@ export function Sprite({
     ctx.restore();
   });
 
-  return <canvas ref={ref} width={size} height={size} style={{ width: size, height: size }} />;
+  return (
+    <span className="spriteWrap" style={{ width: size, height: size }} title={variantSummary(variantId)}>
+      <canvas ref={ref} width={size} height={size} style={{ width: size, height: size }} />
+      <VariantMark variantId={variantId} size={size} />
+    </span>
+  );
 }

@@ -112,7 +112,15 @@ function Row({
   );
 }
 
-export function HubPanel({ state, onInput }: { state: GameState; onInput: (input: Input) => void }) {
+export function HubPanel({
+  state,
+  onInput,
+  onPvp,
+}: {
+  state: GameState;
+  onInput: (input: Input) => void;
+  onPvp: () => void;
+}) {
   const [first, second] = state.daycare.slots;
   const pair = first && second ? compatible(first, second) : false;
   const progress = pair ? state.daycare.steps / STEPS_PER_EGG : 0;
@@ -197,6 +205,17 @@ export function HubPanel({ state, onInput }: { state: GameState; onInput: (input
       </div>
 
       <div className="hubCol">
+        <h3>Other players</h3>
+        <p className="muted">
+          Battle or trade with somebody else, browser to browser. Both happen here rather than
+          from a menu, because a town is somewhere you walk back to.
+        </p>
+        <div className="row">
+          <button type="button" onClick={onPvp} disabled={!state.party.length}>
+            PvP
+          </button>
+        </div>
+
         <h3>Party</h3>
         <div className="boxList">
           {state.party.map((creature, index) => (

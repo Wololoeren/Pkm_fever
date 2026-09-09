@@ -83,6 +83,30 @@ export function variant(id: string): Variant {
   return found;
 }
 
+/**
+ * Which step of the tint ladder this is, 1 to 4, or 0 for anything else.
+ *
+ * Derived from the mix rather than parsed out of the id, so renaming a variant
+ * cannot silently change what a badge says.
+ */
+export function tintTier(id: string): number {
+  const form = variant(id);
+  return form.kind === "tint" ? Math.round(form.mix / 200) : 0;
+}
+
+/** How much better or worse this form is, as a percentage, for a tooltip. */
+export function variantSummary(id: string): string {
+  const form = variant(id);
+  if (form.kind === "normal") return "Ordinary.";
+
+  const parts = STAT_LABEL_ORDER.filter((stat) => form.mult[stat] !== 1000).map(
+    (stat) => `${stat} ${form.mult[stat] > 1000 ? "+" : ""}${((form.mult[stat] - 1000) / 10).toFixed(1)}%`,
+  );
+  return parts.length ? `${form.name} — ${parts.join(", ")}` : form.name;
+}
+
+const STAT_LABEL_ORDER: (keyof StatTable)[] = ["hp", "atk", "def", "spa", "spd", "spe"];
+
 /** Every variant that is placed during world generation, rarest last. */
 export const PLACED_VARIANTS: readonly Variant[] = VARIANTS.filter((v) => v.census > 0);
 

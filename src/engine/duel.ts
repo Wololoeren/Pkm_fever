@@ -123,7 +123,13 @@ export type DuelFault =
   | { t: "badReveal"; side: SideIndex }
   /** The two clients resolved the same turn differently. */
   | { t: "desync"; turn: number; ours: string; theirs: string }
+  /** The two players did not agree on the format before starting. */
+  | { t: "sizeMismatch"; ours: number; theirs: number }
   | { t: "resigned"; side: SideIndex };
+
+/** Legal formats, from a single duel up to a full six. */
+export const TEAM_SIZES = [1, 2, 3, 4, 5, 6] as const;
+export type TeamSize = (typeof TEAM_SIZES)[number];
 
 export interface DuelView {
   phase: DuelPhase;
@@ -216,6 +222,14 @@ export class DuelSession {
 
     switch (message.t) {
       case "hello":
+        // The format is agreed before anything else, and disagreement is
+        // stated rather than papered over. Quietly truncating the longer team
+        // would throw away creatures its owner deliberately picked, and
+        // quietly padding the shorter one is not possible at all.
+        if (message.team.length !== this.ourTeam.length) {
+          this.failWith({ t: "sizeMismatch", ours: this.ourTeam.length, theirs: message.team.length });
+          return;
+        }
         this.theirTeam = message.team.map((creature) => ({ ...creature }));
         this.theirOpeningCommit = message.commit;
         this.phase = "openingReveal";

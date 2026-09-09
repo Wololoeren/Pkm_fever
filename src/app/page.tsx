@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BattleView } from "@/components/BattleView";
-import { DuelScreen } from "@/components/DuelScreen";
+import { CheatMenu } from "@/components/CheatMenu";
+import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { HubPanel } from "@/components/HubPanel";
 import { MainMenu } from "@/components/MainMenu";
@@ -46,7 +47,8 @@ const KEY_DIRECTIONS: Record<string, Direction> = {
 export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
   const [autosave, setAutosave] = useState<SaveFile | null>(null);
-  const [duelling, setDuelling] = useState(false);
+  const [pvp, setPvp] = useState(false);
+  const [cheats, setCheats] = useState(false);
 
   // localStorage is not available while the static export is being rendered,
   // so the autosave is looked up once the page is actually in a browser.
@@ -93,6 +95,14 @@ export default function Page() {
     function onKey(event: KeyboardEvent) {
       if (!state) return;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+
+      // Three modifiers and a letter, so nothing reaches it by accident.
+      if (event.ctrlKey && event.shiftKey && event.altKey && key === "z") {
+        event.preventDefault();
+        setCheats((open) => !open);
+        return;
+      }
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
 
       if (state.phase === "field") {
         const dir = KEY_DIRECTIONS[key];
@@ -150,20 +160,22 @@ export default function Page() {
             start(seed);
           }}
           onLoad={(save) => start(save.seed, save.inputs)}
-          onDuel={() => {
-            if (!autosave) return;
-            start(autosave.seed, autosave.inputs);
-            setDuelling(true);
-          }}
         />
       </main>
     );
   }
 
-  if (duelling) {
+  if (pvp) {
     return (
       <main className="shell">
-        <DuelScreen roster={[...state.party, ...state.box]} onExit={() => setDuelling(false)} />
+        <PvpScreen
+          roster={[...state.party, ...state.box]}
+          onExit={() => setPvp(false)}
+          onTrade={(giveUid, received) => {
+            const give = state.party.findIndex((creature) => creature.uid === giveUid);
+            if (give >= 0) dispatch({ t: "trade", give, receive: received });
+          }}
+        />
       </main>
     );
   }
@@ -252,7 +264,11 @@ export default function Page() {
         </section>
       )}
 
-      {inHub ? <HubPanel state={state} onInput={dispatch} /> : null}
+      {inHub ? <HubPanel state={state} onInput={dispatch} onPvp={() => setPvp(true)} /> : null}
+
+      {cheats ? (
+        <CheatMenu world={session.world} state={state} onInput={dispatch} onClose={() => setCheats(false)} />
+      ) : null}
 
       <section className="panel">
         {/* The hub panel already lists the party, with more detail and the
@@ -266,14 +282,6 @@ export default function Page() {
         <div className="row">
           <button type="button" className="ghost" onClick={() => downloadSave(session.seed, session.inputs)}>
             Save to file
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            disabled={state.phase !== "field" || !state.party.length}
-            onClick={() => setDuelling(true)}
-          >
-            1v1
           </button>
           <button
             type="button"
