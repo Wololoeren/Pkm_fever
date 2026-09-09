@@ -67,28 +67,12 @@ export function lensChroma(item: BreedingItem): string | null {
   return item.startsWith("lens-") ? item.slice("lens-".length) : null;
 }
 
-export const ITEM_NAMES: Record<BreedingItem, string> = {
-  heirloom: "Heirloom",
-  talisman: "Talisman",
-  catalyst: "Catalyst",
-  prism: "Prism",
-  ...Object.fromEntries(
-    CHROMA_IDS.map((id) => [`lens-${id}`, `${id.charAt(0).toUpperCase()}${id.slice(1)} Lens`]),
-  ),
-};
-
-export const ITEM_BLURBS: Record<BreedingItem, string> = {
-  heirloom: "Passes down five of the parents' stat slots instead of three.",
-  talisman: "The child always inherits the first parent's nature.",
-  catalyst: "Strengthens the mutation on every inherited stat.",
-  prism: "Five times the chance a child climbs the shine ladder.",
-  ...Object.fromEntries(
-    CHROMA_IDS.map((id) => [
-      `lens-${id}`,
-      `One chance in five that the child takes the ${id} colour, whatever its parents wore.`,
-    ]),
-  ),
-};
+/**
+ * Names and blurbs used to live here, beside the breeding rules. They are in
+ * the item catalogue now, with everything else a bag can hold — a Prism and a
+ * Potion are both things you own, and two tables of item names is one table
+ * too many.
+ */
 
 export interface DaycareState {
   /** The pair, in the order they were deposited. The first is the one whose

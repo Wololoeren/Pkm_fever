@@ -25,7 +25,11 @@ export function outdoorRoutes(world: World) {
  * stands in the town square and expects to deposit a creature is standing
  * outside a closed door.
  */
-export function standInside(world: World, state: GameState, role: "daycare" | "centre"): GameState {
+export function standInside(
+  world: World,
+  state: GameState,
+  role: "daycare" | "centre" | "mart",
+): GameState {
   const room = [...world.routes.values()].find((route) => route.role === role);
   if (!room) throw new Error(`no ${role} in this world`);
   return { ...state, route: room.id, x: room.entry.x, y: room.entry.y };

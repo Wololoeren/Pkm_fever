@@ -55,12 +55,13 @@ const ENCOUNTER_RATE = 118;
 export type RouteKind = "town" | "route" | "interior";
 
 /** What a building is for. A house is somewhere to look at. */
-export type InteriorRole = "daycare" | "centre" | "house";
+export type InteriorRole = "daycare" | "centre" | "mart" | "house";
 
 /** What the board outside each kind of building says. */
 const SIGN_TEXT: Record<InteriorRole, string> = {
   daycare: "Daycare",
   centre: "Trainers Centre",
+  mart: "Mart",
   house: "House",
 };
 
@@ -168,6 +169,94 @@ function bst(base: StatTable): number {
  * therefore populates the world without anybody editing a table, which is what
  * makes "ship the full dex, populate outward" practical.
  */
+/**
+ * What a rod pulls up, at a given reach.
+ *
+ * The water table is the same idea as the grass one turned sideways: type
+ * affinity is water rather than the biome's, and reach stands in for ring, so
+ * a Super Rod on ring one still finds better things than an Old Rod does. That
+ * is the point of buying one — depth is a second axis of progress that does
+ * not require walking further out.
+ */
+export function fishingTable(
+  allSpecies: readonly SpeciesEntry[],
+  ring: number,
+  reach: number,
+  rings: number,
+): { speciesId: string; weight: number }[] {
+  // A rod's reach is worth two rings, so the Super Rod in the shallows is
+  // about as good as walking to the far edge of the map.
+  const effective = Math.min(rings, ring + (reach - 1) * 2);
+  const band = ringBand(effective, rings);
+
+  const table = allSpecies
+    .filter((species) => {
+      const power = bst(species.base);
+      if (power < band.min || power > band.max) return false;
+      return species.types.includes("water");
+    })
+    .map((species) => ({
+      speciesId: species.id,
+      weight: Math.max(1, band.max - bst(species.base) + 10),
+    }));
+
+  if (table.length) return table.sort((a, b) => a.speciesId.localeCompare(b.speciesId));
+
+  // Nothing in band: rather than an empty pond, take every water creature.
+  return allSpecies
+    .filter((species) => species.types.includes("water"))
+    .map((species) => ({ speciesId: species.id, weight: 1 }))
+    .sort((a, b) => a.speciesId.localeCompare(b.speciesId));
+}
+
+/**
+ * The creature on the end of the line.
+ *
+ * Named off the tile you fished from and how many times you have fished it, so
+ * a pond is as unrerollable as a patch of grass: casting again from the same
+ * spot gives the next one along, never a second roll at the last.
+ */
+export function fishAt(
+  world: World,
+  allSpecies: readonly SpeciesEntry[],
+  route: string,
+  reach: number,
+  index: number,
+  uid: number,
+): Individual {
+  const target = world.routes.get(route);
+  if (!target) throw new Error(`unknown route: ${route}`);
+
+  const rng = rngFor(world.seed, "fish", route, reach, index);
+  const table = fishingTable(allSpecies, target.ring, reach, world.config.rings);
+  const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
+
+  const level = Math.max(2, levelForRing(target.ring) + (reach - 1) * 4 + intBetween(rng, -2, 2));
+
+  return {
+    uid,
+    speciesId,
+    level,
+    exp: level * level * level,
+    ivs: rollWildIvs(rng),
+    evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+    natureId: pickNature(rng),
+    // Ordinary, always. The census is placed in grass slots, and a pond that
+    // could also hold the world's one shiny would make the count a lie. What
+    // fishing pays instead is access: water species the grass never offers,
+    // at a level a rod rather than a walk decides.
+    variantId: "normal",
+    hp: 0,
+    status: null,
+    sleepTurns: 0,
+    moves: [],
+    nickname: null,
+    traded: false,
+    parents: null,
+    gender: rollGender(rng),
+  };
+}
+
 export function encounterTable(
   allSpecies: readonly SpeciesEntry[],
   biome: string,
@@ -442,6 +531,35 @@ export function pickStarters(seed: string, allSpecies: readonly SpeciesEntry[]):
  * you walk into now, rather than a panel that followed you everywhere — which
  * is most of what makes a town somewhere rather than a menu.
  */
+/**
+ * The four ways out of town, in the order the biomes are listed.
+ *
+ * Exported because two places need to agree about them: the generator that
+ * cuts the gaps, and the movement code that decides where you reappear when
+ * you walk back in. They did not agree — every return from ring one arrived
+ * at the western gap, whichever arm you had come from, so leaving east and
+ * coming back put you on the far side of town.
+ */
+export function townExits(width: number, height: number): { x: number; y: number }[] {
+  const midX = Math.floor(width / 2);
+  const midY = Math.floor(height / 2);
+  return [
+    { x: 0, y: midY },
+    { x: midX, y: 0 },
+    { x: width - 1, y: midY },
+    { x: midX, y: height - 1 },
+  ];
+}
+
+/** The tile just inside one of those gaps — where you stand on arrival. */
+export function townArrival(width: number, height: number, side: number): { x: number; y: number } {
+  const exit = townExits(width, height)[side];
+  return {
+    x: exit.x === 0 ? 1 : exit.x === width - 1 ? width - 2 : exit.x,
+    y: exit.y === 0 ? 1 : exit.y === height - 1 ? height - 2 : exit.y,
+  };
+}
+
 function buildTown(): { town: Route; interiors: Route[] } {
   const grid = new Grid(TOWN_WIDTH, TOWN_HEIGHT, TILE.MEADOW);
   const midY = Math.floor(TOWN_HEIGHT / 2);
@@ -462,8 +580,8 @@ function buildTown(): { town: Route; interiors: Route[] } {
   const plots: { x: number; y: number; role: InteriorRole; label: string }[] = [
     { x: 5, y: midY - 9, role: "daycare", label: "Daycare" },
     { x: 24, y: midY - 9, role: "centre", label: "Trainers Centre" },
-    { x: 7, y: midY + 4, role: "house", label: "A house" },
-    { x: 26, y: midY + 4, role: "house", label: "Another house" },
+    { x: 7, y: midY + 4, role: "mart", label: "Mart" },
+    { x: 26, y: midY + 4, role: "house", label: "A house" },
   ];
 
   for (const plot of plots) {
@@ -493,11 +611,9 @@ function buildTown(): { town: Route; interiors: Route[] } {
     grid.rect(gardenX, gardenY, 5, 1, TILE.FENCE);
   }
 
-  // Four ways out, in the order the biomes are listed.
-  grid.set(0, midY, TILE.PATH);
-  grid.set(TOWN_WIDTH - 1, midY, TILE.PATH);
-  grid.set(midX, 0, TILE.PATH);
-  grid.set(midX, TOWN_HEIGHT - 1, TILE.PATH);
+  // Four ways out, from the one table that also decides where walking back in
+  // puts you.
+  for (const exit of townExits(TOWN_WIDTH, TOWN_HEIGHT)) grid.set(exit.x, exit.y, TILE.PATH);
 
   return {
     town: {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { activeOf, isFainted } from "@/engine/battle";
 import { ALL_SPECIES } from "@/engine/dex";
-import { applyInput, initialState, type GameState } from "@/engine/engine";
+import { applyInput, initialState, trainerPurse, type GameState } from "@/engine/engine";
 import { encounterTable, levelForRing, trainerAt, TILE_PATH, wildAt } from "@/engine/world";
 import { creature, testWorld } from "./helpers";
 
@@ -176,7 +176,7 @@ describe("fighting them", () => {
     const { state: beside, dir } = approach(world, strong, trainer);
 
     let current = applyInput(world, beside, { t: "move", dir });
-    const ballsBefore = current.balls;
+    const moneyBefore = current.money;
 
     for (let i = 0; i < 40 && current.phase === "battle"; i++) {
       const action = current.battle!.awaitingSwitch[0]
@@ -186,9 +186,13 @@ describe("fighting them", () => {
     }
 
     expect(current.phase).toBe("battleEnd");
-    expect(current.notice).toEqual({ t: "beatTrainer", name: trainer.name, balls: 5 });
+    // Trainers pay money now, not balls: a purse you can spend on anything
+    // beats a handful of one consumable.
+    const purse = trainerPurse(trainer.team.length, world.routes.get(state.route)!.ring);
+    expect(current.notice).toEqual({ t: "beatTrainer", name: trainer.name, money: purse });
     expect(current.beaten).toContain(trainer.id);
-    expect(current.balls).toBe(ballsBefore + 5);
+    expect(current.money).toBe(moneyBefore + purse);
+    expect(purse).toBeGreaterThan(0);
 
     // Beating them also fed the winner, which a duel would not have.
     expect(current.battle!.events.some((event) => event.t === "exp")).toBe(true);

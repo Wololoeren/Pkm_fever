@@ -4,8 +4,6 @@ import {
   BREEDING_ITEMS,
   breedingRefusal,
   generationsToMax,
-  ITEM_BLURBS,
-  ITEM_NAMES,
   tierMatrix,
   type DaycareState,
   STEPS_PER_EGG,
@@ -17,6 +15,7 @@ import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
 import { variant } from "@/engine/variants";
+import { hasItem, item as itemSpec } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
 import { GenderMark, VariantTag } from "./PartyStrip";
@@ -260,7 +259,7 @@ export function HubPanel({
         <h3>Items</h3>
         <div className="items">
           {BREEDING_ITEMS.map((item: BreedingItem) => {
-            const owned = state.items.includes(item);
+            const owned = hasItem(state.bag, item);
             const on = state.daycare.applied.includes(item);
             return (
               <button
@@ -271,11 +270,11 @@ export function HubPanel({
                 onClick={() => onInput({ t: "toggleItem", item })}
               >
                 <span className="itemName">
-                  {ITEM_NAMES[item]}
+                  {itemSpec(item).name}
                   {on ? " ·  on" : ""}
                 </span>
                 <span className="muted itemBlurb">
-                  {owned ? ITEM_BLURBS[item] : "Not found yet — it is out there somewhere."}
+                  {owned ? itemSpec(item).blurb : "Not found yet — it is out there somewhere."}
                 </span>
               </button>
             );

@@ -46,7 +46,8 @@ export type BattleAction =
   | { t: "fight"; moveIndex: number }
   | { t: "switch"; partyIndex: number }
   /** Wild battles only. */
-  | { t: "ball" }
+  /** Which ball. Omitted means an ordinary one. */
+  | { t: "ball"; item?: string }
   | { t: "flee" }
   /** Nothing to do — a side with a fainted active that owes no replacement. */
   | { t: "pass" };

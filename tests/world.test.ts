@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
-import { applyInput, initialState } from "@/engine/engine";
+import { applyInput, initialState, type GameState } from "@/engine/engine";
 import { walkable } from "@/engine/terrain";
 import { STAT_IDS } from "@/engine/types";
 import { CENSUS_TOTAL, CHROMA_IDS, TOP_TIER, variant } from "@/engine/variants";
@@ -268,6 +268,86 @@ describe("signs", () => {
           }
         }
       }
+    }
+  });
+});
+
+describe("crossing a border", () => {
+  /** Walks one step in a direction, returning null if it is not allowed. */
+  function step(world: ReturnType<typeof testWorld>, state: GameState, dir: "n" | "s" | "e" | "w") {
+    try {
+      return applyInput(world, state, { t: "move", dir });
+    } catch {
+      return null;
+    }
+  }
+
+  it("W20: leaving town and coming straight back returns you to the tile you left", () => {
+    // Leaving town eastward and walking back used to land you on the far side
+    // of town: every return from ring one arrived at the *western* gap,
+    // whichever arm you had come from. A step out and a step back is a round
+    // trip, not a teleport across the square.
+    const world = testWorld("A1");
+    const start = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const dirs = ["n", "s", "e", "w"] as const;
+
+    let crossings = 0;
+
+    for (const dir of dirs) {
+      let here = start;
+      let crossed: GameState | null = null;
+
+      for (let i = 0; i < 60; i++) {
+        const next = step(world, here, dir);
+        if (!next) break;
+        if (next.route !== here.route) {
+          crossed = next;
+          break;
+        }
+        here = next;
+      }
+      if (!crossed) continue;
+      crossings++;
+
+      // Whichever way the route opens back onto town, it must open onto the
+      // tile that was stepped off. The direction differs per arm — routes are
+      // built west to east, so the way home is west whatever gap you left by —
+      // and the tile must not.
+      const ways = dirs.map((back) => step(world, crossed!, back)).filter(Boolean) as GameState[];
+      const home = ways.find((way) => way.route === here.route);
+
+      expect(home, `no way back to ${here.route} from ${crossed.route}`).toBeDefined();
+      expect([home!.x, home!.y]).toEqual([here.x, here.y]);
+    }
+
+    expect(crossings).toBeGreaterThan(1);
+  });
+
+  it("W21: and that holds between rings, in both directions", () => {
+    const world = testWorld("B2");
+
+    for (const route of outdoorRoutes(world)) {
+      const exitRow = route.tiles.findIndex((_, index) => {
+        const x = index % route.width;
+        return x === route.width - 1 && walkable(route.tiles[index]);
+      });
+      if (exitRow < 0) continue;
+
+      const y = Math.floor(exitRow / route.width);
+      const at: GameState = {
+        ...applyInput(world, initialState(world), { t: "pickStarter", index: 0 }),
+        route: route.id,
+        x: route.width - 2,
+        y,
+      };
+
+      const out = step(world, at, "e");
+      if (!out || out.route === route.id) continue;
+
+      const back = step(world, out, "w");
+      expect(back, `no way back from ${out.route} to ${route.id}`).not.toBeNull();
+      expect(back!.route).toBe(route.id);
+      expect([back!.x, back!.y]).toEqual([at.x, at.y]);
     }
   });
 });

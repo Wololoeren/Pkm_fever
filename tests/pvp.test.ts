@@ -4,6 +4,7 @@ import { learnableAt } from "@/engine/dex";
 import { applyInput, initialState, MAX_MOVES, movesRefusal } from "@/engine/engine";
 import { TradeSession, type TradeMessage } from "@/engine/trade";
 import type { Individual } from "@/engine/types";
+import { countOf } from "@/engine/items";
 import { creature, testWorld } from "./helpers";
 
 /**
@@ -181,7 +182,7 @@ describe("the testing shortcuts", () => {
 
     const cheated = applyInput(world, state, { t: "cheat", cheat: { op: "balls", count: 50 } });
     expect(cheated.cheated).toBe(true);
-    expect(cheated.balls).toBe(state.balls + 50);
+    expect(countOf(cheated.bag, "pokeball")).toBe(countOf(state.bag, "pokeball") + 50);
 
     const later = applyInput(world, cheated, { t: "move", dir: "n" });
     expect(later.cheated).toBe(true);

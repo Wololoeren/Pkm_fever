@@ -7,14 +7,16 @@ import { Inspect } from "@/components/Inspect";
 import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
+import { BagPanel } from "@/components/BagPanel";
 import { HubPanel } from "@/components/HubPanel";
+import { MartPanel } from "@/components/MartPanel";
 import { MainMenu } from "@/components/MainMenu";
 import { PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
-import { ITEM_BLURBS, ITEM_NAMES } from "@/engine/breeding";
+import { BALLS, countOf, item } from "@/engine/items";
 import { ALL_SPECIES } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type World } from "@/engine/world";
@@ -153,6 +155,7 @@ export default function Page() {
   const indoors = state?.phase === "field" && here?.kind === "interior";
   const inDaycare = indoors && here?.role === "daycare";
   const inCentre = indoors && here?.role === "centre";
+  const inMart = indoors && here?.role === "mart";
   const inHub = inDaycare || inCentre;
 
   /** What the inspector is looking at, and whether it is in the party — which
@@ -220,8 +223,12 @@ export default function Page() {
         </div>
         <div className="hudStats">
           <div>
+            <dt>Money</dt>
+            <dd>¤{state.money.toLocaleString()}</dd>
+          </div>
+          <div>
             <dt>Balls</dt>
-            <dd>{state.balls}</dd>
+            <dd>{BALLS.reduce((total, ball) => total + countOf(state.bag, ball.id), 0)}</dd>
           </div>
           <div>
             <dt>Variants</dt>
@@ -240,7 +247,7 @@ export default function Page() {
           role={0}
           // Only a wild battle gets a ball count, because that is what
           // BattleView reads as "balls and running are legal here".
-          balls={isWildBattle(state.battle) ? state.balls : undefined}
+          balls={isWildBattle(state.battle) ? countOf(state.bag, "pokeball") : undefined}
           onAction={dispatch as (action: BattleAction) => void}
           footer={
             state.phase === "battleEnd" ? (
@@ -273,13 +280,28 @@ export default function Page() {
           ) : null}
           {state.notice?.t === "found" ? (
             <p className="good">
-              You found the {ITEM_NAMES[state.notice.item]}! {ITEM_BLURBS[state.notice.item]} Apply it at
+              You found the {item(state.notice.item).name}! {item(state.notice.item).blurb} Apply it at
               the daycare back in Hearth.
             </p>
           ) : null}
           {state.notice?.t === "beatTrainer" ? (
             <p className="good">
-              You beat {state.notice.name}, and they handed over {state.notice.balls} balls.
+              You beat {state.notice.name}, and they handed over ¤{state.notice.money.toLocaleString()}.
+            </p>
+          ) : null}
+          {state.notice?.t === "used" ? (
+            <p className="good">
+              Used the {item(state.notice.item).name} on {state.notice.on}.
+            </p>
+          ) : null}
+          {state.notice?.t === "bought" ? (
+            <p className="good">
+              Bought {state.notice.count} x {item(state.notice.item).name}.
+            </p>
+          ) : null}
+          {state.notice?.t === "sold" ? (
+            <p className="good">
+              Sold {state.notice.count} x {item(state.notice.item).name}.
             </p>
           ) : null}
           {state.notice?.t === "hatched" ? (
@@ -300,12 +322,38 @@ export default function Page() {
         />
       ) : null}
 
-      {indoors && !inHub ? (
+      {inMart ? (
+        <section className="panel">
+          <MartPanel world={session.world} state={state} onInput={dispatch} />
+        </section>
+      ) : null}
+
+      {indoors && !inHub && !inMart ? (
         <section className="panel">
           <p className="muted">
             Somebody lives here. There is nothing to do but look around — step back out the way
             you came.
           </p>
+        </section>
+      ) : null}
+
+      {state.phase === "field" ? (
+        <section className="panel">
+          <div className="row">
+            <h3>Bag</h3>
+            {/* Fishing is offered where it is legal and refused where it is
+                not, in the engine's own words. */}
+            <button
+              type="button"
+              className="ghost"
+              disabled={Boolean(fishRefusal(session.world, state))}
+              title={fishRefusal(session.world, state) ?? "Cast a line"}
+              onClick={() => dispatch({ t: "fish" })}
+            >
+              {bestRod(state.bag) ? `Fish (${bestRod(state.bag)!.name})` : "Fish"}
+            </button>
+          </div>
+          <BagPanel state={state} onInput={dispatch} />
         </section>
       ) : null}
 

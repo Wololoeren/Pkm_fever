@@ -11,7 +11,6 @@ import {
 } from "./battle";
 import {
   breed,
-  BREEDING_ITEMS,
   compatible,
   emptyDaycare,
   STEPS_PER_EGG,
@@ -21,21 +20,36 @@ import {
 import { ALL_SPECIES, learnableAt, movesAtLevel, species as speciesById } from "./dex";
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
-import { expForLevel } from "./progression";
+import { expForLevel, MAX_LEVEL } from "./progression";
 import { hash32, intBetween, rngFor } from "./rng";
 import { clampIvs, computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatTable } from "./types";
 import { variant } from "./variants";
 import {
   encounterTriggers,
+  fishAt,
   HUB_ID,
   routeId,
   starterAppearance,
+  townArrival,
   trainerAt,
   wildAt,
   type World,
 } from "./world";
-import { hidesEncounters, walkable } from "./terrain";
+import { hidesEncounters, TILE, walkable } from "./terrain";
+import {
+  addItem,
+  bagEntries,
+  countOf,
+  hasItem,
+  isItem,
+  item,
+  ITEMS,
+  removeItem,
+  RODS,
+  type Bag,
+  type ItemSpec,
+} from "./items";
 
 /**
  * The reducer. Everything the player does arrives here as an Input, and the
@@ -59,7 +73,9 @@ export type Input =
   | { t: "move"; dir: Direction }
   | { t: "fight"; moveIndex: number }
   | { t: "switch"; partyIndex: number }
-  | { t: "ball" }
+  /** Which ball. Omitted means an ordinary one, so a log written before there
+   * was a choice still replays. */
+  | { t: "ball"; item?: string }
   | { t: "flee" }
   /** Acknowledges the end of a battle. A real action rather than a UI detail:
    * without it the last turn's narration — what was gained, what was learned,
@@ -110,12 +126,26 @@ export type Input =
    * Refused mid-battle: reordering with a creature already out would be a
    * free switch, which is a move the battle system charges a turn for.
    */
-  | { t: "reorderParty"; from: number; to: number };
+  | { t: "reorderParty"; from: number; to: number }
+  /**
+   * Using something from the bag, on a party member.
+   *
+   * Out in the field only. Letting a potion be used mid-battle would mean the
+   * duel protocol had to commit to it like a move, and a healing item nobody
+   * can answer is the shortest road to a battle that never ends. Heal between
+   * fights, like the rest of the game asks you to.
+   */
+  | { t: "useItem"; item: string; index: number }
+  | { t: "buyItem"; item: string; count: number }
+  | { t: "sellItem"; item: string; count: number }
+  /** Casting a line at water you are standing beside. */
+  | { t: "fish" };
 
 export type Cheat =
   | { op: "give"; speciesId: string; level: number; variantId: string; gender: Gender }
   | { op: "heal" }
   | { op: "balls"; count: number }
+  | { op: "money"; count: number }
   | { op: "items" }
   | { op: "warp"; route: string }
   | { op: "setVariant"; index: number; variantId: string }
@@ -134,8 +164,11 @@ export type Notice =
   | { t: "whiteout" }
   | { t: "found"; item: BreedingItem }
   | { t: "hatched"; boxed: boolean }
-  | { t: "beatTrainer"; name: string; balls: number }
-  | { t: "traded"; given: string; received: string };
+  | { t: "beatTrainer"; name: string; money: number }
+  | { t: "traded"; given: string; received: string }
+  | { t: "used"; item: string; on: string }
+  | { t: "bought"; item: string; count: number }
+  | { t: "sold"; item: string; count: number };
 
 export interface GameState {
   tick: number;
@@ -152,15 +185,15 @@ export interface GameState {
   party: Individual[];
   box: Individual[];
   nextUid: number;
-  balls: number;
+  /** Everything held, by item id. Balls, medicine, rods and breeding gear in
+   * one place, because "how many of this do I have" should have one answer. */
+  bag: Bag;
+  money: number;
   battle: BattleState | null;
   notice: Notice | null;
   /** Variant ids caught so far, sorted. The census progress the UI shows. */
   found: string[];
   daycare: DaycareState;
-  /** Breeding items found, sorted. Equipment rather than stock, so this is a
-   * set of what you have rather than a count of it. */
-  items: BreedingItem[];
   /** Routes stepped on, sorted. Drives the one-off item finds, and is the
    * beginning of an exploration record. */
   visited: string[];
@@ -173,7 +206,6 @@ export interface GameState {
 
 /** What a trainer hands over. There is no money yet, and balls are the one
  * thing the game already spends, so they are the reward that fits. */
-const TRAINER_REWARD_BALLS = 5;
 
 /** A battle against somebody standing on a route, rather than against the
  * grass. Encoded in the tag so nothing extra has to live in state. */
@@ -218,6 +250,9 @@ const ITEM_FOR_PLACE: Record<string, BreedingItem> = {
 };
 
 const STARTING_BALLS = 30;
+
+/** Enough to restock balls a few times, not enough to skip the early routes. */
+const STARTING_MONEY = 3000;
 const PARTY_LIMIT = 6;
 
 /** Starters roll better IVs than anything wild, and worse than anything bred.
@@ -246,12 +281,12 @@ export function initialState(world: World): GameState {
     party: [],
     box: [],
     nextUid: 1,
-    balls: STARTING_BALLS,
+    bag: { pokeball: STARTING_BALLS },
+    money: STARTING_MONEY,
     battle: null,
     notice: null,
     found: [],
     daycare: emptyDaycare(),
-    items: [],
     visited: [HUB_ID],
     beaten: [],
     cheated: false,
@@ -320,6 +355,14 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return setMoves(world, state, input.index, input.moves);
     case "reorderParty":
       return reorderParty(state, input.from, input.to);
+    case "useItem":
+      return applyItem(state, input.item, input.index);
+    case "buyItem":
+      return buyItem(world, state, input.item, input.count);
+    case "sellItem":
+      return sellItem(world, state, input.item, input.count);
+    case "fish":
+      return fish(world, state);
   }
 }
 
@@ -415,10 +458,16 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
       };
 
     case "balls":
-      return { ...next, balls: Math.max(0, state.balls + Math.floor(op.count)) };
+      return { ...next, bag: addItem(next.bag, "pokeball", Math.max(0, Math.floor(op.count))) };
+
+    case "money":
+      return { ...next, money: Math.max(0, next.money + Math.floor(op.count)) };
 
     case "items":
-      return { ...next, items: [...BREEDING_ITEMS].sort() };
+      return {
+        ...next,
+        bag: ITEMS.reduce((bag, spec) => addItem(bag, spec.id, spec.stacks ? 20 : 1), next.bag),
+      };
 
     case "warp": {
       const route = world.routes.get(op.route);
@@ -550,12 +599,12 @@ function arrive(world: World, state: GameState, routeId: string): GameState {
 
   const visited = [...state.visited, routeId].sort();
   const route = world.routes.get(routeId);
-  const item =
+  const found =
     (route ? ITEM_FOR_PLACE[`${route.biome}:${route.ring}`] : undefined) ??
     ITEM_FOR_RING[route?.ring ?? 0];
-  if (!item || state.items.includes(item)) return { ...state, visited, notice: null };
+  if (!found || hasItem(state.bag, found)) return { ...state, visited, notice: null };
 
-  return { ...state, visited, items: [...state.items, item].sort(), notice: { t: "found", item } };
+  return { ...state, visited, bag: addItem(state.bag, found), notice: { t: "found", item: found } };
 }
 
 /**
@@ -666,7 +715,7 @@ function collectEgg(world: World, state: GameState): GameState {
 
 function toggleItem(world: World, state: GameState, item: BreedingItem): GameState {
   if (!atDaycare(world, state)) throw new IllegalInput("you are not in the daycare");
-  if (!state.items.includes(item)) throw new IllegalInput("you do not have that");
+  if (!hasItem(state.bag, item)) throw new IllegalInput("you do not have that");
 
   const applied = state.daycare.applied.includes(item)
     ? state.daycare.applied.filter((held) => held !== item)
@@ -793,7 +842,12 @@ function exitFrom(world: World, from: string, x: number, y: number): { route: st
   if (x === 0) {
     if (route.ring <= 1) {
       const town = world.routes.get(HUB_ID);
-      return town ? { route: HUB_ID, x: 1, y: Math.floor(town.height / 2) } : null;
+      if (!town) return null;
+      // Back in through the gap this arm actually leaves by, so a step out and
+      // a step back is a round trip rather than a teleport across town.
+      const side = world.config.biomes.indexOf(route.biome);
+      if (side < 0) return null;
+      return { route: HUB_ID, ...townArrival(town.width, town.height, side) };
     }
     const inward = world.routes.get(routeId(route.biome, route.ring - 1));
     // Arriving from outside lands you at the far end of the path, which the
@@ -838,6 +892,221 @@ function reorderParty(state: GameState, from: number, to: number): GameState {
   party.splice(to, 0, moved);
 
   return { ...state, tick: state.tick + 1, party, notice: null };
+}
+
+/**
+ * Why this item cannot be used on this creature, or null if it can.
+ *
+ * The same shape as every other refusal here: the panel needs the reason, not
+ * just the verdict, and a panel that derives one separately will eventually
+ * derive a different one.
+ */
+export function itemRefusal(state: GameState, itemId: string, index: number): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (!isItem(itemId)) return "no such item";
+  if (!hasItem(state.bag, itemId)) return "you have none";
+
+  const target = state.party[index];
+  if (!target) return "nobody there";
+
+  const spec = item(itemId);
+  if (spec.kind !== "medicine") return `the ${spec.name} is not used on a creature`;
+
+  const fainted = target.hp <= 0;
+  if (spec.revives) return fainted ? null : "it is still standing";
+  if (fainted) return "it has fainted";
+
+  if (spec.levels) return target.level >= MAX_LEVEL ? "it cannot grow further" : null;
+  if (spec.heals && target.hp < maxHp(target)) return null;
+  if (spec.cures && target.status) return null;
+
+  return spec.heals ? "it is already well" : "nothing to cure";
+}
+
+function applyItem(state: GameState, itemId: string, index: number): GameState {
+  const refusal = itemRefusal(state, itemId, index);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const spec = item(itemId);
+  const party = [...state.party];
+  const target = party[index];
+  const max = maxHp(target);
+
+  let next: Individual = target;
+
+  if (spec.revives) {
+    next = { ...next, hp: Math.max(1, Math.floor(max / spec.revives)), status: null, sleepTurns: 0 };
+  } else if (spec.levels) {
+    const level = Math.min(MAX_LEVEL, next.level + spec.levels);
+    next = atFullHealth(withMoves({ ...next, level, exp: expForLevel(level) }));
+  } else {
+    if (spec.heals) next = { ...next, hp: Math.min(max, next.hp + spec.heals) };
+    if (spec.cures) next = { ...next, status: null, sleepTurns: 0 };
+  }
+
+  party[index] = next;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party,
+    bag: removeItem(state.bag, itemId),
+    notice: { t: "used", item: itemId, on: speciesById(next.speciesId).name },
+  };
+}
+
+/**
+ * The best rod in the bag, or null if there is none.
+ *
+ * Rods are equipment and strictly better as they go, so there is never a
+ * reason to ask which one to use — the bag answers it.
+ */
+export function bestRod(bag: Bag): ItemSpec | null {
+  return [...RODS].reverse().find((rod) => hasItem(bag, rod.id)) ?? null;
+}
+
+/** Water you could cast into from here, or null. */
+function waterBeside(world: World, state: GameState): boolean {
+  const route = world.routes.get(state.route);
+  if (!route) return false;
+
+  return [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+  ].some(([dx, dy]) => {
+    const x = state.x + dx;
+    const y = state.y + dy;
+    if (x < 0 || y < 0 || x >= route.width || y >= route.height) return false;
+    return route.tiles[y * route.width + x] === TILE.WATER;
+  });
+}
+
+/** Why you cannot fish here, or null if you can. */
+export function fishRefusal(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (!bestRod(state.bag)) return "you have no rod";
+  if (!waterBeside(world, state)) return "no water within reach";
+  if (!state.party.some((creature) => creature.hp > 0)) return "nothing that could fight it";
+  return null;
+}
+
+function fish(world: World, state: GameState): GameState {
+  const refusal = fishRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const rod = bestRod(state.bag)!;
+  const key = `${state.route}:rod`;
+  const index = state.nextSlot[key] ?? 0;
+
+  const hooked = atFullHealth(
+    withMoves(fishAt(world, ALL_SPECIES, state.route, rod.reach ?? 1, index, state.nextUid)),
+  );
+  const leadIndex = state.party.findIndex((creature) => creature.hp > 0);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    // Its own counter, so casting a line never consumes a patch of grass and
+    // walking the grass never consumes the pond.
+    nextSlot: { ...state.nextSlot, [key]: index + 1 },
+    phase: "battle",
+    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:rod:${index}`, state.party, [hooked], leadIndex),
+    nextUid: state.nextUid + 1,
+    notice: null,
+  };
+}
+
+/** Whether you are standing in a shop. */
+function atMart(world: World, state: GameState): boolean {
+  return inside(world, state, "mart");
+}
+
+export function buyRefusal(
+  world: World,
+  state: GameState,
+  itemId: string,
+  count: number,
+): string | null {
+  if (!atMart(world, state)) return "you are not in the Mart";
+  if (!isItem(itemId)) return "no such item";
+  if (!Number.isInteger(count) || count < 1) return "buy at least one";
+
+  const spec = item(itemId);
+  if (spec.price <= 0) return "that is not for sale";
+  if (!spec.stacks && hasItem(state.bag, itemId)) return "you already have one";
+  if (!spec.stacks && count > 1) return "one is all there is";
+  if (spec.price * count > state.money) return "you cannot afford that";
+  return null;
+}
+
+function buyItem(world: World, state: GameState, itemId: string, count: number): GameState {
+  const refusal = buyRefusal(world, state, itemId, count);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const spec = item(itemId);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money - spec.price * count,
+    bag: addItem(state.bag, itemId, count),
+    notice: { t: "bought", item: itemId, count },
+  };
+}
+
+export function sellRefusal(
+  world: World,
+  state: GameState,
+  itemId: string,
+  count: number,
+): string | null {
+  if (!atMart(world, state)) return "you are not in the Mart";
+  if (!isItem(itemId)) return "no such item";
+  if (!Number.isInteger(count) || count < 1) return "sell at least one";
+  if (countOf(state.bag, itemId) < count) return "you do not have that many";
+
+  const spec = item(itemId);
+  if (spec.sell <= 0) return "nobody will buy that";
+  return null;
+}
+
+function sellItem(world: World, state: GameState, itemId: string, count: number): GameState {
+  const refusal = sellRefusal(world, state, itemId, count);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const spec = item(itemId);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money + spec.sell * count,
+    bag: removeItem(state.bag, itemId, count),
+    notice: { t: "sold", item: itemId, count },
+  };
+}
+
+/** Which ball an action names, defaulting to the ordinary one. */
+function ballIdOf(action: BattleAction): string {
+  return action.t === "ball" ? (action.item ?? "pokeball") : "pokeball";
+}
+
+/** How many of the named ball are to hand, for the turn to spend. */
+function ballAt(state: GameState, action: BattleAction): number {
+  if (action.t !== "ball") return 0;
+  const id = ballIdOf(action);
+  if (item(id).kind !== "ball") throw new IllegalInput("that is not a ball");
+  return countOf(state.bag, id);
+}
+
+/**
+ * What beating a trainer is worth.
+ *
+ * Trainers used to hand over five balls, which made the only currency in the
+ * game a thing you could not spend on anything else. They pay money now, and
+ * balls are bought — so a purse scales with what it took to earn it.
+ */
+export function trainerPurse(teamSize: number, ring: number): number {
+  return 150 * teamSize * Math.max(1, ring);
 }
 
 /** Which row the eastern way out of a route sits on. */
@@ -956,7 +1225,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     // Side 1 is the wild creature; its move is derived from the battle's own
     // seed, so it is as unrerollable as the encounter that produced it.
     const rules = trainerIdOf(state.battle) ? TRAINER_RULES : WILD_RULES;
-    result = resolveTurn(state.battle, [action, aiAction(state.battle)], rules, state.balls);
+    result = resolveTurn(state.battle, [action, aiAction(state.battle)], rules, ballAt(state, action));
   } catch (error) {
     throw new IllegalInput(error instanceof Error ? error.message : "bad battle action");
   }
@@ -966,7 +1235,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     tick: state.tick + 1,
     // The party fought inside the battle, so it comes back out of it.
     party: result.battle.sides[0].team,
-    balls: state.balls - result.ballsUsed,
+    bag: result.ballsUsed ? removeItem(state.bag, ballIdOf(action), result.ballsUsed) : state.bag,
     battle: result.battle,
     notice: null,
   };
@@ -1019,12 +1288,13 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
       if (!trainerId) return { ...base, phase: "battleEnd", notice: { t: "won" } };
 
       const trainer = [...world.trainers.values()].flat().find((who) => who.id === trainerId);
+      const purse = trainerPurse(trainer?.team.length ?? 1, world.routes.get(base.route)?.ring ?? 1);
       return {
         ...base,
         phase: "battleEnd",
         beaten: [...base.beaten, trainerId].sort(),
-        balls: base.balls + TRAINER_REWARD_BALLS,
-        notice: { t: "beatTrainer", name: trainer?.name ?? "They", balls: TRAINER_REWARD_BALLS },
+        money: base.money + purse,
+        notice: { t: "beatTrainer", name: trainer?.name ?? "They", money: purse },
       };
     }
   }
@@ -1139,11 +1409,11 @@ export function stateHash(state: GameState): string {
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
     state.nextUid,
-    state.balls,
+    state.money,
+    bagEntries(state.bag).map(([id, count]) => `${id}x${count}`).join(","),
     battle,
     state.found.join(","),
     daycare,
-    state.items.join(","),
     state.visited.join(","),
     state.beaten.join(","),
     state.cheated ? "1" : "0",

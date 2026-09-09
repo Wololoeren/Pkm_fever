@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         166 tests, including the replay property everything rests on
+tests/         188 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -217,6 +217,46 @@ sets `cheated` — so a save that used one says so, and the verification a
 tournament runs at check-in catches it for free. A cheat menu that bypassed the
 log would produce saves indistinguishable from honest ones, which is the
 opposite of what this design is for.
+
+### Money, the bag and the Mart
+
+Everything you hold lives in one bag of counts — balls, medicine, rods and the
+breeding equipment together. Balls used to be a loose number on the state and
+breeding gear a list of ids, which meant "how many of this do I have" had two
+different answers depending on what you were asking about.
+
+Trainers pay **money** rather than balls. A handful of one consumable is not a
+reward, it is a refill; a purse is a choice. It scales with the team you beat
+and how far out you beat it, and the **Mart** in Hearth is where it turns into
+anything: three grades of ball, potions and revives, a Rare Candy priced so
+that fighting stays the cheaper road to a level, and three fishing rods. The
+Mart also buys — treasure exists to be sold — and a buy-then-sell round trip
+always loses money, because a shop that breaks even is an infinite loop with a
+counter in front of it.
+
+Breeding equipment is found, never stocked, and the Mart will not buy it: a
+player who sells their world's only Prism has not made a trade, they have lost
+something the world contains once.
+
+Items are used **out in the field**, not mid-battle. A potion in a duel would
+have to be committed and revealed like a move for the protocol to stay fair,
+and a heal the other side cannot answer is the shortest road to a battle that
+never ends.
+
+### Fishing
+
+A rod turns any water's edge into a second kind of encounter. The table is the
+grass table turned sideways — water types rather than the biome's, and a rod's
+**reach** standing in for distance, so a Super Rod in the shallows finds about
+what walking to the far edge of the map would. Depth is a second axis of
+progress that does not require walking further out, which is what you are
+buying.
+
+Each pond keeps its own counter, so casting never consumes a patch of grass and
+walking the grass never consumes the pond; and the same cast from the same spot
+always hooks the same creature. What fishing does *not* pay is variants — the
+census is placed in grass slots, and a pond that could also hold the world's
+one shiny would make the count a lie.
 
 ### Effort
 
