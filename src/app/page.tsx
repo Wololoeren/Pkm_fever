@@ -419,13 +419,6 @@ export default function Page() {
 
         {state.phase === "field" ? (
           <section className="panel">
-            <h3>Quests</h3>
-            <QuestPanel world={session.world} state={state} onInput={dispatch} />
-          </section>
-        ) : null}
-
-        {state.phase === "field" ? (
-          <section className="panel">
             <div className="row">
               <h3>Bag</h3>
               {/* Fishing is offered where it is legal and refused where it is
@@ -441,6 +434,13 @@ export default function Page() {
               </button>
             </div>
             <BagPanel world={session.world} state={state} onInput={dispatch} />
+          </section>
+        ) : null}
+
+        {state.phase === "field" ? (
+          <section className="panel">
+            <h3>Quests</h3>
+            <QuestPanel world={session.world} state={state} onInput={dispatch} />
           </section>
         ) : null}
       </div>

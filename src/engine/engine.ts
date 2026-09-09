@@ -1697,7 +1697,17 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     return { ...state, tick: state.tick + 1, talking: person.id, notice: null };
   }
 
-  const moved: GameState = walked({ ...state, tick: state.tick + 1, x: nx, y: ny, notice: null });
+  // Walking away is a way of ending a conversation, and the commonest one.
+  // Leaving `talking` set would keep the panel open above a map you had
+  // already left the speaker behind on.
+  const moved: GameState = walked({
+    ...state,
+    tick: state.tick + 1,
+    x: nx,
+    y: ny,
+    talking: null,
+    notice: null,
+  });
 
   // Something on the floor. Picked up by standing on it, once ever.
   const lying = (world.pickups.get(state.route) ?? []).find(
