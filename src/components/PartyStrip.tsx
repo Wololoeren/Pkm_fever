@@ -37,10 +37,13 @@ export function PartyStrip({
   party,
   activeIndex,
   onSelect,
+  onInspect,
 }: {
   party: Individual[];
   activeIndex?: number;
   onSelect?: (index: number) => void;
+  /** Opens the full sheet. Separate from onSelect, which switches in battle. */
+  onInspect?: (uid: number) => void;
 }) {
   if (!party.length) return <p className="muted">Nothing in your party yet.</p>;
 
@@ -49,15 +52,17 @@ export function PartyStrip({
       {party.map((creature, index) => {
         const stats = computeStats(speciesById(creature.speciesId), creature);
         const fainted = creature.hp <= 0;
-        const Tag = onSelect ? "button" : "div";
+        const Tag = onSelect ? "button" : onInspect ? "button" : "div";
+        const activate = onSelect ? () => onSelect(index) : onInspect ? () => onInspect(creature.uid) : undefined;
 
         return (
           <Tag
             key={creature.uid}
             className={`card${index === activeIndex ? " active" : ""}${fainted ? " fainted" : ""}`}
-            onClick={onSelect ? () => onSelect(index) : undefined}
+            onClick={activate}
             disabled={onSelect ? fainted || index === activeIndex : undefined}
-            type={onSelect ? "button" : undefined}
+            type={activate ? "button" : undefined}
+            title={onInspect && !onSelect ? "Look at it" : undefined}
           >
             <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={44} faint={fainted} />
             <div className="cardBody">

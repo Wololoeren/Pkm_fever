@@ -85,6 +85,7 @@ function Row({
   disabled,
   onAct,
   extra,
+  onInspect,
 }: {
   creature: Individual;
   action: string;
@@ -92,6 +93,7 @@ function Row({
   disabled?: boolean;
   onAct: () => void;
   extra?: React.ReactNode;
+  onInspect?: (uid: number) => void;
 }) {
   return (
     <div className="boxRow">
@@ -104,6 +106,11 @@ function Row({
         {ivBar(creature)}
       </div>
       <VariantTag variantId={creature.variantId} />
+      {onInspect ? (
+        <button type="button" className="ghost small" onClick={() => onInspect(creature.uid)} title="Stats and moves">
+          Look
+        </button>
+      ) : null}
       <button type="button" className="ghost small" onClick={onAct} disabled={disabled} title={label}>
         {action}
       </button>
@@ -116,10 +123,12 @@ export function HubPanel({
   state,
   onInput,
   onPvp,
+  onInspect,
 }: {
   state: GameState;
   onInput: (input: Input) => void;
   onPvp: () => void;
+  onInspect: (uid: number) => void;
 }) {
   const [first, second] = state.daycare.slots;
   const pair = first && second ? compatible(first, second) : false;
@@ -222,6 +231,7 @@ export function HubPanel({
             <Row
               key={creature.uid}
               creature={creature}
+              onInspect={onInspect}
               action="Deposit"
               label={depositRefusal(state, "party", index) ?? "Leave at the daycare"}
               disabled={Boolean(depositRefusal(state, "party", index))}
@@ -248,6 +258,7 @@ export function HubPanel({
               <Row
                 key={creature.uid}
                 creature={creature}
+                onInspect={onInspect}
                 action="Take out"
                 label="Into your party"
                 disabled={state.party.length >= 6}

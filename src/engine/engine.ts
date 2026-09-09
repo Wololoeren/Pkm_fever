@@ -18,7 +18,7 @@ import {
   type BreedingItem,
   type DaycareState,
 } from "./breeding";
-import { ALL_SPECIES, movesAtLevel, species as speciesById } from "./dex";
+import { ALL_SPECIES, learnableAt, movesAtLevel, species as speciesById } from "./dex";
 import { NATURE_IDS } from "./natures";
 import { expForLevel } from "./progression";
 import { hash32, intBetween, rngFor } from "./rng";
@@ -93,7 +93,15 @@ export type Input =
    * bypassed the log would produce saves indistinguishable from honest ones,
    * which is the opposite of what this design is for.
    */
-  | { t: "cheat"; cheat: Cheat };
+  | { t: "cheat"; cheat: Cheat }
+  /**
+   * Rechooses which four of a creature's learned moves it carries.
+   *
+   * In town, because it is a decision worth walking back for, and because
+   * being able to rebuild a moveset in front of a wild creature would make
+   * every type matchup a formality.
+   */
+  | { t: "setMoves"; index: number; moves: string[] };
 
 export type Cheat =
   | { op: "give"; speciesId: string; level: number; variantId: string }
@@ -277,7 +285,45 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return trade(state, input.give, input.receive);
     case "cheat":
       return cheat(world, state, input.cheat);
+    case "setMoves":
+      return setMoves(state, input.index, input.moves);
   }
+}
+
+export const MAX_MOVES = 4;
+
+/**
+ * Why this moveset would be refused, or null if it is fine.
+ *
+ * Exported so the UI disables for exactly what the engine refuses. That has
+ * gone wrong twice already — the daycare button and the ball button both
+ * carried their own approximation of a rule the engine owned.
+ */
+export function movesRefusal(state: GameState, index: number, moves: readonly string[]): string | null {
+  if (!inTown(state)) return "moves are rearranged in town";
+  if (index < 0 || index >= state.party.length) return "no such creature";
+  if (!moves.length) return "keep at least one move";
+  if (moves.length > MAX_MOVES) return `no more than ${MAX_MOVES}`;
+  if (new Set(moves).size !== moves.length) return "no duplicates";
+
+  const creature = state.party[index];
+  const pool = new Set(learnableAt(creature.speciesId, creature.level));
+  for (const moveId of moves) {
+    if (!pool.has(moveId)) return "it has not learned that";
+  }
+  return null;
+}
+
+function setMoves(state: GameState, index: number, moves: string[]): GameState {
+  const refusal = movesRefusal(state, index, moves);
+  if (refusal) throw new IllegalInput(refusal);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.map((creature, at) => (at === index ? { ...creature, moves: [...moves] } : creature)),
+    notice: null,
+  };
 }
 
 /**

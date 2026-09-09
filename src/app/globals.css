@@ -529,3 +529,81 @@ select {
   max-width: 100%;
 }
 select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --------------------------------------------------------------- mini map */
+
+.fieldRow { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+
+.miniMap {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  flex: none;
+}
+.miniLabel {
+  fill: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* --------------------------------------------------------------- inspect */
+
+.scrollX { overflow-x: auto; }
+
+.statTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+}
+.statTable th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 0 10px 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.statTable td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); }
+.statTable .num { text-align: right; font-family: var(--mono); }
+.statTable .strong { font-weight: 700; }
+.statTable td.good { color: var(--good); }
+.statTable td.error { color: var(--danger); }
+
+.factLines { display: flex; flex-direction: column; gap: 4px; }
+.factLines p { line-height: 1.5; }
+
+.moveList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.moveRow {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-left-style: solid;
+  border-radius: 6px;
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  position: relative;
+}
+button.moveRow { cursor: pointer; }
+button.moveRow:hover:not(:disabled) { background: #29323d; }
+button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
+.moveRow.on { background: var(--accent-dim); border-color: var(--accent); }
+.moveRow .muted { position: absolute; top: 6px; right: 8px; }

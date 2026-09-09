@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DuelSession, type DuelMessage } from "@/engine/duel";
-import { applyInput, initialState } from "@/engine/engine";
+import { learnableAt } from "@/engine/dex";
+import { applyInput, initialState, MAX_MOVES, movesRefusal } from "@/engine/engine";
 import { TradeSession, type TradeMessage } from "@/engine/trade";
 import type { Individual } from "@/engine/types";
 import { creature, testWorld } from "./helpers";
@@ -200,3 +201,48 @@ describe("the testing shortcuts", () => {
   });
 });
 
+
+describe("choosing moves", () => {
+  it("P11: you pick from everything it has naturally learned by now", () => {
+    const { world, state } = inTown();
+    const lead = state.party[0];
+    const pool = learnableAt(lead.speciesId, lead.level);
+
+    expect(pool.length).toBeGreaterThan(0);
+    // What it walks around with is a subset of what it knows.
+    for (const moveId of lead.moves) expect(pool).toContain(moveId);
+
+    const chosen = pool.slice(0, Math.min(MAX_MOVES, pool.length));
+    const after = applyInput(world, state, { t: "setMoves", index: 0, moves: chosen });
+    expect(after.party[0].moves).toEqual(chosen);
+  });
+
+  it("P12: nothing it has not learned, no duplicates, no fifth move", () => {
+    const { world, state } = inTown();
+    const lead = state.party[0];
+    const known = learnableAt(lead.speciesId, lead.level);
+
+    // Something no starter learns at level five.
+    expect(movesRefusal(state, 0, ["hyperbeam"])).toBe("it has not learned that");
+    expect(movesRefusal(state, 0, [known[0], known[0]])).toBe("no duplicates");
+    expect(movesRefusal(state, 0, [])).toBe("keep at least one move");
+    expect(() => applyInput(world, state, { t: "setMoves", index: 0, moves: ["hyperbeam"] })).toThrow();
+  });
+
+  it("P13: a higher level opens up more of the learnset", () => {
+    const early = learnableAt("bulbasaur", 5);
+    const later = learnableAt("bulbasaur", 40);
+    expect(later.length).toBeGreaterThan(early.length);
+    for (const moveId of early) expect(later).toContain(moveId);
+  });
+
+  it("P14: moves are rearranged in town, not in the grass", () => {
+    const { world, state } = inTown();
+    let outside = state;
+    for (let i = 0; i < 14 && outside.route === "hub-0"; i++) {
+      outside = applyInput(world, outside, { t: "move", dir: "e" });
+    }
+    expect(outside.route).not.toBe("hub-0");
+    expect(movesRefusal(outside, 0, outside.party[0].moves)).toBe("moves are rearranged in town");
+  });
+});

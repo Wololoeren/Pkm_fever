@@ -140,6 +140,21 @@ export function baseFormOf(speciesId: string): string {
 }
 
 /**
+ * Everything this species has naturally learned by this level.
+ *
+ * The pool a player chooses their four from. Level-up moves only — a move
+ * tutor or a machine is a different system with a different economy, and
+ * neither exists yet.
+ */
+export function learnableAt(speciesId: string, level: number): string[] {
+  const seen = new Set<string>();
+  for (const [at, moveId] of learnset(speciesId)) {
+    if (at <= level) seen.add(moveId);
+  }
+  return [...seen];
+}
+
+/**
  * The four moves a creature of this species and level knows.
  *
  * The last four it would have learned, which is what a wild encounter and a

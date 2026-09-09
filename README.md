@@ -47,7 +47,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         125 tests, including the replay property everything rests on
+tests/         129 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld, wild encounters, a
@@ -142,6 +142,32 @@ but a traded creature came out of somebody else's world, from a seed this save
 has never seen, so the trade input carries it whole. The log still replays; it
 just no longer proves that one. Arrivals are marked `traded` so a format can
 decide whether it cares.
+
+### Looking at a creature
+
+Every party and box row opens a sheet with the whole picture: base stat, IV,
+nature and EV in separate columns, then the total. That separation is the
+point — three systems feed each number, and until you can see them side by
+side there is no way to tell a well-bred creature from a lucky one, or to see
+what a nature is actually worth.
+
+Moves are chosen there too: any four of everything the creature has naturally
+learned by its current level, rearranged **in town**. Being able to rebuild a
+moveset in front of a wild creature would make every type matchup a formality.
+
+A mark rides on the sprite wherever it appears — a star for the true shiny, a
+diamond for a chroma, a numbered spark for each rung of the tint ladder. A
+two-fifths tint of something already green is a colour you would have to have
+memorised the original to notice.
+
+### The map
+
+The minimap draws the world in the shape it has: a hub with four arms, rings
+along each. Not a scaled-down copy of the tiles — difficulty is
+one-dimensional along an arm, so the useful question is "which arm, how far
+out", and a minified tile view would answer a different one. Unvisited rings
+are drawn but empty: the shape of the world is not a secret, only what is in
+it.
 
 ### Testing shortcuts
 

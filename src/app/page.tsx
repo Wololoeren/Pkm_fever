@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BattleView } from "@/components/BattleView";
 import { CheatMenu } from "@/components/CheatMenu";
+import { Inspect } from "@/components/Inspect";
+import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { HubPanel } from "@/components/HubPanel";
@@ -49,6 +51,8 @@ export default function Page() {
   const [autosave, setAutosave] = useState<SaveFile | null>(null);
   const [pvp, setPvp] = useState(false);
   const [cheats, setCheats] = useState(false);
+  /** uid of whatever is being looked at, or null. */
+  const [inspecting, setInspecting] = useState<number | null>(null);
 
   // localStorage is not available while the static export is being rendered,
   // so the autosave is looked up once the page is actually in a browser.
@@ -144,6 +148,16 @@ export default function Page() {
 
   const inHub = state?.phase === "field" && state.route === HUB_ID;
 
+  /** What the inspector is looking at, and whether it is in the party — which
+   * decides whether its moves can be rearranged. */
+  const inspected = useMemo(() => {
+    if (!state || inspecting === null) return null;
+    const index = state.party.findIndex((creature) => creature.uid === inspecting);
+    if (index >= 0) return { creature: state.party[index], index };
+    const boxed = state.box.find((creature) => creature.uid === inspecting);
+    return boxed ? { creature: boxed, index: -1 } : null;
+  }, [state, inspecting]);
+
   const foundLabel = useMemo(() => {
     if (!state) return "";
     const special = state.found.filter((id) => id !== "normal").length;
@@ -236,7 +250,10 @@ export default function Page() {
         />
       ) : (
         <section className="field">
-          <GameCanvas world={session.world} state={state} />
+          <div className="fieldRow">
+            <GameCanvas world={session.world} state={state} />
+            <MiniMap world={session.world} state={state} />
+          </div>
           <p className="hint">
             <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to
             walk. Tall grass has things in it. Walk east to go further out; the hub is west.
@@ -264,10 +281,20 @@ export default function Page() {
         </section>
       )}
 
-      {inHub ? <HubPanel state={state} onInput={dispatch} onPvp={() => setPvp(true)} /> : null}
+      {inHub ? <HubPanel state={state} onInput={dispatch} onPvp={() => setPvp(true)} onInspect={setInspecting} /> : null}
 
       {cheats ? (
         <CheatMenu world={session.world} state={state} onInput={dispatch} onClose={() => setCheats(false)} />
+      ) : null}
+
+      {inspected ? (
+        <Inspect
+          creature={inspected.creature}
+          index={inspected.index}
+          state={state}
+          onInput={dispatch}
+          onClose={() => setInspecting(null)}
+        />
       ) : null}
 
       <section className="panel">
@@ -276,7 +303,7 @@ export default function Page() {
         {inHub ? null : (
           <>
             <h3>Party</h3>
-            <PartyStrip party={state.party} activeIndex={state.battle?.sides[0].active} />
+            <PartyStrip party={state.party} activeIndex={state.battle?.sides[0].active} onInspect={setInspecting} />
           </>
         )}
         <div className="row">
