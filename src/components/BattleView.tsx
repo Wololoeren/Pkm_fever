@@ -8,6 +8,7 @@ import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, PartyStrip, VariantTag } from "./PartyStrip";
+import { EvolutionScene } from "./EvolutionScene";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
@@ -68,6 +69,20 @@ export function BattleView({
 }) {
   const [switching, setSwitching] = useState(false);
 
+  // An evolution to show, if this turn produced one and it has not been sat
+  // through yet. Keyed by the battle and the turn it happened on, so the same
+  // one is never shown twice and a later one is never missed.
+  const [evolvedKey, setEvolved] = useState<string | null>(null);
+  const evolving = (() => {
+    const event = battle.events.find(
+      (one) => one.t === "exp" && one.evolved && one.evolvedFrom,
+    );
+    if (!event || event.t !== "exp" || !event.evolved || !event.evolvedFrom) return null;
+
+    const key = `${battle.tag}:${battle.turn}:${event.evolved}`;
+    return evolvedKey === key ? null : { key, from: event.evolvedFrom, to: event.evolved };
+  })();
+
   const them: SideIndex = role === 0 ? 1 : 0;
   const player = activeOf(battle, role);
   const foe = activeOf(battle, them);
@@ -81,6 +96,14 @@ export function BattleView({
 
   return (
     <div className="battle">
+      {evolving ? (
+        <EvolutionScene
+          from={evolving.from}
+          to={evolving.to}
+          onDone={() => setEvolved(evolving.key)}
+        />
+      ) : null}
+
       <div className="field">
         {/* Hover either creature for its full numbers. Nothing across the
             field is secret: a duel commits to a move before it is revealed,

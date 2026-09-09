@@ -344,3 +344,51 @@ describe("move data", () => {
     expect(move("recover").heal).toEqual([1, 2]);
   });
 });
+
+describe("evolving", () => {
+  it("B28: the event says what it became and what it was", () => {
+    // Both halves, because by the time anything reads this the creature has
+    // already changed — a screen that wants to show the change has no way
+    // back to the thing it changed from.
+    const mine = creature("caterpie", { uid: 1, level: 6, moves: ["tackle"] });
+    const theirs = creature("magikarp", { uid: 2, level: 40, hp: 1, moves: ["splash"] });
+
+    let battle = startBattle("SEED", "wild:evolve:0", [mine], [theirs]);
+    let evolved: { evolved: string | null; evolvedFrom: string | null } | null = null;
+
+    for (let i = 0; i < 20 && !battle.outcome; i++) {
+      battle = resolveTurn(
+        battle,
+        [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+        WILD_RULES,
+      ).battle;
+
+      for (const event of battle.events) {
+        if (event.t === "exp" && event.evolved) evolved = event;
+      }
+    }
+
+    expect(evolved).not.toBeNull();
+    expect(evolved!.evolvedFrom).toBe("caterpie");
+    expect(evolved!.evolved).toBe("metapod");
+    expect(battle.sides[0].team[0].speciesId).toBe("metapod");
+  });
+
+  it("B29: and says nothing about it when nothing evolved", () => {
+    const mine = creature("machamp", { uid: 1, level: 80, moves: ["karatechop"] });
+    const theirs = creature("magikarp", { uid: 2, level: 5, hp: 1, moves: ["splash"] });
+
+    let battle = startBattle("SEED", "wild:plain:0", [mine], [theirs]);
+    battle = resolveTurn(
+      battle,
+      [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+      WILD_RULES,
+    ).battle;
+
+    for (const event of battle.events) {
+      if (event.t !== "exp") continue;
+      expect(event.evolved).toBeNull();
+      expect(event.evolvedFrom).toBeNull();
+    }
+  });
+});

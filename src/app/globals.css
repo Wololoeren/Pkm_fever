@@ -195,6 +195,7 @@ button.ghost { background: transparent; }
 /* ------------------------------------------------------------------ map */
 
 .field { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.battle { position: relative; }
 
 .map {
   border: 1px solid var(--line);
@@ -862,6 +863,90 @@ kbd {
 
 .moveNoteHead { display: flex; align-items: center; gap: 6px; }
 .moveFacts { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); }
+
+/* ------------------------------------------------------------- evolution */
+
+/* Over the battle field rather than over the page: the rest of the screen
+   stays where it is, so the thing you were looking at is the thing that
+   changes. */
+.evolve {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 45%, #1d2740 0%, #0b0e13 70%);
+}
+
+.evolveRays {
+  position: absolute;
+  width: 900px;
+  height: 900px;
+  background: conic-gradient(
+    from 0deg,
+    rgba(255, 255, 255, 0.14) 0deg 6deg,
+    transparent 6deg 24deg
+  );
+  animation: evolveSpin 12s linear infinite;
+  opacity: 0.25;
+  transition: opacity 600ms ease;
+}
+.evolve-flicker .evolveRays { opacity: 0.5; animation-duration: 5s; }
+.evolve-peak .evolveRays { opacity: 0.85; animation-duration: 1.6s; }
+.evolve-reveal .evolveRays { opacity: 0.35; animation-duration: 9s; }
+
+@keyframes evolveSpin {
+  to { transform: rotate(360deg); }
+}
+
+.evolveStage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 200px;
+  height: 200px;
+}
+
+/* The glow behind it, which is the whole of the build-up. */
+.evolveStage::before {
+  content: "";
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(232, 214, 138, 0.55), transparent 65%);
+  transform: scale(0.6);
+  transition: transform 800ms ease, opacity 800ms ease;
+  opacity: 0.5;
+}
+.evolve-flicker .evolveStage::before { transform: scale(1.05); opacity: 0.9; }
+.evolve-peak .evolveStage::before { transform: scale(1.9); opacity: 1; }
+.evolve-reveal .evolveStage::before { transform: scale(1.2); opacity: 0.75; }
+
+.evolveSprite { position: relative; transition: filter 200ms ease, transform 600ms ease; }
+/* A shape rather than a creature, until the last moment. */
+.evolveSprite.dark { filter: brightness(0) saturate(0) drop-shadow(0 0 14px rgba(255, 255, 255, 0.75)); }
+.evolve-peak .evolveSprite { filter: brightness(4) saturate(0); transform: scale(1.15); }
+.evolve-reveal .evolveSprite { transform: scale(1.1); }
+
+.evolveWord { position: relative; font-size: 1.05rem; text-align: center; max-width: 32ch; }
+
+.evolveTrack {
+  position: relative;
+  width: 220px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.evolveFill { height: 100%; background: rgba(255, 255, 255, 0.55); }
+
+.evolveSkip { position: absolute; right: 12px; bottom: 12px; }
 
 /* --------------------------------------------------------------- inspect */
 

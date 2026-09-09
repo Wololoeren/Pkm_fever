@@ -67,7 +67,18 @@ export type BattleEvent =
   | { t: "residual"; side: SideIndex; status: StatusId; amount: number }
   | { t: "faint"; side: SideIndex }
   | { t: "switch"; side: SideIndex; partyIndex: number }
-  | { t: "exp"; amount: number; levels: number; learned: string[]; evolved: string | null }
+  | {
+      t: "exp";
+      amount: number;
+      levels: number;
+      learned: string[];
+      /** What it became, if it became anything. */
+      evolved: string | null;
+      /** And what it was — carried because the creature has already changed by
+       * the time anything reads this, and a screen that wants to show the
+       * change needs both halves of it. */
+      evolvedFrom: string | null;
+    }
   | { t: "effort"; stats: StatId[]; amount: number }
   | { t: "catchFailed" }
   | { t: "caught" }
@@ -628,6 +639,7 @@ function settle(turn: Turn, rules: BattleRules): void {
       amount,
       levels: growth.levelsGained,
       learned: growth.movesLearned,
+      evolvedFrom: growth.evolvedTo ? victor.speciesId : null,
       evolved: growth.evolvedTo,
     });
 
