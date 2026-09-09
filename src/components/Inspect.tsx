@@ -12,6 +12,7 @@ import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark } from "./PartyStrip";
 import type { World } from "@/engine/world";
+import { InfoDot } from "./InfoDot";
 import { Sprite } from "./Sprite";
 
 /**
@@ -120,6 +121,11 @@ export function Inspect({
                 ))}
                 {creature.traded ? <span className="tag">TRADED</span> : null}
               </div>
+              <p className="muted eggLine">
+                {entry.eggGroups.includes("Undiscovered")
+                  ? "Egg group: none — this one cannot breed at all."
+                  : `Egg group${entry.eggGroups.length > 1 ? "s" : ""}: ${entry.eggGroups.join(", ")}`}
+              </p>
             </div>
           </div>
           <button type="button" className="ghost" onClick={onClose}>
@@ -127,17 +133,45 @@ export function Inspect({
           </button>
         </header>
 
-        <h3>Stats</h3>
+        <h3>
+          Stats
+          <InfoDot label="What these columns mean">
+            <p className="muted">
+              Nature <strong>{creature.natureId}</strong> — an additive vector, not a multiplier, so
+              what it is worth is the same on every creature and shows in the column above.
+            </p>
+            <p className="muted">
+              IV total <strong>{ivTotal(creature.ivs)}</strong> of {IV_MAX * STAT_IDS.length}. A wild
+              catch rolls 0–6 per stat; anything higher was bred for.
+            </p>
+            <p className="muted">
+              Effort <strong>{effortSpent(creature.evs)}</strong> of {EV_MAX_TOTAL}, at most{" "}
+              {EV_MAX_PER_STAT} in one stat. Four points are one stat point at level 100 — earned by
+              what you fight rather than what you inherited, which makes it the half of a creature
+              you choose.
+            </p>
+            {!isSpecial(creature.variantId) ? null : (
+              <p className="muted">
+                Form <strong>{form.name}</strong> — every stat in the table already includes its
+                multiplier (
+                {STAT_IDS.filter((stat) => form.mult[stat] !== 1000)
+                  .map((stat) => `${STAT_LABELS[stat]} ${((form.mult[stat] - 1000) / 10).toFixed(1)}%`)
+                  .join(", ") || "no change"}
+                ).
+              </p>
+            )}
+          </InfoDot>
+        </h3>
         <div className="scrollX">
           <table className="statTable">
             <thead>
               <tr>
                 <th>Stat</th>
-                <th>Base</th>
-                <th>IV</th>
-                <th>Nature</th>
-                <th>EV</th>
-                <th>Total</th>
+                <th className="num">Base</th>
+                <th className="num">IV</th>
+                <th className="num">Nature</th>
+                <th className="num">EV</th>
+                <th className="num">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -162,29 +196,11 @@ export function Inspect({
 
         <div className="factLines">
           <p className="muted">
-            Nature <strong>{creature.natureId}</strong> — an additive vector, not a multiplier, so
-            what it is worth is the same on every creature and shows in the column above.
+            Nature <strong>{creature.natureId}</strong> · IV{" "}
+            <strong>{ivTotal(creature.ivs)}</strong>/{IV_MAX * STAT_IDS.length} · Effort{" "}
+            <strong>{effortSpent(creature.evs)}</strong>/{EV_MAX_TOTAL}
+            {isSpecial(creature.variantId) ? ` · ${form.name}` : ""}
           </p>
-          <p className="muted">
-            IV total <strong>{ivTotal(creature.ivs)}</strong> of {IV_MAX * STAT_IDS.length}. A wild
-            catch rolls 0–6 per stat; anything higher was bred for.
-          </p>
-          <p className="muted">
-            Effort <strong>{effortSpent(creature.evs)}</strong> of {EV_MAX_TOTAL}, at most{" "}
-            {EV_MAX_PER_STAT} in one stat. Four points are one stat point at level 100 — earned by
-            what you fight rather than what you inherited, which makes it the half of a creature you
-            choose.
-          </p>
-          {!isSpecial(creature.variantId) ? null : (
-            <p className="muted">
-              Form <strong>{form.name}</strong> — every stat above already includes its multiplier
-              (
-              {STAT_IDS.filter((stat) => form.mult[stat] !== 1000)
-                .map((stat) => `${STAT_LABELS[stat]} ${((form.mult[stat] - 1000) / 10).toFixed(1)}%`)
-                .join(", ") || "no change"}
-              ).
-            </p>
-          )}
           <p className="muted">
             {creature.level < 100
               ? `${toNext} experience to level ${creature.level + 1}.`
