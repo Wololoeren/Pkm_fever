@@ -8,6 +8,7 @@ import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, PartyStrip, VariantTag } from "./PartyStrip";
+import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
 
 /**
@@ -80,13 +81,18 @@ export function BattleView({
   return (
     <div className="battle">
       <div className="field">
-        <div className="slot wild">
+        {/* Hover either creature for its full numbers. Nothing across the
+            field is secret: a duel commits to a move before it is revealed,
+            so reading the opponent cannot be used to cheat. */}
+        <div className="slot wild hoverable" tabIndex={0}>
           <Nameplate creature={foe} />
           <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={148} faint={foe.hp <= 0} />
+          <StatHover creature={foe} />
         </div>
-        <div className="slot mine">
+        <div className="slot mine hoverable" tabIndex={0}>
           <Sprite speciesId={player.speciesId} variantId={player.variantId} size={148} flip faint={player.hp <= 0} />
           <Nameplate creature={player} right />
+          <StatHover creature={player} />
         </div>
       </div>
 

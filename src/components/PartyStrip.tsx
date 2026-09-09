@@ -72,12 +72,20 @@ export function PartyStrip({
   activeIndex,
   onSelect,
   onInspect,
+  onReorder,
 }: {
   party: Individual[];
   activeIndex?: number;
   onSelect?: (index: number) => void;
   /** Opens the full sheet. Separate from onSelect, which switches in battle. */
   onInspect?: (uid: number) => void;
+  /**
+   * Moves a member to another slot. Given wherever the party is shown and
+   * reordering is legal, so the order can be set from any of them — slot zero
+   * is who walks into the next fight, which is not a decision that belongs to
+   * one screen.
+   */
+  onReorder?: (from: number, to: number) => void;
 }) {
   if (!party.length) return <p className="muted">Nothing in your party yet.</p>;
 
@@ -89,7 +97,7 @@ export function PartyStrip({
         const Tag = onSelect ? "button" : onInspect ? "button" : "div";
         const activate = onSelect ? () => onSelect(index) : onInspect ? () => onInspect(creature.uid) : undefined;
 
-        return (
+        const card = (
           <Tag
             key={creature.uid}
             className={`card${index === activeIndex ? " active" : ""}${fainted ? " fainted" : ""}`}
@@ -116,6 +124,37 @@ export function PartyStrip({
               </div>
             </div>
           </Tag>
+        );
+
+        if (!onReorder) return card;
+
+        // The arrows sit beside the card rather than inside it: the card is a
+        // <button> whenever it does anything, and a button inside a button is
+        // not a thing a browser will agree to render.
+        return (
+          <div key={creature.uid} className="partyRow">
+            {card}
+            <div className="orderButtons">
+              <button
+                type="button"
+                aria-label={`Move ${displayName(creature)} up`}
+                title="Move up"
+                disabled={index === 0}
+                onClick={() => onReorder(index, index - 1)}
+              >
+                ▲
+              </button>
+              <button
+                type="button"
+                aria-label={`Move ${displayName(creature)} down`}
+                title="Move down"
+                disabled={index === party.length - 1}
+                onClick={() => onReorder(index, index + 1)}
+              >
+                ▼
+              </button>
+            </div>
+          </div>
         );
       })}
     </div>

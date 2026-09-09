@@ -2,13 +2,12 @@
 
 import { species as speciesById } from "@/engine/dex";
 import { offeredStarter } from "@/engine/engine";
-import { natureVector } from "@/engine/natures";
-import { computeStats, IV_MAX, ivTotal } from "@/engine/stats";
-import { STAT_IDS, type Individual } from "@/engine/types";
-import { isSpecial, variant } from "@/engine/variants";
+import { STAT_IDS } from "@/engine/types";
+import { isSpecial } from "@/engine/variants";
 import type { World } from "@/engine/world";
 import { typeColor } from "@/render/palette";
 import { GenderMark, VariantTag } from "./PartyStrip";
+import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
 
 const STAT_LABELS: Record<string, string> = {
@@ -79,63 +78,11 @@ export function StarterPick({ world, onPick }: { world: World; onPick: (index: n
               </dl>
               <p className="muted total">Base total {total}</p>
 
-              <StarterDetail creature={creature} />
+              <StatHover creature={creature} title={entry.name} />
             </button>
           );
         })}
       </div>
     </section>
-  );
-}
-
-/**
- * The numbers behind the card, on hover.
- *
- * Base stats are the species; these are the creature. A seed deals its own
- * IVs, its own nature and its own appearance, and those move the level-five
- * numbers enough that two cards showing the same species are not the same
- * offer — which is the whole reason to look before choosing.
- */
-function StarterDetail({ creature }: { creature: Individual }) {
-  const stats = computeStats(speciesById(creature.speciesId), creature);
-  const nature = natureVector(creature.natureId);
-  const form = variant(creature.variantId);
-
-  return (
-    <div className="starterDetail" role="note">
-      <p className="detailHead">
-        Level {creature.level} · {creature.natureId}
-        {isSpecial(creature.variantId) ? ` · ${form.name}` : ""}
-      </p>
-
-      <table className="detailTable">
-        <thead>
-          <tr>
-            <th>Stat</th>
-            <th>Now</th>
-            <th>IV</th>
-            <th>Nature</th>
-          </tr>
-        </thead>
-        <tbody>
-          {STAT_IDS.map((stat) => (
-            <tr key={stat}>
-              <th scope="row">{STAT_LABELS[stat]}</th>
-              <td>{stats[stat]}</td>
-              <td>{creature.ivs[stat]}</td>
-              <td className={nature[stat] > 0 ? "up" : nature[stat] < 0 ? "down" : "muted"}>
-                {nature[stat] === 0 ? "—" : nature[stat] > 0 ? `+${nature[stat]}` : nature[stat]}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <p className="muted">
-        IV total {ivTotal(creature.ivs)} of {IV_MAX * STAT_IDS.length}. A starter rolls low on
-        purpose — breeding is the way up.
-      </p>
-      <p className="muted">Knows {creature.moves.map((id) => id).join(", ")}.</p>
-    </div>
   );
 }

@@ -101,7 +101,16 @@ export type Input =
    * being able to rebuild a moveset in front of a wild creature would make
    * every type matchup a formality.
    */
-  | { t: "setMoves"; index: number; moves: string[] };
+  | { t: "setMoves"; index: number; moves: string[] }
+  /**
+   * Moving a party member to another slot.
+   *
+   * Slot zero is who walks into the next fight, so this is a real decision
+   * rather than tidying, and it goes through the log like every other one.
+   * Refused mid-battle: reordering with a creature already out would be a
+   * free switch, which is a move the battle system charges a turn for.
+   */
+  | { t: "reorderParty"; from: number; to: number };
 
 export type Cheat =
   | { op: "give"; speciesId: string; level: number; variantId: string; gender: Gender }
@@ -309,6 +318,8 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return cheat(world, state, input.cheat);
     case "setMoves":
       return setMoves(world, state, input.index, input.moves);
+    case "reorderParty":
+      return reorderParty(state, input.from, input.to);
   }
 }
 
@@ -798,6 +809,35 @@ function exitFrom(world: World, from: string, x: number, y: number): { route: st
   // Hub gaps are the only north/south doors; a route's own top and bottom are
   // solid, so reaching here means the border tile is decorative.
   return null;
+}
+
+/**
+ * Why this party cannot be reordered right now, or null if it can.
+ *
+ * The same shape as depositRefusal and movesRefusal, and for the same reason:
+ * the panel has to say *what* is wrong, and a panel that works it out
+ * separately from the engine will eventually work out something different.
+ */
+export function partyOrderRefusal(state: GameState, from: number, to: number): string | null {
+  if (state.phase === "battle") return "not in the middle of a battle";
+  if (state.phase === "starter") return "you have nobody yet";
+  if (!Number.isInteger(from) || !Number.isInteger(to)) return "no such slot";
+  if (from < 0 || to < 0 || from >= state.party.length || to >= state.party.length) {
+    return "no such slot";
+  }
+  if (from === to) return "already there";
+  return null;
+}
+
+function reorderParty(state: GameState, from: number, to: number): GameState {
+  const refusal = partyOrderRefusal(state, from, to);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const party = [...state.party];
+  const [moved] = party.splice(from, 1);
+  party.splice(to, 0, moved);
+
+  return { ...state, tick: state.tick + 1, party, notice: null };
 }
 
 /** Which row the eastern way out of a route sits on. */

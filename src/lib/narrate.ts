@@ -26,6 +26,8 @@ const BLOCKED_TEXT: Record<string, string> = {
 };
 
 const STAT_NAMES: Record<string, string> = {
+  // HP is here for effort, which can land in it. Stat stages never do.
+  hp: "HP",
   atk: "Attack",
   def: "Defense",
   spa: "Sp. Atk",
@@ -95,6 +97,13 @@ export function narrate(
       case "switch":
         lines.push("Come back! Go!");
         break;
+      case "effort": {
+        // Named per stat, because effort is the one stat input a player
+        // directs — "it got stronger" would hide the only decision here.
+        lines.push(`Effort: +${event.amount} ${event.stats.map((stat) => STAT_NAMES[stat]).join(" and ")}.`);
+        break;
+      }
+
       case "exp": {
         lines.push(`Gained ${event.amount} EXP.`);
         if (event.levels > 0) lines.push(`Level up! (+${event.levels})`);

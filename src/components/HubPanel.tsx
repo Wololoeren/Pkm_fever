@@ -12,7 +12,7 @@ import {
   type BreedingItem,
 } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
-import { depositRefusal, type GameState, type Input } from "@/engine/engine";
+import { depositRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
@@ -312,15 +312,37 @@ export function HubPanel({
               disabled={Boolean(depositRefusal(world, state, "party", index))}
               onAct={() => onInput({ t: "deposit", from: "party", index })}
               extra={
-                <button
-                  type="button"
-                  className="ghost small"
-                  disabled={state.party.length <= 1}
-                  onClick={() => onInput({ t: "store", index })}
-                  title="Into the box"
-                >
-                  Box
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={Boolean(partyOrderRefusal(state, index, index - 1))}
+                    onClick={() => onInput({ t: "reorderParty", from: index, to: index - 1 })}
+                    aria-label={`Move ${displayName(creature)} up`}
+                    title="Move up — slot one leads"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={Boolean(partyOrderRefusal(state, index, index + 1))}
+                    onClick={() => onInput({ t: "reorderParty", from: index, to: index + 1 })}
+                    aria-label={`Move ${displayName(creature)} down`}
+                    title="Move down"
+                  >
+                    ▼
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={state.party.length <= 1}
+                    onClick={() => onInput({ t: "store", index })}
+                    title="Into the box"
+                  >
+                    Box
+                  </button>
+                </>
               }
             />
           ))}

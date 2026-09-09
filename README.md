@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         152 tests, including the replay property everything rests on
+tests/         166 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -217,6 +217,51 @@ sets `cheated` — so a save that used one says so, and the verification a
 tournament runs at check-in catches it for free. A cheat menu that bypassed the
 log would produce saves indistinguishable from honest ones, which is the
 opposite of what this design is for.
+
+### Effort
+
+The other half of a creature's stats, and the half you choose. IVs are
+inherited and bred; effort is earned by picking what to fight. Four points are
+one stat point at level 100, capped at 252 in a stat and 510 overall — the
+vanilla exchange rate, which `computeStat` was already applying to an effort
+value nothing had ever awarded.
+
+What a species is worth is **derived from its base stats** rather than carried
+in the manifest. Showdown's dex has no effort yield to copy, and a table of
+1,134 hand-authored numbers would be a lie dressed as data. A species pays in
+the thing it is best at: 1, 2 or 3 points by base stat total, to its highest
+stat, shared with a second stat within five points of it.
+
+Shared with a second and no more. The amount is paid to *each* sharing stat,
+so without a cap a flat species pays more in total than a specialist does —
+Swinub has three stats level at 50 and was handing out three points where a
+Machamp hands out three in one place. That is worse than it sounds: 510 is a
+budget meant to be spent deliberately, and a creature that quietly fills it
+with a spread nobody asked for is a trap rather than a choice.
+
+Both caps are enforced where the effort is granted rather than where it is
+shown. A creature carrying more than it should would compute one set of
+numbers and replay as another.
+
+### Looking at things
+
+Hovering a creature — either side of a battle, or a starter card — gives
+everything true about it: current stats beside base, IV, effort and the
+nature's term, what beating it is worth, and what it knows. One component for
+both, because "what am I looking at" is the same question in both places.
+
+Nothing across the battlefield is hidden. A duel commits to a move before
+revealing it, so reading the opponent cannot be used to cheat, and a wild
+creature's numbers were fixed when the world was made. There is nothing to
+protect by making a player guess.
+
+### Party order
+
+Slot one is who walks into the next fight, so the order is a decision rather
+than tidying, and it goes through the input log like every other one. Arrows
+rather than drag, because a drag needs a pointer and this has to work from a
+keyboard too. Refused mid-battle: reordering with something already out would
+be a free switch, and the battle system charges a turn for those.
 
 ### Breeding
 

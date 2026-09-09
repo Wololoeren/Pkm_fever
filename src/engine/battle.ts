@@ -6,10 +6,11 @@ import {
   type MoveEntry,
   type StageStat,
 } from "./dex";
+import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
 import { intBelow, rngFor } from "./rng";
 import { computeStats } from "./stats";
-import type { Individual, StatusId } from "./types";
+import { STAT_IDS, type Individual, type StatId, type StatusId } from "./types";
 
 /**
  * Battles, with two symmetric sides.
@@ -66,6 +67,7 @@ export type BattleEvent =
   | { t: "faint"; side: SideIndex }
   | { t: "switch"; side: SideIndex; partyIndex: number }
   | { t: "exp"; amount: number; levels: number; learned: string[]; evolved: string | null }
+  | { t: "effort"; stats: StatId[]; amount: number }
   | { t: "catchFailed" }
   | { t: "caught" }
   | { t: "fleeFailed" }
@@ -611,7 +613,15 @@ function settle(turn: Turn, rules: BattleRules): void {
     const victor = active(turn, 0);
     const amount = expYield(loser);
     const growth = awardExp(victor, amount);
-    setActive(turn, 0, growth.individual);
+
+    // Effort before the event is pushed, so the numbers a log replays are the
+    // numbers the screen showed. Same award as experience: whatever was
+    // standing when the other one fell.
+    const yielded = effortYield(loser.speciesId);
+    const before = growth.individual.evs;
+    const evs = gainEffort(before, yielded);
+    setActive(turn, 0, { ...growth.individual, evs });
+
     turn.events.push({
       t: "exp",
       amount,
@@ -619,6 +629,13 @@ function settle(turn: Turn, rules: BattleRules): void {
       learned: growth.movesLearned,
       evolved: growth.evolvedTo,
     });
+
+    // Only reported when something was actually earned — a creature at the
+    // cap should not be told about effort it did not gain.
+    const gained = STAT_IDS.filter((stat) => evs[stat] > before[stat]);
+    if (gained.length) {
+      turn.events.push({ t: "effort", stats: gained, amount: yielded.amount });
+    }
   }
 
   const wipedOut = ([0, 1] as SideIndex[]).map((side) =>

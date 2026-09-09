@@ -330,7 +330,12 @@ export default function Page() {
         {inHub ? null : (
           <>
             <h3>Party</h3>
-            <PartyStrip party={state.party} activeIndex={state.battle?.sides[0].active} onInspect={setInspecting} />
+            <PartyStrip
+              party={state.party}
+              activeIndex={state.battle?.sides[0].active}
+              onInspect={setInspecting}
+              onReorder={(from, to) => dispatch({ t: "reorderParty", from, to })}
+            />
           </>
         )}
         <div className="row">

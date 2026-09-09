@@ -292,6 +292,8 @@ button.ghost { background: transparent; }
 .panel h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
 
 .party { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.partyRow { display: flex; align-items: stretch; gap: 4px; }
+.partyRow > .card { flex: 1; min-width: 0; }
 
 .card {
   background: var(--panel-2);
@@ -597,7 +599,7 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
    the edges. */
 .starterCard { position: relative; }
 
-.starterDetail {
+.starterCard .statHover {
   position: absolute;
   inset: 0;
   display: flex;
@@ -617,7 +619,7 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   transition: opacity 120ms ease;
 }
 .starterCard:hover .starterDetail,
-.starterCard:focus-visible .starterDetail { opacity: 1; }
+.starterCard:focus-visible .starterCard .statHover { opacity: 1; }
 
 .detailHead { font-weight: 700; text-transform: capitalize; }
 .detailTable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -626,6 +628,49 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .detailTable th[scope="row"], .detailTable thead th:first-child { text-align: left; }
 .detailTable .up { color: #7fd6a2; }
 .detailTable .down { color: #e0857f; }
+
+/* The same panel over a creature on the battlefield. Anchored to the slot and
+   floated clear of the sprite, so it never covers the thing you hovered. */
+.slot.hoverable { position: relative; }
+
+.slot .statHover {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.slot.hoverable:hover .statHover,
+.slot.hoverable:focus-visible .statHover { opacity: 1; }
+
+/* Party reordering. Arrows rather than drag: a drag needs a pointer, and this
+   has to work from a keyboard and on a phone too. */
+.orderButtons { display: flex; flex-direction: column; gap: 2px; margin-left: auto; }
+.orderButtons button {
+  font: inherit;
+  line-height: 1;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.orderButtons button:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.orderButtons button:disabled { opacity: 0.3; cursor: default; }
 
 /* --------------------------------------------------------------- inspect */
 

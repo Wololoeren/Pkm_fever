@@ -3,7 +3,8 @@
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
 import { natureVector } from "@/engine/natures";
-import { computeStats, IV_MAX, ivTotal } from "@/engine/stats";
+import { computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX, ivTotal } from "@/engine/stats";
+import { effortSpent } from "@/engine/effort";
 import { expForLevel, levelFromExp } from "@/engine/progression";
 import { STAT_IDS, type Individual, type StatId } from "@/engine/types";
 import { isSpecial, variant } from "@/engine/variants";
@@ -167,6 +168,12 @@ export function Inspect({
           <p className="muted">
             IV total <strong>{ivTotal(creature.ivs)}</strong> of {IV_MAX * STAT_IDS.length}. A wild
             catch rolls 0–6 per stat; anything higher was bred for.
+          </p>
+          <p className="muted">
+            Effort <strong>{effortSpent(creature.evs)}</strong> of {EV_MAX_TOTAL}, at most{" "}
+            {EV_MAX_PER_STAT} in one stat. Four points are one stat point at level 100 — earned by
+            what you fight rather than what you inherited, which makes it the half of a creature you
+            choose.
           </p>
           {!isSpecial(creature.variantId) ? null : (
             <p className="muted">
