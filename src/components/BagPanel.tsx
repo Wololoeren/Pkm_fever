@@ -32,6 +32,7 @@ const TABS: { kind: ItemKind; label: string }[] = [
   { kind: "medicine", label: "Medicine" },
   { kind: "ball", label: "Balls" },
   { kind: "hm", label: "Tools" },
+  { kind: "tm", label: "Machines" },
   { kind: "rod", label: "Rods" },
   { kind: "lure", label: "Lures" },
   { kind: "treasure", label: "Valuables" },
@@ -122,6 +123,7 @@ export function BagPanel({
             const usable =
               spec.kind === "medicine" ||
               spec.kind === "lure" ||
+              Boolean(spec.teaches) ||
               spec.field === "clear" ||
               spec.field === "travel";
             const burning = spec.kind === "lure" ? lureLeft(state, id) : 0;

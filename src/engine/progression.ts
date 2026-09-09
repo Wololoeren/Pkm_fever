@@ -14,6 +14,10 @@ import type { Individual } from "./types";
 
 export const MAX_LEVEL = 100;
 
+/** How many moves a creature carries. Named here because growth is the thing
+ * that runs into the limit; the engine re-exports it as MAX_MOVES. */
+export const MOVE_SLOTS = 4;
+
 /** Medium-fast: total experience needed to *be* this level. */
 export function expForLevel(level: number): number {
   return level * level * level;
@@ -35,6 +39,15 @@ export interface GrowthResult {
   individual: Individual;
   levelsGained: number;
   movesLearned: string[];
+  /**
+   * Moves it grew into but had no room for.
+   *
+   * Reported rather than dropped, and reported rather than *applied*: which
+   * move to forget is the player's decision, and a decision has to reach the
+   * engine as an input or the save cannot replay it. So growth says what was
+   * offered and stops there.
+   */
+  movesOffered: string[];
   evolvedTo: string | null;
 }
 
@@ -57,21 +70,31 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
 
   const levelsGained = grown.level - before;
   if (levelsGained <= 0) {
-    return { individual: { ...grown, hp: individual.hp }, levelsGained: 0, movesLearned: [], evolvedTo: null };
+    return {
+      individual: { ...grown, hp: individual.hp },
+      levelsGained: 0,
+      movesLearned: [],
+      movesOffered: [],
+      evolvedTo: null,
+    };
   }
 
   // Moves that became available across every level just passed, in the order
   // they would have been learned.
   const movesLearned: string[] = [];
+  const movesOffered: string[] = [];
   for (const [level, moveId] of learnset(grown.speciesId)) {
     if (level <= before || level > grown.level) continue;
     if (grown.moves.includes(moveId)) continue;
 
-    // A full moveset does not silently overwrite anything. Choosing what to
-    // forget is a decision that belongs to the player, which means it belongs
-    // in the input log — so until that input exists, a full set simply keeps
-    // what it has.
-    if (grown.moves.length >= 4) continue;
+    // A full moveset never silently overwrites anything. Room means it is
+    // simply learned; no room means it is offered, and the offer waits in the
+    // save until the player says what to forget. That way the choice is an
+    // input like every other one, and a replay makes it again the same way.
+    if (grown.moves.length >= MOVE_SLOTS) {
+      if (!movesOffered.includes(moveId)) movesOffered.push(moveId);
+      continue;
+    }
     grown = { ...grown, moves: [...grown.moves, moveId] };
     movesLearned.push(moveId);
   }
@@ -84,6 +107,7 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
     individual: { ...grown, hp: Math.max(1, Math.round(afterStats.hp * hpFraction)) },
     levelsGained,
     movesLearned,
+    movesOffered,
     evolvedTo,
   };
 }

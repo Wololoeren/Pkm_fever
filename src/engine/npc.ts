@@ -198,6 +198,30 @@ export const NPCS: readonly NpcPlacement[] = [
     ],
   },
 
+  {
+    id: "gift-tutor",
+    name: "Move Tutor",
+    kind: "gift",
+    item: "tm-facade",
+    where: { at: "interior", role: "house", index: 1 },
+    lines: [
+      "Machines. That is what I do. Not moves — anybody can teach a move — machines.",
+      "The difference is that a machine keeps. Use it, and it is still a machine. Half the people out there are hoarding theirs like they are eggs.",
+      "Take this one. Facade. It hits twice as hard when the thing holding it is burned or poisoned or paralysed, which is a strange thing to want until the first time you want it very badly.",
+    ],
+  },
+  {
+    id: "gift-quarry",
+    name: "Quarryman",
+    kind: "gift",
+    item: "tm-rockslide",
+    where: { at: "ring", biome: "ashflats", ring: 2 },
+    lines: [
+      "You are standing on about four hundred tons of loose rock. I would not linger.",
+      "Here — I have three of these and one back. Rock Slide. Take it and let me get on.",
+    ],
+  },
+
   // ------------------------------------------------ north, behind a door
   {
     id: "buy-appraiser",

@@ -9,6 +9,7 @@ import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { BagPanel } from "@/components/BagPanel";
 import { QuestPanel } from "@/components/QuestPanel";
+import { LearnPanel } from "@/components/LearnPanel";
 import { TalkPanel } from "@/components/TalkPanel";
 import { HubPanel } from "@/components/HubPanel";
 import { MartPanel } from "@/components/MartPanel";
@@ -18,7 +19,7 @@ import { StarterPick } from "@/components/StarterPick";
 import { BALLS, countOf, item } from "@/engine/items";
 import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
-import { ALL_SPECIES } from "@/engine/dex";
+import { ALL_SPECIES, move as moveById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
 import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
@@ -366,6 +367,15 @@ export default function Page() {
               .
             </p>
           ) : null}
+          {state.notice?.t === "taught" ? (
+            <p className="good">
+              {state.notice.name}{" "}
+              {state.notice.forgot
+                ? `forgot ${moveById(state.notice.forgot).name} and learned`
+                : "learned"}{" "}
+              {moveById(state.notice.learned).name}.
+            </p>
+          ) : null}
           {state.notice?.t === "lured" ? (
             <p className="good">
               Lit the {item(state.notice.item).name}. It burns until move{" "}
@@ -380,6 +390,13 @@ export default function Page() {
 
       {state.talking ? (
         <TalkPanel world={session.world} state={state} onInput={dispatch} />
+      ) : null}
+
+      {/* Above the map and below a conversation: it is a question waiting for
+          you rather than something happening now, and it keeps until the
+          person in front of you is finished. */}
+      {state.phase === "field" && !state.talking ? (
+        <LearnPanel state={state} onInput={dispatch} />
       ) : null}
 
       {inHub ? (

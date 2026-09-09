@@ -18,6 +18,7 @@
  *   src/data/types.json      the 18x18 chart, tiny
  *   src/data/moves.json      loaded with the battle system
  *   src/data/learnsets.json  largest, loaded when a level-up needs it
+ *   src/data/machines.json   which species each TM will take, as bitsets
  */
 
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -111,6 +112,53 @@ async function levelMovesFor(species) {
 }
 
 /**
+ * Moves this species can be taught by machine, merged down the prevo chain.
+ *
+ * The same walk as `levelMovesFor`, reading `8M` — generation 8, learned from
+ * a machine — instead of `8L36`. No level and no ordering: a machine move is
+ * available or it is not, and which generation's machine it was is not a fact
+ * this game has any use for.
+ *
+ * Which moves are TMs is therefore *derived* rather than listed. Every real
+ * game numbers its own hundred and renumbers them next generation, and the
+ * data ships no numbering at all, so a TM here is named after its move. That
+ * is the one naming that cannot go stale or quietly disagree with a game
+ * somebody remembers.
+ */
+async function machineMovesFor(species) {
+  const found = new Set();
+
+  for (let current = species; current; current = current.prevo ? Dex.species.get(current.prevo) : null) {
+    const learnset = await Dex.learnsets.get(current.id);
+    if (!learnset?.learnset) continue;
+
+    for (const [moveId, sources] of Object.entries(learnset.learnset)) {
+      if (sources.some((source) => /^\dM$/.test(source))) found.add(moveId);
+    }
+  }
+
+  return [...found].sort();
+}
+
+/**
+ * One species' machine list as a bitset over the shared move table.
+ *
+ * Sixty-nine thousand species-and-move pairs written out as arrays of strings
+ * is several megabytes of manifest for a static export to carry. As bits over
+ * one sorted table it is forty-one bytes a species, and base64 makes it a
+ * string JSON can hold without escaping.
+ */
+function packBits(ids, index) {
+  const bytes = new Uint8Array(Math.ceil(index.size / 8));
+  for (const id of ids) {
+    const at = index.get(id);
+    if (at === undefined) continue;
+    bytes[at >> 3] |= 1 << (at & 7);
+  }
+  return Buffer.from(bytes).toString("base64");
+}
+
+/**
  * Which sprite belongs to which species.
  *
  * PokeAPI keys its sprites by its own id, which is the national dex number for
@@ -147,6 +195,7 @@ const spriteIds = await spriteNumbers();
 
 const species = [];
 const learnsets = {};
+const machinesBySpecies = {};
 const skipped = [];
 let mappedForms = 0;
 
@@ -189,6 +238,7 @@ for (const entry of ALL) {
   });
 
   learnsets[entry.id] = moveList;
+  machinesBySpecies[entry.id] = await machineMovesFor(entry);
 }
 
 species.sort((a, b) => a.num - b.num || (a.id < b.id ? -1 : 1));
@@ -250,12 +300,30 @@ function secondaryOf(move) {
   };
 }
 
-// Moves the engine needs stats for: only what some species can actually learn
-// by level-up, so the table stays proportional to the roster.
+// Every move some species can reach, by growing into it or by being taught
+// it. A move nothing can learn is a row the engine would never read; a move
+// only a machine grants is one it would otherwise look up and not find.
 const usedMoves = new Set();
 for (const list of Object.values(learnsets)) {
   for (const [, moveId] of list) usedMoves.add(moveId);
 }
+for (const list of Object.values(machinesBySpecies)) {
+  for (const moveId of list) usedMoves.add(moveId);
+}
+
+// The shared table every species' bitset is read against. Sorted, so a rebuild
+// on the same data produces byte-identical output.
+const machineMoves = [...new Set(Object.values(machinesBySpecies).flat())]
+  .filter((id) => Dex.moves.get(id)?.exists)
+  .sort();
+const machineIndex = new Map(machineMoves.map((id, at) => [id, at]));
+
+const machines = {
+  moves: machineMoves,
+  learners: Object.fromEntries(
+    Object.entries(machinesBySpecies).map(([id, list]) => [id, packBits(list, machineIndex)]),
+  ),
+};
 
 const moves = [...usedMoves]
   .map((id) => Dex.moves.get(id))
@@ -397,12 +465,14 @@ const write = (name, value) => {
 write("species.json", species);
 write("moves.json", moves);
 write("learnsets.json", learnsets);
+write("machines.json", machines);
 write("types.json", chart);
 write("starters.json", { types: STARTER_TYPES, trios: STARTER_TRIOS });
 
 console.log(`species    ${species.length}`);
 console.log(`moves      ${moves.length}`);
 console.log(`learnsets  ${Object.keys(learnsets).length}`);
+console.log(`machines   ${machineMoves.length} moves over ${Object.keys(machines.learners).length} species`);
 console.log(`types      ${typeNames.length}x${typeNames.length} chart`);
 console.log(`starters   ${STARTER_TRIOS.length} trios, one of each of ${STARTER_TYPES.join("/")}`);
 console.log(`sprites    ${mappedForms} regional forms mapped to their own art`);

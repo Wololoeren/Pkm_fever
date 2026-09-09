@@ -1,4 +1,5 @@
 import { STARTER_TYPES, startersOfType } from "./dex";
+import { MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { GYMS, gym } from "./gyms";
 import { NPCS, type NpcPlacement, type NpcSpec } from "./npc";
@@ -1169,6 +1170,32 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
   return placed;
 }
 
+/**
+ * A machine, rather than any one machine.
+ *
+ * The table names item ids, and there are three hundred machines — listing
+ * them all here would drown everything else in it. This stands for "one of
+ * them", and which one is decided by the route, below.
+ */
+const ANY_MACHINE = "*machine";
+
+/**
+ * Which machines this far out may hold.
+ *
+ * The list is ranked by the power of what it teaches, and a route may hold
+ * anything in the first `ring/rings` of it. So the first ring turns up status
+ * moves and small attacks, and Hyper Beam is only ever lying about at the far
+ * end of the world. Distance is the only currency this game has for "better",
+ * and it is the one the census and the breeding items already spend.
+ *
+ * Exported so a test can ask the same question the generator asked, rather
+ * than restating the arithmetic beside it and drifting.
+ */
+export function machinesUpTo(ring: number, rings: number): readonly string[] {
+  const reach = Math.max(1, Math.ceil((MACHINE_ITEMS.length * ring) / Math.max(1, rings)));
+  return MACHINE_ITEMS.slice(0, reach).map((entry) => entry.id);
+}
+
 /** What is lying about out there, and roughly how good it is. */
 const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
   { item: "pokeball", weight: 30 },
@@ -1181,6 +1208,7 @@ const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
   { item: "hyperpotion", weight: 3 },
   { item: "ultraball", weight: 2 },
   { item: "lure-shiny", weight: 2 },
+  { item: ANY_MACHINE, weight: 12 },
   { item: "nugget", weight: 1 },
 ];
 
@@ -1196,6 +1224,7 @@ function placePickups(
   seed: string,
   routes: Map<string, Route>,
   npcs: Map<string, NpcSpec[]>,
+  rings: number,
 ): Map<string, PickupSpec[]> {
   const placed = new Map<string, PickupSpec[]>();
 
@@ -1231,12 +1260,16 @@ function placePickups(
 
     placed.set(
       route.id,
-      chosen.map((at, index) => ({
-        id: `${route.id}:${index}`,
-        x: at.x,
-        y: at.y,
-        item: weighted(rng, PICKUP_TABLE, (row) => row.weight).item,
-      })),
+      chosen.map((at, index) => {
+        const rolled = weighted(rng, PICKUP_TABLE, (row) => row.weight).item;
+        const reachable = rolled === ANY_MACHINE ? machinesUpTo(route.ring, rings) : null;
+        return {
+          id: `${route.id}:${index}`,
+          x: at.x,
+          y: at.y,
+          item: reachable ? reachable[intBelow(rng, reachable.length)] : rolled,
+        };
+      }),
     );
   }
 
@@ -1587,7 +1620,7 @@ export function generateWorld(
   place(crown, crownRng, depthRing(3));
 
   const npcs = placeNpcs(seed, routes);
-  const pickups = placePickups(seed, routes, npcs);
+  const pickups = placePickups(seed, routes, npcs, config.rings);
 
   const trainers = new Map<string, TrainerSpec[]>();
   for (const route of routes.values()) {

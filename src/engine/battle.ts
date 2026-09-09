@@ -71,7 +71,12 @@ export type BattleEvent =
       t: "exp";
       amount: number;
       levels: number;
+      /** Who earned it. Without this an offer that arrives in the log has no
+       * way to say which creature it is about. */
+      uid: number;
       learned: string[];
+      /** Grew into it, had no room for it. The player is asked later. */
+      offered: string[];
       /** What it became, if it became anything. */
       evolved: string | null;
       /** And what it was — carried because the creature has already changed by
@@ -638,7 +643,9 @@ function settle(turn: Turn, rules: BattleRules): void {
       t: "exp",
       amount,
       levels: growth.levelsGained,
+      uid: victor.uid,
       learned: growth.movesLearned,
+      offered: growth.movesOffered,
       evolvedFrom: growth.evolvedTo ? victor.speciesId : null,
       evolved: growth.evolvedTo,
     });

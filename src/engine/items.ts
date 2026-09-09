@@ -1,3 +1,4 @@
+import { MACHINE_MOVES, move as moveById } from "./dex";
 import { chroma, CHROMA_IDS } from "./variants";
 
 /**
@@ -13,7 +14,7 @@ import { chroma, CHROMA_IDS } from "./variants";
  * I have" had two different answers depending on what you asked about.
  */
 
-export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure" | "hm" | "key" | "lure";
+export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure" | "hm" | "key" | "lure" | "tm";
 
 export interface ItemSpec {
   id: string;
@@ -56,6 +57,8 @@ export interface ItemSpec {
   consumed?: boolean;
   /** Lures: what draws, and how far down the route's census it can reach. */
   lure?: LureSpec;
+  /** Machines: the move it teaches. */
+  teaches?: string;
 }
 
 /**
@@ -391,6 +394,39 @@ const TOOLS: ItemSpec[] = [
   },
 ];
 
+/**
+ * One machine per move a machine can teach.
+ *
+ * Named after the move rather than numbered. Every real game numbers its own
+ * hundred and renumbers them the next generation, and the data ships no
+ * numbering at all — so "TM Flamethrower" is the one name that cannot quietly
+ * disagree with a game somebody remembers, and it sorts and searches the way
+ * a player actually looks for one.
+ *
+ * They are kept rather than spent. There are three hundred of them and they
+ * are found rather than sold, so a machine that vanished after one use would
+ * be a thing you could not afford to use on anything but your best creature —
+ * which is the opposite of what a shelf of teachable moves is for.
+ *
+ * Not stocked anywhere: a Mart list three hundred rows long is not a shop.
+ * They come off the floor, out of people's hands, and out of finished jobs.
+ */
+const MACHINES: ItemSpec[] = MACHINE_MOVES.map((moveId) => {
+  const move = moveById(moveId);
+  return {
+    id: `tm-${moveId}`,
+    name: `TM ${move.name}`,
+    kind: "tm" as const,
+    price: 0,
+    sell: 1200,
+    blurb: `Teaches ${move.name} — ${move.type}, ${
+      move.category === "status" ? "status" : `${move.power} power`
+    }. Keeps, so it can be used again.`,
+    stacks: false,
+    teaches: moveId,
+  };
+});
+
 /** Things that are not for using, selling or throwing — only for having. */
 const KEYS: ItemSpec[] = [
   {
@@ -477,7 +513,14 @@ const GLITTER: ItemSpec = {
   consumed: true,
 };
 
-export const ITEMS: readonly ItemSpec[] = [...ITEM_LIST, ...TOOLS, ...KEYS, ...BREEDING_ITEMS, GLITTER];
+export const ITEMS: readonly ItemSpec[] = [
+  ...ITEM_LIST,
+  ...TOOLS,
+  ...KEYS,
+  ...BREEDING_ITEMS,
+  GLITTER,
+  ...MACHINES,
+];
 
 const BY_ID = new Map(ITEMS.map((entry) => [entry.id, entry]));
 
@@ -507,6 +550,20 @@ export const TOOLS_LIST: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kin
 /** Every rod, shortest first. */
 export const RODS: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "rod").sort(
   (a, b) => (a.reach ?? 0) - (b.reach ?? 0),
+);
+
+/**
+ * Every machine, in move order.
+ *
+ * Ranked by what it teaches rather than by name, so "how good is this one" is
+ * a position in the list. A status move has no power and sits at the bottom,
+ * which is roughly right: the moves worth walking to the sixth ring for are
+ * the ones that hit hardest.
+ */
+export const MACHINE_ITEMS: readonly ItemSpec[] = [...MACHINES].sort(
+  (a, b) =>
+    (moveById(a.teaches!).power ?? 0) - (moveById(b.teaches!).power ?? 0) ||
+    a.id.localeCompare(b.id),
 );
 
 /** Every lure, cheapest first. */

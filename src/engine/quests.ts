@@ -56,14 +56,14 @@ export const QUESTS: readonly QuestSpec[] = [
     name: "The Rounds",
     blurb: "Five people out on the routes reckon they are better than you. Prove otherwise.",
     goal: { t: "beatTrainers", count: 5 },
-    reward: { money: 3000, item: "superpotion" },
+    reward: { money: 3000, item: "tm-bodyslam" },
   },
   {
     id: "far-enough",
     name: "Far Enough Out",
     blurb: "Nobody local has seen the fourth ring in years. Go and stand on it.",
     goal: { t: "reachRing", ring: 4 },
-    reward: { money: 5000, item: "hyperpotion" },
+    reward: { money: 5000, item: "tm-earthquake" },
   },
   {
     id: "colour-theory",

@@ -251,6 +251,21 @@ button.ghost { background: transparent; }
 .hp.mid { background: var(--warn); }
 .hp.low { background: var(--danger); }
 
+/* The "it wants to learn something" prompt. Laid out like a conversation
+   because it is one: a question, and numbered answers. */
+.learn { border-color: var(--accent); }
+.learnNew {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
 /* An option that will not be undone asks twice, and says so in red while it
    waits. */
 .talkOption.armed {

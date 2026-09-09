@@ -18,10 +18,16 @@ import {
   type BreedingItem,
   type DaycareState,
 } from "./breeding";
-import { ALL_SPECIES, learnableAt, movesAtLevel, species as speciesById } from "./dex";
+import {
+  ALL_SPECIES,
+  canLearnMachine,
+  learnableAt,
+  movesAtLevel,
+  species as speciesById,
+} from "./dex";
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
-import { expForLevel, MAX_LEVEL } from "./progression";
+import { awardExp, expForLevel, MAX_LEVEL, MOVE_SLOTS } from "./progression";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
   isQuest,
@@ -173,6 +179,14 @@ export type Input =
    * engine. `take` is the player's, not the buyer's — he pays either way.
    */
   | { t: "npcSell"; index: number; take: "money" | "glitter"; confirm: number }
+  /**
+   * Answering an offered move: take it in place of `forget`, or turn it down.
+   *
+   * `forget` is a move id rather than a slot, for the same reason a release
+   * carries a uid: a slot is a position in a list the player may have
+   * rearranged since, and forgetting the wrong move is not undoable.
+   */
+  | { t: "learnMove"; uid: number; moveId: string; forget: string | null }
   /** Claiming a finished quest. */
   | { t: "claimQuest"; id: string }
   /** Using a tool on whatever is in the way in this direction. */
@@ -228,7 +242,8 @@ export type Notice =
   | { t: "badge"; gym: string }
   | { t: "released"; name: string }
   | { t: "appraised"; name: string; tier: number; money: number; glitter: number }
-  | { t: "lured"; item: string; until: number };
+  | { t: "lured"; item: string; until: number }
+  | { t: "taught"; name: string; learned: string; forgot: string | null };
 
 export interface GameState {
   tick: number;
@@ -279,6 +294,15 @@ export interface GameState {
    * they have been. They come back stronger. */
   beatenAt: Record<string, number>;
   wins: Record<string, number>;
+  /**
+   * Moves grown into or taught, with no room for them yet.
+   *
+   * A queue rather than a flag, because a creature can pass three levels in
+   * one battle and be offered three things. Kept in the save, so a level-up
+   * that happened at the end of a session is still waiting to be answered at
+   * the start of the next one.
+   */
+  pendingMoves: { uid: number; moveId: string }[];
   /**
    * Lures currently burning: item id, and the move count they die at.
    *
@@ -388,6 +412,7 @@ export function initialState(world: World): GameState {
     beaten: [],
     talking: null,
     helped: [],
+    pendingMoves: [],
     lures: {},
     questsTaken: [],
     questsDone: [],
@@ -480,6 +505,8 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return npcTrade(world, state, input.index);
     case "npcSell":
       return npcSell(world, state, input.index, input.take, input.confirm);
+    case "learnMove":
+      return learnMove(state, input.uid, input.moveId, input.forget);
     case "claimQuest":
       return claimQuest(world, state, input.id);
     case "useTool":
@@ -491,7 +518,7 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
   }
 }
 
-export const MAX_MOVES = 4;
+export const MAX_MOVES = MOVE_SLOTS;
 
 /**
  * Why this moveset would be refused, or null if it is fine.
@@ -1035,6 +1062,16 @@ export function itemRefusal(state: GameState, itemId: string, index: number): st
   const target = state.party[index];
   if (!target) return "nobody there";
 
+  // A machine is used on a creature like medicine is, and refuses for its own
+  // reasons: the wrong species, or one that already knows the move.
+  if (spec.teaches) {
+    if (target.moves.includes(spec.teaches)) return "it already knows that";
+    if (!canLearnMachine(target.speciesId, spec.teaches)) {
+      return `a ${speciesById(target.speciesId).name} will not take that one`;
+    }
+    return null;
+  }
+
   if (spec.kind !== "medicine") return `the ${spec.name} is not used on a creature`;
 
   const fainted = target.hp <= 0;
@@ -1053,6 +1090,7 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
   if (refusal) throw new IllegalInput(refusal);
 
   const spec = item(itemId);
+  let offered: { uid: number; moveId: string }[] = [];
 
   if (spec.lure) {
     const until = state.tick + 1 + LURE_MOVES;
@@ -1075,13 +1113,42 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
   const target = party[index];
   const max = maxHp(target);
 
+  // A machine teaches straight away where there is room, and asks where there
+  // is not — the same question a level-up asks, through the same queue, so
+  // there is only ever one place that decides what gets forgotten.
+  if (spec.teaches) {
+    const room = target.moves.length < MAX_MOVES;
+    party[index] = room ? { ...target, moves: [...target.moves, spec.teaches] } : target;
+
+    return {
+      ...state,
+      tick: state.tick + 1,
+      party,
+      // Machines keep. Three hundred of them, all found rather than bought:
+      // one that burned itself out would be one nobody dared spend.
+      pendingMoves: room
+        ? state.pendingMoves
+        : withOffers(state, [{ uid: target.uid, moveId: spec.teaches }]),
+      notice: room
+        ? { t: "taught", name: speciesById(target.speciesId).name, learned: spec.teaches, forgot: null }
+        : null,
+    };
+  }
+
   let next: Individual = target;
 
   if (spec.revives) {
     next = { ...next, hp: Math.max(1, Math.floor(max / spec.revives)), status: null, sleepTurns: 0 };
   } else if (spec.levels) {
-    const level = Math.min(MAX_LEVEL, next.level + spec.levels);
-    next = atFullHealth(withMoves({ ...next, level, exp: expForLevel(level) }));
+    // Through the same growth every battle uses, rather than by setting the
+    // level. Setting it and calling `withMoves` rebuilt the moveset from the
+    // species list, which quietly threw away a hand-picked one — and it never
+    // evolved anything, so a Rare Candy could take a creature five levels past
+    // the point it should have changed and leave it exactly as it was.
+    const want = Math.min(MAX_LEVEL, next.level + spec.levels);
+    const growth = awardExp(next, Math.max(0, expForLevel(want) - next.exp));
+    next = atFullHealth(growth.individual);
+    offered = growth.movesOffered.map((moveId) => ({ uid: next.uid, moveId }));
   } else {
     if (spec.heals) next = { ...next, hp: Math.min(max, next.hp + spec.heals) };
     if (spec.cures) next = { ...next, status: null, sleepTurns: 0 };
@@ -1094,6 +1161,7 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
     tick: state.tick + 1,
     party,
     bag: removeItem(state.bag, itemId),
+    pendingMoves: withOffers(state, offered),
     notice: { t: "used", item: itemId, on: speciesById(next.speciesId).name },
   };
 }
@@ -1575,6 +1643,121 @@ function npcSell(
   };
 }
 
+/**
+ * Everything waiting to be answered, with the creature it is about.
+ *
+ * Offers for creatures that are no longer anywhere — released, sold, traded
+ * away — are dropped rather than shown: the answer to "what should it forget"
+ * is nothing at all when there is no it.
+ */
+export function pendingOffers(
+  state: GameState,
+): { uid: number; moveId: string; creature: Individual }[] {
+  return state.pendingMoves.flatMap((offer) => {
+    const creature =
+      state.party.find((one) => one.uid === offer.uid) ??
+      state.box.find((one) => one.uid === offer.uid);
+    return creature ? [{ ...offer, creature }] : [];
+  });
+}
+
+/**
+ * Why this answer would be refused, or null if it would be taken.
+ *
+ * Turning an offer down is always allowed — that is the whole point of being
+ * asked — so a null `forget` only has to clear the standing checks.
+ */
+export function learnRefusal(
+  state: GameState,
+  uid: number,
+  moveId: string,
+  forget: string | null,
+): string | null {
+  if (state.phase !== "field") return "not right now";
+
+  const waiting = state.pendingMoves.some(
+    (offer) => offer.uid === uid && offer.moveId === moveId,
+  );
+  if (!waiting) return "nothing was offered";
+
+  const creature =
+    state.party.find((one) => one.uid === uid) ?? state.box.find((one) => one.uid === uid);
+  if (!creature) return "it is not here any more";
+  if (creature.moves.includes(moveId)) return "it already knows that";
+
+  if (forget === null) return null;
+  if (forget === moveId) return "that is the one being offered";
+  if (!creature.moves.includes(forget)) return "it does not know that one";
+  return null;
+}
+
+/**
+ * Taking an offered move, or turning it down.
+ *
+ * Either answer clears the offer. Being asked twice about the same move is
+ * how a prompt becomes something a player clicks through without reading.
+ */
+function learnMove(
+  state: GameState,
+  uid: number,
+  moveId: string,
+  forget: string | null,
+): GameState {
+  const refusal = learnRefusal(state, uid, moveId, forget);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const pendingMoves = state.pendingMoves.filter(
+    (offer) => !(offer.uid === uid && offer.moveId === moveId),
+  );
+
+  if (forget === null) {
+    return { ...state, tick: state.tick + 1, pendingMoves, notice: null };
+  }
+
+  const swap = (one: Individual) =>
+    one.uid === uid
+      ? { ...one, moves: one.moves.map((held) => (held === forget ? moveId : held)) }
+      : one;
+
+  const creature =
+    state.party.find((one) => one.uid === uid) ?? state.box.find((one) => one.uid === uid)!;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.map(swap),
+    box: state.box.map(swap),
+    pendingMoves,
+    notice: {
+      t: "taught",
+      name: speciesById(creature.speciesId).name,
+      learned: moveId,
+      forgot: forget,
+    },
+  };
+}
+
+/**
+ * Offers a turn produced, folded into what is already waiting.
+ *
+ * Deduplicated on the way in: the same creature can pass the same level twice
+ * in a long battle only if something went wrong, but being asked the same
+ * question twice is a bug the player has to click through either way.
+ */
+function withOffers(
+  state: GameState,
+  offers: readonly { uid: number; moveId: string }[],
+): { uid: number; moveId: string }[] {
+  if (!offers.length) return state.pendingMoves;
+
+  const next = [...state.pendingMoves];
+  for (const offer of offers) {
+    const known = next.some((held) => held.uid === offer.uid && held.moveId === offer.moveId);
+    if (!known) next.push(offer);
+  }
+  return next;
+}
+
 /** Why this creature will not do for the trader in front of you. */
 export function tradeRefusal(world: World, state: GameState, index: number): string | null {
   const standing = offerRefusal(world, state);
@@ -2014,11 +2197,19 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     throw new IllegalInput(error instanceof Error ? error.message : "bad battle action");
   }
 
+  // Moves grown into mid-battle with no room for them. Collected here rather
+  // than at the end, because a battle can be fled or lost and the level was
+  // still gained.
+  const offers = result.battle.events.flatMap((event) =>
+    event.t === "exp" ? event.offered.map((moveId) => ({ uid: event.uid, moveId })) : [],
+  );
+
   const base: GameState = {
     ...state,
     tick: state.tick + 1,
     // The party fought inside the battle, so it comes back out of it.
     party: result.battle.sides[0].team,
+    pendingMoves: withOffers(state, offers),
     bag: result.ballsUsed ? removeItem(state.bag, ballIdOf(action), result.ballsUsed) : state.bag,
     battle: result.battle,
     notice: null,
@@ -2223,6 +2414,7 @@ export function stateHash(state: GameState): string {
     state.visited.join(","),
     state.beaten.join(","),
     counters(state.lures),
+    state.pendingMoves.map((offer) => `${offer.uid}:${offer.moveId}`).join(","),
     state.cheated ? "1" : "0",
   ].join(";");
 

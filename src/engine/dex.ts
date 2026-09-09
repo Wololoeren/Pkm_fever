@@ -1,4 +1,5 @@
 import learnsetData from "../data/learnsets.json";
+import machineData from "../data/machines.json";
 import moveData from "../data/moves.json";
 import speciesData from "../data/species.json";
 import starterData from "../data/starters.json";
@@ -152,6 +153,51 @@ export function learnableAt(speciesId: string, level: number): string[] {
     if (at <= level) seen.add(moveId);
   }
   return [...seen];
+}
+
+/**
+ * Moves that exist only on a machine, and which species will take each one.
+ *
+ * Stored as one sorted table of moves plus a bitset per species, because the
+ * relation is sixty-nine thousand pairs — several megabytes as lists of
+ * strings, and seventy-eight kilobytes as bits. Decoded lazily: a save only
+ * ever asks about the handful of species it is carrying.
+ */
+const MACHINES = machineData as { moves: string[]; learners: Record<string, string> };
+
+/** Every move a machine can teach, sorted. This is the TM list. */
+export const MACHINE_MOVES: readonly string[] = MACHINES.moves;
+
+const MACHINE_INDEX = new Map(MACHINES.moves.map((id, at) => [id, at]));
+const decodedBits = new Map<string, Uint8Array>();
+
+function machineBits(speciesId: string): Uint8Array | null {
+  const held = decodedBits.get(speciesId);
+  if (held) return held;
+
+  const packed = MACHINES.learners[speciesId];
+  if (packed === undefined) return null;
+
+  const binary = atob(packed);
+  const bytes = new Uint8Array(binary.length);
+  for (let at = 0; at < binary.length; at++) bytes[at] = binary.charCodeAt(at);
+  decodedBits.set(speciesId, bytes);
+  return bytes;
+}
+
+/** Whether a machine will teach this move to this species. */
+export function canLearnMachine(speciesId: string, moveId: string): boolean {
+  const at = MACHINE_INDEX.get(moveId);
+  if (at === undefined) return false;
+
+  const bits = machineBits(speciesId);
+  if (!bits) return false;
+  return (bits[at >> 3] & (1 << (at & 7))) !== 0;
+}
+
+/** Every machine move this species will take, sorted. */
+export function machinesFor(speciesId: string): string[] {
+  return MACHINES.moves.filter((moveId) => canLearnMachine(speciesId, moveId));
 }
 
 /**
