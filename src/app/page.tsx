@@ -337,26 +337,6 @@ export default function Page() {
         </section>
       ) : null}
 
-      {state.phase === "field" ? (
-        <section className="panel">
-          <div className="row">
-            <h3>Bag</h3>
-            {/* Fishing is offered where it is legal and refused where it is
-                not, in the engine's own words. */}
-            <button
-              type="button"
-              className="ghost"
-              disabled={Boolean(fishRefusal(session.world, state))}
-              title={fishRefusal(session.world, state) ?? "Cast a line"}
-              onClick={() => dispatch({ t: "fish" })}
-            >
-              {bestRod(state.bag) ? `Fish (${bestRod(state.bag)!.name})` : "Fish"}
-            </button>
-          </div>
-          <BagPanel state={state} onInput={dispatch} />
-        </section>
-      ) : null}
-
       {cheats ? (
         <CheatMenu world={session.world} state={state} onInput={dispatch} onClose={() => setCheats(false)} />
       ) : null}
@@ -372,11 +352,13 @@ export default function Page() {
         />
       ) : null}
 
-      <section className="panel">
-        {/* The hub panel already lists the party, with more detail and the
-            actions that belong to it, so showing it twice is just noise. */}
+      {/* Who you have and what you are carrying, side by side. Either can be
+          absent — the party is hidden indoors where the hub panel already
+          lists it, and the bag only appears in the field — and whichever
+          remains takes the full width rather than sitting in half of it. */}
+      <div className="sideBySide">
         {inHub ? null : (
-          <>
+          <section className="panel">
             <h3>Party</h3>
             <PartyStrip
               party={state.party}
@@ -384,8 +366,31 @@ export default function Page() {
               onInspect={setInspecting}
               onReorder={(from, to) => dispatch({ t: "reorderParty", from, to })}
             />
-          </>
+          </section>
         )}
+
+        {state.phase === "field" ? (
+          <section className="panel">
+            <div className="row">
+              <h3>Bag</h3>
+              {/* Fishing is offered where it is legal and refused where it is
+                  not, in the engine's own words. */}
+              <button
+                type="button"
+                className="ghost"
+                disabled={Boolean(fishRefusal(session.world, state))}
+                title={fishRefusal(session.world, state) ?? "Cast a line"}
+                onClick={() => dispatch({ t: "fish" })}
+              >
+                {bestRod(state.bag) ? `Fish (${bestRod(state.bag)!.name})` : "Fish"}
+              </button>
+            </div>
+            <BagPanel state={state} onInput={dispatch} />
+          </section>
+        ) : null}
+      </div>
+
+      <section className="panel">
         <div className="row">
           <button type="button" className="ghost" onClick={() => downloadSave(session.seed, session.inputs)}>
             Save to file
