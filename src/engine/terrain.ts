@@ -205,13 +205,25 @@ export function meander(grid: Grid, rng: Rng, fromY: number, toY: number, width 
  * Random-walk growth rather than a circle: a forest with a straight edge looks
  * planted, and this is meant to look like it happened.
  */
-export function clump(grid: Grid, rng: Rng, x: number, y: number, size: number, tile: number, over: readonly number[]): void {
+export function clump(
+  grid: Grid,
+  rng: Rng,
+  x: number,
+  y: number,
+  size: number,
+  tile: number,
+  over: readonly number[],
+): number {
   const allowed = new Set(over);
   let cx = x;
   let cy = y;
+  let painted = 0;
 
   for (let i = 0; i < size; i++) {
-    if (allowed.has(grid.get(cx, cy))) grid.set(cx, cy, tile);
+    if (allowed.has(grid.get(cx, cy))) {
+      grid.set(cx, cy, tile);
+      painted++;
+    }
 
     // Four-way drift keeps blobs compact; eight-way scatters into noise.
     const step = intBetween(rng, 0, 3);
@@ -220,6 +232,10 @@ export function clump(grid: Grid, rng: Rng, x: number, y: number, size: number, 
     cx = Math.max(1, Math.min(grid.width - 2, cx));
     cy = Math.max(1, Math.min(grid.height - 2, cy));
   }
+
+  // How much ground it actually took, which is what lets a caller aim for a
+  // share of the map rather than guess at a number of blobs.
+  return painted;
 }
 
 /**

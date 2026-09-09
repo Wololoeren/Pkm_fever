@@ -350,7 +350,16 @@ interface BiomeProfile {
   roomInset: [number, number];
   /** Extra joins beyond the spanning tree — loops rather than dead ends. */
   loops: number;
-  /** Share of the rooms given over to tall grass, per mille. */
+  /**
+   * Share of the open ground given over to tall grass, per mille.
+   *
+   * A share rather than a number of blobs: the old figure was "how many
+   * clumps to drop", which meant the actual coverage depended on how much of
+   * the route the maze happened to carve and nobody could say what any of the
+   * numbers meant. Measured, the four biomes were coming out at five to
+   * thirteen percent — nothing like enough for a route whose whole business
+   * is what lives in the grass.
+   */
   grass: number;
   /** Pools of water dropped into rooms. */
   pools: number;
@@ -363,25 +372,25 @@ const BIOME_PROFILES: Record<string, BiomeProfile> = {
   // the one you meet first and it should not feel like a trap.
   meadow: {
     wall: TILE.TREE, ground: TILE.MEADOW, corridor: 5, roomInset: [0, 1],
-    loops: 14, grass: 420, pools: 2, clutter: 40,
+    loops: 14, grass: 650, pools: 2, clutter: 40,
   },
   // The maze proper. Narrow, few loops, mostly dead ends — a pine wood is the
   // biome you get lost in.
   pinewood: {
     wall: TILE.TREE, ground: TILE.MEADOW, corridor: 3, roomInset: [1, 2],
-    loops: 4, grass: 300, pools: 0, clutter: 18,
+    loops: 4, grass: 550, pools: 0, clutter: 18,
   },
   // Broken rather than dense: wide open rooms with rock between them, little
   // cover, and nothing to drink.
   ashflats: {
     wall: TILE.ROCK, ground: TILE.SAND, corridor: 6, roomInset: [0, 0],
-    loops: 10, grass: 180, pools: 0, clutter: 55,
+    loops: 10, grass: 250, pools: 0, clutter: 55,
   },
   // Water does the walling. The ways through are the dry ground between pools,
   // so it reads as picking your way rather than following a path.
   marsh: {
     wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [0, 2],
-    loops: 8, grass: 380, pools: 7, clutter: 25,
+    loops: 8, grass: 600, pools: 7, clutter: 25,
   },
 };
 
@@ -431,6 +440,32 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
     y: originY + cy * CELL + Math.floor(CELL / 2),
   });
 
+  const midRow = Math.floor(rows / 2);
+  const inSide = centreOf(0, midRow);
+  const outSide = centreOf(cols - 1, midRow);
+  const fromEnd = { x: 1, y: inSide.y };
+
+  /**
+   * Does something to the map, and takes it back if it closed the way through.
+   *
+   * The cabin and the gym already worked this way; the water and the loose
+   * rock did not, and got away with it only because the dice had not yet
+   * dealt a pond across a corridor. Growing the grass reshuffled them and one
+   * promptly sealed marsh ring four end to end.
+   *
+   * Checked between the first room and the last, not between the edge tiles:
+   * the corridors out to the map edge are cut later, so a walk from the edge
+   * at this point starts on solid wall and reaches nothing — which quietly
+   * reverted every pool in the world the first time this ran.
+   */
+  const keepingOpen = (change: () => void): boolean => {
+    const before = [...grid.tiles];
+    change();
+    if (reachableWith(grid, inSide, walkable)[outSide.y * ROUTE_WIDTH + outSide.x] === 1) return true;
+    grid.tiles.splice(0, grid.tiles.length, ...before);
+    return false;
+  };
+
   // Rooms first, then the ways between them.
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
@@ -475,30 +510,39 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
     }
   }
 
-  // Tall grass, the only thing out here that bites.
-  for (let i = 0; i < Math.round((cols * rows * profile.grass) / 1000); i++) {
+  // Tall grass, the only thing out here that bites. Grown until the route is
+  // as overgrown as its biome asks for, rather than a fixed number of blobs
+  // over however much ground the maze happened to open up.
+  //
+  // The guard is not decoration: a route whose rooms are nearly all grass
+  // already will never reach a high target, and without a stop this walks the
+  // whole plan forever looking for ground that is not there.
+  const openGround = grid.tiles.filter(walkable).length;
+  const wantGrass = Math.round((openGround * profile.grass) / 1000);
+
+  let grown = 0;
+  for (let guard = 0; grown < wantGrass && guard < 600; guard++) {
     const cell = plan.order[intBetween(rng, 0, plan.order.length - 1)];
     const at = centreOf(cell.cx, cell.cy);
-    clump(grid, rng, at.x, at.y, 26 + intBelow(rng, 24), TILE.GRASS, [profile.ground]);
+    grown += clump(grid, rng, at.x, at.y, 26 + intBelow(rng, 24), TILE.GRASS, [profile.ground]);
   }
 
   // Water, with a rim so it does not look stamped on.
   for (let i = 0; i < profile.pools; i++) {
     const cell = plan.order[intBetween(rng, 0, plan.order.length - 1)];
     const at = centreOf(cell.cx, cell.cy);
-    clump(grid, rng, at.x, at.y, 22, TILE.SAND, [profile.ground, TILE.GRASS]);
-    clump(grid, rng, at.x, at.y, 12, TILE.WATER, [TILE.SAND]);
+    keepingOpen(() => {
+      clump(grid, rng, at.x, at.y, 22, TILE.SAND, [profile.ground, TILE.GRASS]);
+      clump(grid, rng, at.x, at.y, 12, TILE.WATER, [TILE.SAND]);
+    });
   }
 
-  speckle(grid, rng, TILE.ROCK, profile.clutter, [profile.ground]);
+  keepingOpen(() => speckle(grid, rng, TILE.ROCK, profile.clutter, [profile.ground]));
+  // Flowers are walkable, so they can never close anything.
   speckle(grid, rng, TILE.FLOWER, profile.clutter, [profile.ground]);
 
-  // The two ways through, cut before anything is built on the route so that
-  // whatever gets built can be checked against them.
-  const midRow = Math.floor(rows / 2);
-  const inSide = centreOf(0, midRow);
-  const outSide = centreOf(cols - 1, midRow);
-  carveLine(grid, { x: 1, y: inSide.y }, inSide, corridor, profile.ground);
+  // The two ways through.
+  carveLine(grid, fromEnd, inSide, corridor, profile.ground);
   carveLine(grid, outSide, { x: ROUTE_WIDTH - 2, y: outSide.y }, corridor, profile.ground);
   grid.set(0, inSide.y, TILE.PATH);
   grid.set(ROUTE_WIDTH - 1, outSide.y, TILE.PATH);
@@ -974,8 +1018,44 @@ function nearestSpot(
   return null;
 }
 
+/**
+ * How far into a zone somebody standing "on a ring" is put.
+ *
+ * They all used to wish for the route's entry tile, which put every one of
+ * them within a step of the door — an Angler you meet before you have seen the
+ * water, a Cartographer waiting at the gate to tell you about the far rings.
+ * Somebody out on a route should be *found*.
+ */
+const HIDDEN_FROM_ENTRY = 30;
+
+/** A seeded spot well away from the way in, or the entry if there is none. */
+function hiddenSpot(rng: Rng, route: Route): { x: number; y: number } {
+  const far: { x: number; y: number }[] = [];
+  let best = route.entry;
+  let bestAway = -1;
+
+  for (let y = 1; y < route.height - 1; y++) {
+    for (let x = 1; x < route.width - 1; x++) {
+      const tile = route.tiles[y * route.width + x];
+      if (!walkable(tile) || hidesEncounters(tile)) continue;
+
+      const away = Math.abs(x - route.entry.x) + Math.abs(y - route.entry.y);
+      if (away > bestAway) {
+        bestAway = away;
+        best = { x, y };
+      }
+      if (away >= HIDDEN_FROM_ENTRY) far.push({ x, y });
+    }
+  }
+
+  // The furthest tile there is, when the whole route is smaller than the
+  // distance asked for — better than silently falling back to the doorstep.
+  if (!far.length) return best;
+  return far[intBetween(rng, 0, far.length - 1)];
+}
+
 /** Puts the roster on the map, each as near their spot as the ground allows. */
-function placeNpcs(routes: Map<string, Route>): Map<string, NpcSpec[]> {
+function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpec[]> {
   const placed = new Map<string, NpcSpec[]>();
   const taken = new Map<string, Set<string>>();
   const houses = [...routes.values()].filter((route) => route.role === "house");
@@ -1009,7 +1089,8 @@ function placeNpcs(routes: Map<string, Route>): Map<string, NpcSpec[]> {
         }
         case "ring": {
           const route = routes.get(routeId(entry.where.biome, entry.where.ring));
-          return route ? { route, wish: route.entry } : null;
+          if (!route) return null;
+          return { route, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), route) };
         }
         case "gym": {
           const spec = gym(entry.where.gymId);
@@ -1462,7 +1543,7 @@ export function generateWorld(
   const crown = appearanceId(TOP_TIER, CHROMA_IDS[intBetween(crownRng, 0, CHROMA_IDS.length - 1)]);
   place(crown, crownRng, depthRing(3));
 
-  const npcs = placeNpcs(routes);
+  const npcs = placeNpcs(seed, routes);
   const pickups = placePickups(seed, routes, npcs);
 
   const trainers = new Map<string, TrainerSpec[]>();
