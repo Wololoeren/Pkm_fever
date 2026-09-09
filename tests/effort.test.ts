@@ -5,7 +5,7 @@ import { effortFull, effortSpent, effortYield, gainEffort } from "@/engine/effor
 import { applyInput, initialState, partyOrderRefusal, reduce, stateHash } from "@/engine/engine";
 import { computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL } from "@/engine/stats";
 import { STAT_IDS, type StatTable } from "@/engine/types";
-import { creature, play, testWorld } from "./helpers";
+import { creature, testWorld } from "./helpers";
 
 /**
  * Effort, and the party order.
@@ -176,12 +176,22 @@ describe("party order", () => {
   });
 
   it("O5: it goes through the log, so a reordered party replays", () => {
+    // A second party member is put there deliberately rather than hoped for
+    // from the walk: whether 200 steps happens to catch something depends on
+    // the shape of the maps, and this test is about the log, not about that.
     const world = testWorld("PKMFEVER1");
-    const { inputs } = play(world, 200);
-    const extended = [...inputs, { t: "reorderParty" as const, from: 0, to: 1 }];
+    const inputs = [
+      { t: "pickStarter" as const, index: 0 },
+      {
+        t: "cheat" as const,
+        cheat: { op: "give" as const, speciesId: "machop", level: 20, variantId: "normal", gender: "male" as const },
+      },
+      { t: "reorderParty" as const, from: 0, to: 1 },
+    ];
 
-    const once = reduce(world, extended);
-    expect(once.party.length).toBeGreaterThan(1);
-    expect(stateHash(reduce(world, extended))).toBe(stateHash(once));
+    const once = reduce(world, inputs);
+    expect(once.party.length).toBe(2);
+    expect(once.party[0].speciesId).toBe("machop");
+    expect(stateHash(reduce(world, inputs))).toBe(stateHash(once));
   });
 });

@@ -86,7 +86,12 @@ const DIRECTIONS: readonly Direction[] = ["n", "s", "e", "w"];
  * A breadth-first search over walkable tiles, run fresh each step. Wasteful,
  * and it does not matter: this is a fixture generator, not the game.
  */
-function stepToward(route: { width: number; height: number; tiles: number[] }, x: number, y: number, want: number): Direction | null {
+function stepToward(
+  route: { width: number; height: number; tiles: number[] },
+  x: number,
+  y: number,
+  wanted: (x: number, y: number, tile: number) => boolean,
+): Direction | null {
   const seen = new Uint8Array(route.width * route.height);
   const queue: { x: number; y: number; first: Direction | null }[] = [{ x, y, first: null }];
   seen[y * route.width + x] = 1;
@@ -103,10 +108,12 @@ function stepToward(route: { width: number; height: number; tiles: number[] }, x
       seen[index] = 1;
 
       const tile = route.tiles[index];
-      if (!walkable(tile)) continue;
-
       const first = at.first ?? dir;
-      if (tile === want) return first;
+      if (wanted(nx, ny, tile)) return first;
+
+      // Checked after the target, so something standing on an unwalkable tile
+      // can still be walked *at* — which is how a trainer is challenged.
+      if (!walkable(tile)) continue;
       queue.push({ x: nx, y: ny, first });
     }
   }
@@ -130,7 +137,7 @@ function stepToward(route: { width: number; height: number; tiles: number[] }, x
  * itself into a corner, and an occasional eastward push carries it out to the
  * higher rings rather than farming ring one forever.
  */
-function walkCandidates(world: World, state: GameState, rng: () => number): Input[] {
+export function walkCandidates(world: World, state: GameState, rng: () => number): Input[] {
   const route = world.routes.get(state.route);
   const order: Direction[] = [];
 
@@ -146,13 +153,32 @@ function walkCandidates(world: World, state: GameState, rng: () => number): Inpu
   const here = route.tiles[state.y * route.width + state.x];
   const roam: Direction[] = ["n", "n", "s", "s", "e", "w"];
 
-  if (here === TILE.GRASS) {
+  // Somebody still standing on this route, if there is one. Hunted rarely and
+  // deliberately: the walker got so good at finding grass that it stopped
+  // meeting anybody at all, and the probe's trainer battles fell to zero while
+  // its wild ones went up thirty-fold.
+  const rival = (world.trainers.get(route.id) ?? []).find(
+    (trainer) => !state.beaten.includes(trainer.id),
+  );
+
+  // The pull toward a rival is not re-rolled: a one-in-six nudge each step
+  // never accumulates against a four-in-six pull the other way, and the walker
+  // spent five thousand steps on a route with somebody standing on it without
+  // ever arriving. Unbeaten people are dealt with first, then the grass.
+  if (rival) {
+    // Unconditionally, and first. Any share left to wandering is a share the
+    // walker spends drifting back out of arm's reach — it reached a rival's
+    // neighbouring tile exactly once in four thousand steps and wandered off
+    // again, and the probe recorded no trainer battles at all. Wild encounters
+    // are not lost by this: the way to somebody standing on open ground runs
+    // through the grass either side of them.
+    order.push(stepToward(route, state.x, state.y, (x, y) => x === rival.x && y === rival.y) ?? "e");
+  } else if (here === TILE.GRASS && intBelow(rng, 4) !== 0) {
     order.push(roam[intBelow(rng, roam.length)]);
   } else if (intBelow(rng, 12) === 0) {
     order.push("e");
   } else {
-    const hunt = stepToward(route, state.x, state.y, TILE.GRASS);
-    order.push(hunt ?? "e");
+    order.push(stepToward(route, state.x, state.y, (_x, _y, tile) => tile === TILE.GRASS) ?? "e");
   }
 
   return [...order, ...DIRECTIONS].map((dir) => ({ t: "move", dir }) as Input);

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { activeOf, isFainted } from "@/engine/battle";
 import { ALL_SPECIES } from "@/engine/dex";
 import { applyInput, initialState, trainerPurse, type GameState } from "@/engine/engine";
-import { encounterTable, levelForRing, trainerAt, TILE_PATH, wildAt } from "@/engine/world";
+import { encounterTable, levelForRing, trainerAt, wildAt } from "@/engine/world";
+import { hidesEncounters, walkable } from "@/engine/terrain";
 import { creature, testWorld } from "./helpers";
 
 /**
@@ -31,13 +32,19 @@ describe("where they stand", () => {
     }
   });
 
-  it("T2: they stand on the path, never in grass or inside a wall", () => {
+  it("T2: they stand on open ground, never in grass or inside a wall", () => {
+    // Routes are carved mazes now, so a corridor is the biome's own floor
+    // rather than a strip of TILE_PATH. What makes a trainer fair is that you
+    // can see them and walk round them, which is a property of the tile being
+    // walkable and not hiding anything — not of one tile id.
     for (const seed of SEEDS) {
       const world = testWorld(seed);
       for (const [routeId, here] of world.trainers) {
         const route = world.routes.get(routeId)!;
         for (const trainer of here) {
-          expect(route.tiles[trainer.y * route.width + trainer.x]).toBe(TILE_PATH);
+          const tile = route.tiles[trainer.y * route.width + trainer.x];
+          expect(walkable(tile)).toBe(true);
+          expect(hidesEncounters(tile)).toBe(false);
         }
       }
     }
@@ -123,7 +130,8 @@ function approach(
       side.y > 0 &&
       side.x < route.width - 1 &&
       side.y < route.height - 1 &&
-      route.tiles[side.y * route.width + side.x] === TILE_PATH &&
+      walkable(route.tiles[side.y * route.width + side.x]) &&
+      !hidesEncounters(route.tiles[side.y * route.width + side.x]) &&
       !trainerAt(world, route.id, side.x, side.y),
   );
   expect(spot).toBeDefined();

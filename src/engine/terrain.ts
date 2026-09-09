@@ -218,3 +218,233 @@ export function speckle(grid: Grid, rng: Rng, tile: number, count: number, over:
   }
 }
 
+// ------------------------------------------------------------------- maze
+
+export interface MazeCell {
+  cx: number;
+  cy: number;
+}
+
+export interface MazePlan {
+  cols: number;
+  rows: number;
+  /** Which cells are joined, as "cx,cy>cx,cy" with the lower key first. */
+  joins: Set<string>;
+  /** Visit order of the spanning tree, so a caller can pick a far cell. */
+  order: MazeCell[];
+}
+
+const joinKey = (a: MazeCell, b: MazeCell): string => {
+  const one = `${a.cx},${a.cy}`;
+  const two = `${b.cx},${b.cy}`;
+  return one < two ? `${one}>${two}` : `${two}>${one}`;
+};
+
+export function joined(plan: MazePlan, a: MazeCell, b: MazeCell): boolean {
+  return plan.joins.has(joinKey(a, b));
+}
+
+/**
+ * A maze over a coarse grid of cells, as a spanning tree plus a few loops.
+ *
+ * Depth-first from a corner, which is what gives long winding corridors and
+ * real dead ends rather than the short stubby ones a random-edge maze
+ * produces. The tree guarantees every cell is reachable, so a route can never
+ * generate itself shut.
+ *
+ * The extra joins matter as much as the tree: a pure spanning tree has exactly
+ * one path between any two points, which reads less like a place and more like
+ * a corridor that happens to bend. A handful of loops turns wrong turns into
+ * detours instead of dead ends you must retrace in full.
+ */
+export function maze(rng: Rng, cols: number, rows: number, extraLoops: number): MazePlan {
+  const joins = new Set<string>();
+  const order: MazeCell[] = [];
+  const seen = new Set<string>();
+  const stack: MazeCell[] = [{ cx: 0, cy: Math.floor(rows / 2) }];
+  seen.add(`${stack[0].cx},${stack[0].cy}`);
+  order.push(stack[0]);
+
+  while (stack.length) {
+    const at = stack[stack.length - 1];
+    const options = neighbours(at, cols, rows).filter((next) => !seen.has(`${next.cx},${next.cy}`));
+
+    if (!options.length) {
+      stack.pop();
+      continue;
+    }
+
+    const next = options[intBetween(rng, 0, options.length - 1)];
+    joins.add(joinKey(at, next));
+    seen.add(`${next.cx},${next.cy}`);
+    order.push(next);
+    stack.push(next);
+  }
+
+  for (let i = 0; i < extraLoops; i++) {
+    const cell = { cx: intBetween(rng, 0, cols - 1), cy: intBetween(rng, 0, rows - 1) };
+    const options = neighbours(cell, cols, rows);
+    if (!options.length) continue;
+    joins.add(joinKey(cell, options[intBetween(rng, 0, options.length - 1)]));
+  }
+
+  return { cols, rows, joins, order };
+}
+
+function neighbours(cell: MazeCell, cols: number, rows: number): MazeCell[] {
+  return [
+    { cx: cell.cx - 1, cy: cell.cy },
+    { cx: cell.cx + 1, cy: cell.cy },
+    { cx: cell.cx, cy: cell.cy - 1 },
+    { cx: cell.cx, cy: cell.cy + 1 },
+  ].filter((next) => next.cx >= 0 && next.cy >= 0 && next.cx < cols && next.cy < rows);
+}
+
+/** Carves a filled rectangle, clamped to the grid. */
+export function carve(grid: Grid, x: number, y: number, w: number, h: number, tile: number): void {
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      if (grid.inside(x + dx, y + dy)) grid.set(x + dx, y + dy, tile);
+    }
+  }
+}
+
+/** Carves a straight run between two points, one axis then the other. */
+export function carveLine(
+  grid: Grid,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  width: number,
+  tile: number,
+): void {
+  const half = Math.floor(width / 2);
+  const stepX = Math.sign(to.x - from.x);
+  const stepY = Math.sign(to.y - from.y);
+
+  for (let x = from.x; x !== to.x + stepX && stepX !== 0; x += stepX) {
+    carve(grid, x, from.y - half, 1, width, tile);
+  }
+  for (let y = from.y; y !== to.y + stepY && stepY !== 0; y += stepY) {
+    carve(grid, to.x - half, y, width, 1, tile);
+  }
+}
+
+/** Every tile reachable on foot from a starting point. */
+export function reachable(grid: Grid, from: { x: number; y: number }): Uint8Array {
+  const seen = new Uint8Array(grid.width * grid.height);
+  if (!grid.inside(from.x, from.y)) return seen;
+
+  const queue = [from];
+  seen[from.y * grid.width + from.x] = 1;
+
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    for (const [dx, dy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ]) {
+      const x = at.x + dx;
+      const y = at.y + dy;
+      if (!grid.inside(x, y)) continue;
+      const index = y * grid.width + x;
+      if (seen[index] || !walkable(grid.get(x, y))) continue;
+      seen[index] = 1;
+      queue.push({ x, y });
+    }
+  }
+
+  return seen;
+}
+
+/**
+ * Fills in anything you could not have walked to, and says how much it filled.
+ *
+ * The maze guarantees the *rooms* are connected; it says nothing about what
+ * gets dropped on them afterwards. A cabin in one of pinewood's small rooms
+ * filled the room end to end and sealed off everything beyond it — two
+ * thousand tiles of a route, carved, decorated, and unreachable. Rather than
+ * forbid every placement that might do it, the last word on a route is a walk
+ * from its front door: what that walk cannot get to was never really part of
+ * the map, so it stops pretending to be.
+ */
+export function sealUnreachable(grid: Grid, from: { x: number; y: number }, wall: number): number {
+  const seen = reachable(grid, from);
+  let sealed = 0;
+
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const index = y * grid.width + x;
+      if (seen[index] || !walkable(grid.get(x, y))) continue;
+      grid.set(x, y, wall);
+      sealed++;
+    }
+  }
+
+  return sealed;
+}
+
+// --------------------------------------------------------------- rotation
+
+export interface Rotated {
+  tiles: number[];
+  width: number;
+  height: number;
+  /** Where a point in the original ends up. */
+  map: (x: number, y: number) => { x: number; y: number };
+}
+
+/**
+ * Turns a map a quarter at a time.
+ *
+ * Every route is generated in one canonical form — in at the west, out at the
+ * east — and then turned to face the way its arm actually runs. Generating
+ * four orientations instead would mean four chances for a rule to hold in one
+ * of them and not the others; this way there is one generator and a transform
+ * that cannot change what is connected to what.
+ */
+export function rotate(tiles: readonly number[], width: number, height: number, quarters: number): Rotated {
+  const turns = ((quarters % 4) + 4) % 4;
+  if (turns === 0) {
+    return { tiles: [...tiles], width, height, map: (x, y) => ({ x, y }) };
+  }
+
+  const flipped = turns % 2 === 1;
+  const outWidth = flipped ? height : width;
+  const outHeight = flipped ? width : height;
+  const out = new Array<number>(outWidth * outHeight).fill(0);
+
+  // One clockwise quarter sends (x, y) to (height - 1 - y, x).
+  const step = (x: number, y: number, h: number) => ({ x: h - 1 - y, y: x });
+
+  const map = (x: number, y: number) => {
+    let point = { x, y };
+    let w = width;
+    let h = height;
+    for (let i = 0; i < turns; i++) {
+      point = step(point.x, point.y, h);
+      [w, h] = [h, w];
+    }
+    void w;
+    return point;
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const to = map(x, y);
+      out[to.y * outWidth + to.x] = tiles[y * width + x];
+    }
+  }
+
+  return { tiles: out, width: outWidth, height: outHeight, map };
+}
+
+/** Mirrors left to right, for an arm that runs the other way along its axis. */
+export function mirror(tiles: readonly number[], width: number, height: number): Rotated {
+  const out = new Array<number>(width * height).fill(0);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) out[y * width + (width - 1 - x)] = tiles[y * width + x];
+  }
+  return { tiles: out, width, height, map: (x, y) => ({ x: width - 1 - x, y }) };
+}

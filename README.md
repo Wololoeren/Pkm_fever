@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         188 tests, including the replay property everything rests on
+tests/         191 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -166,44 +166,69 @@ memorised the original to notice.
 ### The world
 
 A town at the centre, four biomes running outward from it, and further out
-means higher levels and rarer things. Hearth is 40x28 with a crossroads, four
-buildings, a fenced garden and four ways out; the routes beyond it are 44x34,
-which is well past what fits on a screen, so the camera follows you and stops
-at the edges. That is the point of the size: a place you cross rather than
-take in at a glance.
+means higher levels and rarer things. Hearth is 40x28; the routes beyond it are
+**88x68**, four times the area they were and far past what fits on a screen, so
+the camera follows you and stops at the edges.
 
-Nothing on a route is placed by hand. A path meanders from the western way in
-to the eastern way out, woodland clumps thicken with the ring, tall grass
-falls in patches, a pond gets a sand rim, and a cabin sometimes sits beside the
-path — then the two ways through are cut last, so generation can never seal a
-route off. Which tiles you can walk on and which hide encounters are
-properties of the tile, not of a coordinate, which is what let the hub stop
-being a special case and become a town.
+Routes are **carved, not drawn**. The map starts solid and a maze over a coarse
+grid of rooms decides what opens: a depth-first spanning tree, which is what
+gives long winding corridors and real dead ends rather than the stubby ones a
+random-edge maze produces, plus a handful of extra joins so that a wrong turn
+is a detour instead of something you must retrace in full. Every room is on the
+tree, so connectivity is structural rather than hoped for.
 
-Every building carries a board beside its door saying what it is for, drawn
-with its text over the map — four identical red roofs is a town you cannot
-read. The sign goes beside the doorstep and never on it, which is a rule worth
-writing down: a sign that blocked its own door would be a very good joke and a
-very bad building.
+Each biome is a different place to *walk* through, not just a different
+palette. Meadow is wide and looped and forgiving, because it is the one you
+meet first. Pinewood is the maze proper: narrow, few loops, mostly dead ends.
+Ashflats is broken rather than dense, open rooms with rock between them and
+little cover. Marsh lets water do the walling, so the way through is the dry
+ground between pools. Corridors narrow as the rings go out, so the outer rings
+close in without needing profiles of their own.
 
-The buildings are real. Stepping on a door tile puts you in the room behind
-it, and the daycare and the trainers' centre are two of those rooms rather
-than panels that follow you around. A room knows where its own front step is,
-and the door outside asks it — wiring the two by hand put the player at a town
-coordinate inside a 13x10 room, off the map and unable to move in any
-direction, while every test passed, because the tests placed the player by
-asking the room. `W17` asks the doors instead.
+The last word on a route is a walk from its front door: anything that walk
+cannot reach is filled back in. Everything scattered after the maze runs can
+sever a branch the maze guaranteed, and something did: a cabin dropped into one
+of the small pinewood rooms filled it end to end and sealed off two thousand
+tiles, carved, decorated and unreachable. `W24` is what noticed.
+
+Every route is generated in one canonical form, in at the west and out at the
+east, and **turned** to face the way its arm runs. Before that the arms all ran
+sideways: you walked north out of town and the way onward was *west*. The two
+vertical arms are 68x88 now, and going up keeps going up. Generating four
+orientations instead would have meant four chances for a rule to hold in one of
+them and not the others; a rotation cannot change what is connected to what.
+
+Where a border leads is a **lookup, not a derivation**. Both ends of every
+crossing are written from the same pair of gates when the world is built, so
+stepping out and stepping back is a round trip as a property of the map. It
+used to be two separate pieces of arithmetic, and they disagreed: every walk
+back from ring one arrived at the same gap in town whichever arm you had left
+by.
+
+The buildings are real. Stepping on a door tile puts you in the room behind it,
+and the daycare, the Poke Center and the Mart are rooms rather than panels that
+follow you around. Every building outside carries a board beside its door
+saying what it is for, drawn with its text over the map, because four identical
+red roofs is a town you cannot read. The sign goes beside the doorstep and
+never on it, which is a rule worth writing down: a sign that blocked its own
+door would be a very good joke and a very bad building.
 
 ### The map
 
 Two maps, because there are two questions. A scaled-down view of the map you
 are standing on, with doors, unbeaten trainers and you marked on it, answers
-"where am I here". Under it, a corridor diagram — a town with four arms, rings
-along each — answers "which arm, how far out", which is the only thing
-difficulty depends on and the thing a minified tile view hides. Unvisited
-rings are drawn but empty: the shape of the world is not a secret, only what
-is in it. Standing indoors lights up the town you are indoors in, because a
-door is not a journey.
+"where am I here", and on a carved maze it is worth looking at. Under it, a
+node diagram — a town with four arms, rings along each — answers "which arm,
+how far out", which is the only thing difficulty depends on and the thing a
+minified tile view hides.
+
+Neither carries a word any more. The arms are told apart by the colour of what
+you have walked and the rings by whether they are filled, which is what the
+diagram is actually for; four names pointing outward from a 176px square were
+more ink than answer, and the header already says where you are standing.
+Unvisited rings are drawn but empty: the shape of the world is not a secret,
+only what is in it. Standing indoors lights up the town you are indoors in,
+because a door is not a journey.
 
 ### Testing shortcuts
 

@@ -587,12 +587,6 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.miniLabel {
-  fill: var(--muted);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
 
 /* The hover panel on a starter card. Positioned over the card rather than
    beside it, so it cannot push the grid around or fall off the viewport at

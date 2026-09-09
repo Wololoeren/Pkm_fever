@@ -193,7 +193,7 @@ function decorate(ctx: CanvasRenderingContext2D, tile: number, px: number, py: n
  * A board on a post, with its text on a plate above it.
  *
  * The text is drawn over the tile rather than on it, because a tile is 26px
- * and "Trainers Centre" is not. The plate is sized to the text and centred on
+ * and "Poké Center" is not. The plate is sized to the text and centred on
  * the post, so a long name grows sideways instead of becoming unreadable.
  */
 function signpost(ctx: CanvasRenderingContext2D, px: number, py: number, text: string): void {

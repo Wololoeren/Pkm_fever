@@ -29,9 +29,7 @@ import {
   encounterTriggers,
   fishAt,
   HUB_ID,
-  routeId,
   starterAppearance,
-  townArrival,
   trainerAt,
   wildAt,
   type World,
@@ -820,49 +818,27 @@ const DELTA: Record<Direction, [number, number]> = {
 /**
  * Where a border tile leads.
  *
- * The world is radial: west runs inward toward the hub, east runs outward
- * into higher rings, and the hub's four gaps open onto the four biomes. That
- * is the whole map graph — no connection table to author or keep in sync.
+ * The world is radial: four arms of rings running out from the town at the
+ * centre. Each route knows which of its border tiles leads back and which
+ * leads on, and the world wires both ends of every crossing when it is built.
  */
-function exitFrom(world: World, from: string, x: number, y: number): { route: string; x: number; y: number } | null {
+function exitFrom(
+  world: World,
+  from: string,
+  x: number,
+  y: number,
+): { route: string; x: number; y: number } | null {
   const route = world.routes.get(from);
   if (!route) return null;
 
-  const lastX = route.width - 1;
-  const lastY = route.height - 1;
-
-  if (from === HUB_ID) {
-    const biomes = world.config.biomes;
-    const side = x === 0 ? 0 : y === 0 ? 1 : x === lastX ? 2 : y === lastY ? 3 : -1;
-    if (side < 0 || side >= biomes.length) return null;
-    const target = world.routes.get(routeId(biomes[side], 1));
-    return target ? { route: target.id, x: target.entry.x, y: target.entry.y } : null;
-  }
-
-  if (x === 0) {
-    if (route.ring <= 1) {
-      const town = world.routes.get(HUB_ID);
-      if (!town) return null;
-      // Back in through the gap this arm actually leaves by, so a step out and
-      // a step back is a round trip rather than a teleport across town.
-      const side = world.config.biomes.indexOf(route.biome);
-      if (side < 0) return null;
-      return { route: HUB_ID, ...townArrival(town.width, town.height, side) };
-    }
-    const inward = world.routes.get(routeId(route.biome, route.ring - 1));
-    // Arriving from outside lands you at the far end of the path, which the
-    // route knows and this no longer has to guess.
-    return inward ? { route: inward.id, x: inward.width - 2, y: exitRowOf(inward) } : null;
-  }
-
-  if (x === lastX) {
-    const outward = world.routes.get(routeId(route.biome, route.ring + 1));
-    return outward ? { route: outward.id, x: outward.entry.x, y: outward.entry.y } : null;
-  }
-
-  // Hub gaps are the only north/south doors; a route's own top and bottom are
-  // solid, so reaching here means the border tile is decorative.
-  return null;
+  // A lookup rather than a derivation. Working out where a border leads from
+  // which edge it sits on meant the two sides of a crossing were computed
+  // separately, and they disagreed: every walk back from ring one arrived at
+  // the western gap whichever arm you had come from. Both directions are
+  // written from the same pair of gates when the world is built now, so a
+  // round trip is a property of the map rather than of two sums matching.
+  const border = route.borders.find((gate) => gate.x === x && gate.y === y);
+  return border ? { route: border.to, x: border.at.x, y: border.at.y } : null;
 }
 
 /**
@@ -1107,14 +1083,6 @@ function ballAt(state: GameState, action: BattleAction): number {
  */
 export function trainerPurse(teamSize: number, ring: number): number {
   return 150 * teamSize * Math.max(1, ring);
-}
-
-/** Which row the eastern way out of a route sits on. */
-function exitRowOf(route: { width: number; height: number; tiles: number[] }): number {
-  for (let y = 0; y < route.height; y++) {
-    if (walkable(route.tiles[y * route.width + (route.width - 1)])) return y;
-  }
-  return Math.floor(route.height / 2);
 }
 
 function move(world: World, state: GameState, dir: Direction): GameState {

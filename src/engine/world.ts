@@ -1,7 +1,22 @@
 import { STARTER_TYPES, startersOfType } from "./dex";
 import { rollGender } from "./gender";
 import { NATURE_IDS } from "./natures";
-import { building, clump, Grid, meander, speckle, TILE } from "./terrain";
+import {
+  building,
+  carve,
+  carveLine,
+  clump,
+  Grid,
+  joined,
+  maze,
+  mirror,
+  rotate,
+  hidesEncounters,
+  sealUnreachable,
+  speckle,
+  TILE,
+  walkable,
+} from "./terrain";
 import { intBelow, intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
 import { clampIvs, WILD_IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type SpeciesEntry, type StatTable, type WorldConfig } from "./types";
@@ -32,8 +47,8 @@ export const TILE_GRASS = TILE.GRASS;
  * GameCanvas exists to make possible: a window onto a place, rather than the
  * whole of a small box at once.
  */
-export const ROUTE_WIDTH = 44;
-export const ROUTE_HEIGHT = 34;
+export const ROUTE_WIDTH = 88;
+export const ROUTE_HEIGHT = 68;
 
 /** Towns are wider than they are tall, the way a street is. */
 export const TOWN_WIDTH = 40;
@@ -60,7 +75,7 @@ export type InteriorRole = "daycare" | "centre" | "mart" | "house";
 /** What the board outside each kind of building says. */
 const SIGN_TEXT: Record<InteriorRole, string> = {
   daycare: "Daycare",
-  centre: "Trainers Centre",
+  centre: "Poké Center",
   mart: "Mart",
   house: "House",
 };
@@ -94,6 +109,12 @@ export interface Route {
   entry: { x: number; y: number };
   /** Doors on this map, keyed by the tile you step on. */
   doors: Door[];
+  /** The border tile leading back toward town, and the one leading away.
+   * Which edge each sits on depends on which way this arm runs. */
+  inGate?: { x: number; y: number };
+  outGate?: { x: number; y: number };
+  /** Border crossings, wired once every route exists. */
+  borders: Door[];
   /** Boards standing beside a door, and what each one says. */
   signs: Sign[];
   /** For an interior: what it is for, and which map it belongs to. */
@@ -296,70 +317,234 @@ export function encounterTable(
  * through, then the things that grow, then the things somebody built — so a
  * cabin is never inside a wood and the path is never under a pond.
  */
+/**
+ * What one biome is made of, and how hard it is to get through.
+ *
+ * The routes used to differ only in palette and in what lived in the grass,
+ * which meant four biomes were one biome wearing four coats. These are the
+ * knobs that make a marsh feel unlike a pinewood to *walk* through: what the
+ * walls are made of, how wide the ways between them run, how many loops there
+ * are to take a wrong turn around, and how much of the open ground bites.
+ */
+interface BiomeProfile {
+  /** What fills everything not carved out. */
+  wall: number;
+  /** The floor of a carved room. */
+  ground: number;
+  /** Tiles across a corridor. Narrow is claustrophobic; wide is a field. */
+  corridor: number;
+  /** How far a room is shrunk inside its cell. Bigger is tighter. */
+  roomInset: [number, number];
+  /** Extra joins beyond the spanning tree — loops rather than dead ends. */
+  loops: number;
+  /** Share of the rooms given over to tall grass, per mille. */
+  grass: number;
+  /** Pools of water dropped into rooms. */
+  pools: number;
+  /** Loose rock and flowers scattered over the open ground. */
+  clutter: number;
+}
+
+const BIOME_PROFILES: Record<string, BiomeProfile> = {
+  // Open and forgiving: wide ways, plenty of loops, grass everywhere. This is
+  // the one you meet first and it should not feel like a trap.
+  meadow: {
+    wall: TILE.TREE, ground: TILE.MEADOW, corridor: 5, roomInset: [0, 1],
+    loops: 14, grass: 420, pools: 2, clutter: 40,
+  },
+  // The maze proper. Narrow, few loops, mostly dead ends — a pine wood is the
+  // biome you get lost in.
+  pinewood: {
+    wall: TILE.TREE, ground: TILE.MEADOW, corridor: 3, roomInset: [1, 2],
+    loops: 4, grass: 300, pools: 0, clutter: 18,
+  },
+  // Broken rather than dense: wide open rooms with rock between them, little
+  // cover, and nothing to drink.
+  ashflats: {
+    wall: TILE.ROCK, ground: TILE.SAND, corridor: 6, roomInset: [0, 0],
+    loops: 10, grass: 180, pools: 0, clutter: 55,
+  },
+  // Water does the walling. The ways through are the dry ground between pools,
+  // so it reads as picking your way rather than following a path.
+  marsh: {
+    wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [0, 2],
+    loops: 8, grass: 380, pools: 7, clutter: 25,
+  },
+};
+
+function profileFor(biome: string): BiomeProfile {
+  return BIOME_PROFILES[biome] ?? BIOME_PROFILES.meadow;
+}
+
+/**
+ * The order the four arms hang off town: west, north, east, south.
+ *
+ * The world config lists the biomes and the town cuts its gaps in the same
+ * order, so this is that order named once rather than assumed in three places.
+ */
+export const ARM_ORDER: readonly string[] = ["meadow", "pinewood", "ashflats", "marsh"];
+
+/** How coarse the maze is. Eight tiles a cell over 88x68 gives 10x8 rooms. */
+const CELL = 8;
+
+/**
+ * A route, generated canonically — in at the west, out at the east — and
+ * turned afterwards to face the way its arm runs.
+ *
+ * Carved rather than drawn: the map starts solid and a maze over a coarse grid
+ * of rooms decides what opens. That is what makes a route somewhere to find
+ * your way through rather than a field with a path across it, and it is why
+ * connectivity is structural — every room sits on a spanning tree, so
+ * generation cannot seal a route off no matter what is scattered afterwards.
+ */
 function buildRoute(seed: string, biome: string, ring: number): { route: Route; interiors: Route[] } {
   const rng = rngFor(seed, "route", biome, ring);
-  const grid = new Grid(ROUTE_WIDTH, ROUTE_HEIGHT, TILE.MEADOW);
-  const doors: Door[] = [];
-  const signs: Sign[] = [];
-  const interiors: Route[] = [];
+  const profile = profileFor(biome);
   const id = routeId(biome, ring);
 
-  const entryY = Math.floor(ROUTE_HEIGHT / 2) + intBetween(rng, -4, 4);
-  const exitY = Math.floor(ROUTE_HEIGHT / 2) + intBetween(rng, -4, 4);
+  const grid = new Grid(ROUTE_WIDTH, ROUTE_HEIGHT, profile.wall);
+  const cols = Math.floor((ROUTE_WIDTH - 2) / CELL);
+  const rows = Math.floor((ROUTE_HEIGHT - 2) / CELL);
+  const originX = Math.floor((ROUTE_WIDTH - cols * CELL) / 2);
+  const originY = Math.floor((ROUTE_HEIGHT - rows * CELL) / 2);
 
-  // Trees round the edge. The two ways through are cut back in at the end,
-  // after everything that could have covered them has run.
-  grid.rect(0, 0, ROUTE_WIDTH, 1, TILE.TREE);
-  grid.rect(0, ROUTE_HEIGHT - 1, ROUTE_WIDTH, 1, TILE.TREE);
-  grid.rect(0, 0, 1, ROUTE_HEIGHT, TILE.TREE);
-  grid.rect(ROUTE_WIDTH - 1, 0, 1, ROUTE_HEIGHT, TILE.TREE);
+  // Further out is tighter: the outer rings close in without needing a profile
+  // of their own, and the first ring of a biome stays the friendly version.
+  const corridor = Math.max(2, profile.corridor - Math.floor(ring / 3));
+  const plan = maze(rng, cols, rows, Math.max(2, profile.loops - ring));
 
-  const spine = meander(grid, rng, entryY, exitY, 3);
+  const centreOf = (cx: number, cy: number) => ({
+    x: originX + cx * CELL + Math.floor(CELL / 2),
+    y: originY + cy * CELL + Math.floor(CELL / 2),
+  });
 
-  // Woodland, thicker the further out you go, so the outer rings close in.
-  for (let i = 0; i < 4 + ring; i++) {
-    clump(grid, rng, intBetween(rng, 2, ROUTE_WIDTH - 3), intBetween(rng, 2, ROUTE_HEIGHT - 3),
-      40 + ring * 12, TILE.TREE, [TILE.MEADOW, TILE.GRASS]);
+  // Rooms first, then the ways between them.
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      const inset = intBetween(rng, profile.roomInset[0], profile.roomInset[1]);
+      carve(
+        grid,
+        originX + cx * CELL + inset,
+        originY + cy * CELL + inset,
+        CELL - inset * 2,
+        CELL - inset * 2,
+        profile.ground,
+      );
+    }
+  }
+
+  // A room is walled off again unless the maze joined it to something, which
+  // is where the dead ends come from: a leaf of the tree has one way in.
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      const open = [
+        { cx: cx - 1, cy },
+        { cx: cx + 1, cy },
+        { cx, cy: cy - 1 },
+        { cx, cy: cy + 1 },
+      ]
+        .filter((next) => next.cx >= 0 && next.cy >= 0 && next.cx < cols && next.cy < rows)
+        .some((next) => joined(plan, { cx, cy }, next));
+      if (!open) carve(grid, originX + cx * CELL, originY + cy * CELL, CELL, CELL, profile.wall);
+    }
+  }
+
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      for (const next of [
+        { cx: cx + 1, cy },
+        { cx, cy: cy + 1 },
+      ]) {
+        if (next.cx >= cols || next.cy >= rows) continue;
+        if (!joined(plan, { cx, cy }, next)) continue;
+        carveLine(grid, centreOf(cx, cy), centreOf(next.cx, next.cy), corridor, profile.ground);
+      }
+    }
   }
 
   // Tall grass, the only thing out here that bites.
-  for (let i = 0; i < 7; i++) {
-    clump(grid, rng, intBetween(rng, 2, ROUTE_WIDTH - 3), intBetween(rng, 2, ROUTE_HEIGHT - 3),
-      70, TILE.GRASS, [TILE.MEADOW]);
+  for (let i = 0; i < Math.round((cols * rows * profile.grass) / 1000); i++) {
+    const cell = plan.order[intBetween(rng, 0, plan.order.length - 1)];
+    const at = centreOf(cell.cx, cell.cy);
+    clump(grid, rng, at.x, at.y, 26 + intBelow(rng, 24), TILE.GRASS, [profile.ground]);
   }
 
-  // A pond with a rim of sand, so it does not look stamped on.
-  if (rng() < 0.55) {
-    const px = intBetween(rng, 6, ROUTE_WIDTH - 7);
-    const py = intBetween(rng, 5, ROUTE_HEIGHT - 6);
-    clump(grid, rng, px, py, 30, TILE.SAND, [TILE.MEADOW, TILE.GRASS]);
-    clump(grid, rng, px, py, 18, TILE.WATER, [TILE.SAND]);
+  // Water, with a rim so it does not look stamped on.
+  for (let i = 0; i < profile.pools; i++) {
+    const cell = plan.order[intBetween(rng, 0, plan.order.length - 1)];
+    const at = centreOf(cell.cx, cell.cy);
+    clump(grid, rng, at.x, at.y, 22, TILE.SAND, [profile.ground, TILE.GRASS]);
+    clump(grid, rng, at.x, at.y, 12, TILE.WATER, [TILE.SAND]);
   }
 
-  speckle(grid, rng, TILE.ROCK, 10 + ring * 2, [TILE.MEADOW]);
-  speckle(grid, rng, TILE.FLOWER, 24, [TILE.MEADOW]);
+  speckle(grid, rng, TILE.ROCK, profile.clutter, [profile.ground]);
+  speckle(grid, rng, TILE.FLOWER, profile.clutter, [profile.ground]);
 
-  // A cabin beside the path, sometimes. Against the way through rather than
-  // dropped in a field, so it reads as somewhere a person would live.
-  if (rng() < 0.5) {
-    const x = intBetween(rng, 5, ROUTE_WIDTH - 11);
-    const y = Math.max(2, spine[x] - 6);
-    const door = building(grid, x, y, 5, 4, [TILE.MEADOW, TILE.GRASS, TILE.FLOWER]);
+  const doors: Door[] = [];
+  const signs: Sign[] = [];
+  const interiors: Route[] = [];
+
+  // A cabin in one of the rooms, sometimes.
+  let cabinBack: { x: number; y: number } | null = null;
+
+  if (rng() < 0.6) {
+    const cell = plan.order[intBetween(rng, 1, plan.order.length - 1)];
+    const at = centreOf(cell.cx, cell.cy);
+    const door = building(grid, at.x - 2, at.y - 2, 5, 4, [profile.ground, TILE.GRASS, TILE.FLOWER]);
     if (door) {
       const cabin = `${id}:cabin`;
-      const back = { x: door.x, y: door.y + 1 };
-      // `back` is where the room's own door returns you to out here; where
-      // the room puts you when you walk in is the room's business, and asking
-      // it is what stops a town coordinate being used as a room coordinate.
-      const inside = buildInterior(cabin, id, "house", "A cabin", back);
+      cabinBack = { x: door.x, y: door.y + 1 };
+      const inside = buildInterior(cabin, id, "house", "A cabin", cabinBack);
       doors.push({ x: door.x, y: door.y, to: cabin, at: inside.entry });
       if (door.sign) signs.push({ ...door.sign, text: "Cabin" });
       interiors.push(inside);
     }
   }
 
-  grid.set(0, spine[0], TILE.PATH);
-  grid.set(ROUTE_WIDTH - 1, spine[ROUTE_WIDTH - 1], TILE.PATH);
+  // The two ways through, cut last so that nothing scattered above can have
+  // closed them, and joined back to the room grid so they always lead inward.
+  const midRow = Math.floor(rows / 2);
+  const inSide = centreOf(0, midRow);
+  const outSide = centreOf(cols - 1, midRow);
+  carveLine(grid, { x: 1, y: inSide.y }, inSide, corridor, profile.ground);
+  carveLine(grid, outSide, { x: ROUTE_WIDTH - 2, y: outSide.y }, corridor, profile.ground);
+  grid.set(0, inSide.y, TILE.PATH);
+  grid.set(ROUTE_WIDTH - 1, outSide.y, TILE.PATH);
+
+  // The last word on the route: anything the walk in cannot get to is filled
+  // back in. Everything scattered above — clutter in a narrow corridor, a
+  // cabin dropped into a small room — can sever a branch the maze guaranteed,
+  // and W24 is what noticed it doing so.
+  sealUnreachable(grid, { x: 1, y: inSide.y }, profile.wall);
+
+  // A cabin cut off by that pass is a door onto nothing, so it goes with it.
+  if (cabinBack && !walkable(grid.get(cabinBack.x, cabinBack.y))) {
+    doors.length = 0;
+    signs.length = 0;
+    interiors.length = 0;
+    cabinBack = null;
+  }
+
+  // Turned to face the way this arm runs. A transform cannot change what is
+  // connected to what, so every guarantee above survives it.
+  const facing = orientationOf(biome);
+  const turned = facing.mirror
+    ? mirror(grid.tiles, ROUTE_WIDTH, ROUTE_HEIGHT)
+    : rotate(grid.tiles, ROUTE_WIDTH, ROUTE_HEIGHT, facing.quarters);
+
+  const inGate = turned.map(0, inSide.y);
+  const outGate = turned.map(ROUTE_WIDTH - 1, outSide.y);
+
+  // The room a cabin door opens into is never turned — it is its own little
+  // map — but the doorstep it puts you back on out here is, and it was written
+  // down before the turn. Left unmapped, stepping out of a cabin on a rotated
+  // arm dropped you at a coordinate from the map's other orientation.
+  if (cabinBack) {
+    const landing = turned.map(cabinBack.x, cabinBack.y);
+    for (const room of interiors) {
+      room.doors = room.doors.map((door) => (door.to === id ? { ...door, at: landing } : door));
+    }
+  }
 
   return {
     route: {
@@ -367,15 +552,100 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
       kind: "route",
       biome,
       ring,
-      width: ROUTE_WIDTH,
-      height: ROUTE_HEIGHT,
-      tiles: grid.tiles,
-      entry: { x: 1, y: spine[1] },
-      doors,
-      signs,
+      width: turned.width,
+      height: turned.height,
+      tiles: turned.tiles,
+      entry: insideOf(inGate, turned.width, turned.height),
+      inGate,
+      outGate,
+      borders: [],
+      doors: doors.map((door) => ({ ...door, ...turned.map(door.x, door.y) })),
+      signs: signs.map((sign) => ({ ...sign, ...turned.map(sign.x, sign.y) })),
       label: `${biome[0].toUpperCase()}${biome.slice(1)} · ring ${ring}`,
     },
     interiors,
+  };
+}
+
+/**
+ * Which way an arm runs, by where its biome hangs off town.
+ *
+ * The arms are listed west, north, east, south, and a route is generated
+ * running west to east. So the eastern arm is already right; the western one
+ * is mirrored; and the two that were the real complaint — walk north out of
+ * town and the way onward was *west* — are turned a quarter, so that going up
+ * keeps going up.
+ */
+function orientationOf(biome: string): { quarters: number; mirror: boolean } {
+  const side = ARM_ORDER.indexOf(biome);
+  switch (side) {
+    case 0:
+      return { quarters: 0, mirror: true };
+    case 1:
+      return { quarters: 3, mirror: false };
+    case 3:
+      return { quarters: 1, mirror: false };
+    default:
+      return { quarters: 0, mirror: false };
+  }
+}
+
+/**
+ * Joins the routes to each other, and to town.
+ *
+ * Run once, after every route exists, because a route cannot know where the
+ * next ring out landed until that ring has been built. Both directions of a
+ * crossing are written from the same pair of gates, which is what makes
+ * stepping out and stepping back a round trip *structurally* rather than
+ * because two separate pieces of arithmetic happened to agree — they did not,
+ * and every return from ring one used to arrive at the same gap in town.
+ */
+function wireBorders(routes: Map<string, Route>, config: WorldConfig): void {
+  const town = routes.get(HUB_ID);
+  if (!town) return;
+
+  const gaps = townExits(town.width, town.height);
+
+  config.biomes.forEach((biome, side) => {
+    const gap = gaps[side];
+    if (!gap) return;
+
+    for (let ring = 1; ring <= config.rings; ring++) {
+      const here = routes.get(routeId(biome, ring));
+      if (!here?.inGate) continue;
+
+      // Inward: ring one goes back to town, everything else to the ring below.
+      const inward = ring === 1 ? town : routes.get(routeId(biome, ring - 1));
+      if (inward) {
+        const landing =
+          ring === 1
+            ? townArrival(town.width, town.height, side)
+            : insideOf(inward.outGate!, inward.width, inward.height);
+
+        here.borders.push({ x: here.inGate.x, y: here.inGate.y, to: inward.id, at: landing });
+
+        // And the same crossing, written back the other way.
+        const backGate = ring === 1 ? gap : inward.outGate!;
+        inward.borders.push({
+          x: backGate.x,
+          y: backGate.y,
+          to: here.id,
+          at: insideOf(here.inGate, here.width, here.height),
+        });
+      }
+    }
+  });
+}
+
+/** The walkable tile just inside a border gate. */
+function insideOf(
+  gate: { x: number; y: number },
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  return {
+    x: gate.x === 0 ? 1 : gate.x === width - 1 ? width - 2 : gate.x,
+    y: gate.y === 0 ? 1 : gate.y === height - 1 ? height - 2 : gate.y,
   };
 }
 
@@ -406,6 +676,7 @@ function buildInterior(
     tiles: grid.tiles,
     entry: { x: exitX, y: ROOM_HEIGHT - 2 },
     doors: [{ x: exitX, y: ROOM_HEIGHT - 1, to: parent, at: back }],
+    borders: [],
     // Nothing to sign-post indoors: you are already in the building.
     signs: [],
     role,
@@ -579,7 +850,7 @@ function buildTown(): { town: Route; interiors: Route[] } {
   const interiors: Route[] = [];
   const plots: { x: number; y: number; role: InteriorRole; label: string }[] = [
     { x: 5, y: midY - 9, role: "daycare", label: "Daycare" },
-    { x: 24, y: midY - 9, role: "centre", label: "Trainers Centre" },
+    { x: 24, y: midY - 9, role: "centre", label: "Poké Center" },
     { x: 7, y: midY + 4, role: "mart", label: "Mart" },
     { x: 26, y: midY + 4, role: "house", label: "A house" },
   ];
@@ -627,6 +898,7 @@ function buildTown(): { town: Route; interiors: Route[] } {
       entry: { x: midX, y: midY },
       doors,
       signs,
+      borders: [],
       label: "Hearth",
     },
     interiors,
@@ -653,6 +925,8 @@ export function generateWorld(
       for (const room of built.interiors) routes.set(room.id, room);
     }
   }
+
+  wireBorders(routes, config);
 
   const starters = pickStarters(seed, allSpecies);
 
@@ -738,18 +1012,21 @@ function buildTrainers(seed: string, route: Route, allSpecies: readonly SpeciesE
   const table = encounterTable(allSpecies, route.biome, route.ring, rings);
   if (!table.length) return [];
 
-  // Path tiles only, so a trainer is always visible and always avoidable.
-  // The path wanders now, so where somebody can stand is asked of the map
-  // rather than assumed from a shape it no longer has.
-  const onPath: { x: number; y: number }[] = [];
+  // Open ground only, never tall grass, so a trainer is always visible and
+  // always avoidable. There is barely any TILE.PATH left on a route now — the
+  // corridors between rooms are the biome's own floor, sand in the ashflats
+  // and grass-cropped meadow elsewhere — so what counts as somewhere to stand
+  // is asked of the tile rather than assumed from one id.
+  const open: { x: number; y: number }[] = [];
   for (let y = 2; y < route.height - 2; y++) {
-    for (let x = 6; x < route.width - 6; x++) {
-      if (route.tiles[y * route.width + x] === TILE.PATH) onPath.push({ x, y });
+    for (let x = 2; x < route.width - 2; x++) {
+      const tile = route.tiles[y * route.width + x];
+      if (walkable(tile) && !hidesEncounters(tile)) open.push({ x, y });
     }
   }
-  if (!onPath.length) return [];
+  if (!open.length) return [];
 
-  const chosen = shuffle(rng, onPath).slice(0, 1 + intBelow(rng, 3));
+  const chosen = shuffle(rng, open).slice(0, 1 + intBelow(rng, 3));
 
   return chosen.map((spot, index) => {
     const size = 1 + intBelow(rng, Math.min(3, route.ring));

@@ -4,7 +4,7 @@ import { applyInput, initialState, type GameState } from "@/engine/engine";
 import { walkable } from "@/engine/terrain";
 import { STAT_IDS } from "@/engine/types";
 import { CENSUS_TOTAL, CHROMA_IDS, TOP_TIER, variant } from "@/engine/variants";
-import { encounterTable, HUB_ID, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
+import { encounterTable, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
 import { outdoorRoutes, testWorld } from "./helpers";
 
 /**
@@ -348,6 +348,88 @@ describe("crossing a border", () => {
       expect(back, `no way back from ${out.route} to ${route.id}`).not.toBeNull();
       expect(back!.route).toBe(route.id);
       expect([back!.x, back!.y]).toEqual([at.x, at.y]);
+    }
+  });
+});
+
+describe("which way an arm runs", () => {
+  /** Which edge of a map a border tile sits on. */
+  function edgeOf(gate: { x: number; y: number }, width: number, height: number): string {
+    if (gate.x === 0) return "W";
+    if (gate.x === width - 1) return "E";
+    if (gate.y === 0) return "N";
+    if (gate.y === height - 1) return "S";
+    return "?";
+  }
+
+  it("W22: going up keeps going up, and every arm points away from town", () => {
+    // Routes are generated running west to east and turned afterwards. Before
+    // that, all four arms ran sideways: you walked north out of town and the
+    // way onward was *west*, because the map had not been turned to match the
+    // direction you left in.
+    const expected: Record<string, { home: string; on: string }> = {
+      meadow: { home: "E", on: "W" },
+      pinewood: { home: "S", on: "N" },
+      ashflats: { home: "W", on: "E" },
+      marsh: { home: "N", on: "S" },
+    };
+
+    for (const seed of ["A1", "B2", "C3"]) {
+      const world = testWorld(seed);
+      for (const route of outdoorRoutes(world)) {
+        const want = expected[route.biome];
+        expect(want, `no expectation for ${route.biome}`).toBeDefined();
+
+        expect(edgeOf(route.inGate!, route.width, route.height)).toBe(want.home);
+        expect(edgeOf(route.outGate!, route.width, route.height)).toBe(want.on);
+      }
+    }
+  });
+
+  it("W23: the arms that run up and down are taller than they are wide", () => {
+    const world = testWorld("A1");
+    for (const route of outdoorRoutes(world)) {
+      const upright = route.biome === "pinewood" || route.biome === "marsh";
+      expect(upright ? route.height > route.width : route.width > route.height).toBe(true);
+      // Four times the area of the old routes, whichever way round.
+      expect(route.width * route.height).toBe(88 * 68);
+    }
+  });
+
+  it("W24: every room a route carves can be reached from the way in", () => {
+    // The whole point of carving a maze over a spanning tree rather than
+    // scattering obstacles: connectivity is structural. If this ever fails,
+    // some route has a piece of itself walled off and something on it — a
+    // trainer, an item, the one shiny — is unreachable.
+    for (const seed of ["A1", "B2", "C3", "D4"]) {
+      const world = testWorld(seed);
+      for (const route of outdoorRoutes(world)) {
+        const seen = new Uint8Array(route.width * route.height);
+        const start = route.entry;
+        const queue = [start];
+        seen[start.y * route.width + start.x] = 1;
+        let reached = 0;
+
+        for (let head = 0; head < queue.length; head++) {
+          const at = queue[head];
+          reached++;
+          for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+            const x = at.x + dx;
+            const y = at.y + dy;
+            if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
+            const index = y * route.width + x;
+            if (seen[index] || !walkable(route.tiles[index])) continue;
+            seen[index] = 1;
+            queue.push({ x, y });
+          }
+        }
+
+        const open = route.tiles.filter(walkable).length;
+        // Doors are walkable but sit in a wall, so allow the handful of them.
+        expect(reached, `${seed} ${route.id} strands ${open - reached} tiles`).toBeGreaterThanOrEqual(
+          open - route.doors.length,
+        );
+      }
     }
   });
 });

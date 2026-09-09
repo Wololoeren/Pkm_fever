@@ -1,29 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { ALL_SPECIES } from "@/engine/dex";
+import { walkCandidates } from "./helpers";
 import { applyInput, initialState, type GameState, type Input } from "@/engine/engine";
-import { intBelow, rngFor } from "@/engine/rng";
+import { rngFor } from "@/engine/rng";
 import { DEFAULT_WORLD } from "@/engine/types";
-import { generateWorld, HUB_ID, type World } from "@/engine/world";
+import { generateWorld, type World } from "@/engine/world";
 
-type Direction = "n" | "s" | "e" | "w";
-const DIRECTIONS: readonly Direction[] = ["n", "s", "e", "w"];
-
-/** The same beeline-out-then-drift-east walk tests/helpers.ts uses; a uniform
- * random walk spends hundreds of steps failing to find the hub's one-tile exit. */
-function walkCandidates(world: World, state: GameState, rng: () => number): Input[] {
-  const route = world.routes.get(state.route);
-  const midY = route ? Math.floor(route.height / 2) : 9;
-  const order: Direction[] = [];
-  if (state.route === HUB_ID) {
-    if (state.y < midY) order.push("s");
-    else if (state.y > midY) order.push("n");
-    else order.push("e");
-  } else {
-    const weighted: Direction[] = ["n", "n", "n", "n", "s", "s", "s", "s", "e", "e", "e"];
-    order.push(weighted[intBelow(rng, weighted.length)]);
-  }
-  return [...order, ...DIRECTIONS].map((dir) => ({ t: "move", dir }) as Input);
-}
+/**
+ * The walk is the one the replay fixture uses, imported rather than copied.
+ *
+ * It was a copy — a plain north/south/east random walk, which stumbled into
+ * grass often enough on the old open maps to look like it was working. On
+ * carved mazes it mostly bumps into walls: the probe's battle count fell from
+ * 253 to 30 the moment the routes changed shape, while still passing, because
+ * what it asserts is deadlock and not coverage. Two walkers meant only one of
+ * them got fixed.
+ */
 
 function uiCandidates(world: World, state: GameState, rng: () => number): Input[] {
   const out: Input[] = [];

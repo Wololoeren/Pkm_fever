@@ -42,7 +42,10 @@ export function MiniMap({ world, state }: { world: World; state: GameState }) {
 function LocalMap({ world, state }: { world: World; state: GameState }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const route = world.routes.get(state.route);
-  const cell = route ? Math.max(3, Math.min(9, Math.floor(MINI_WIDTH / route.width))) : 4;
+  // Routes are 88x68, so the floor has to come down or the local map is half
+  // again wider than the column it sits in. Interiors, being tiny, still get
+  // fat pixels.
+  const cell = route ? Math.max(2, Math.min(9, Math.floor(MINI_WIDTH / route.width))) : 4;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -91,6 +94,8 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
   if (!route) return null;
 
   return (
+    // No caption: the header above the map already names where you are, and
+    // saying it twice on one screen is one label too many.
     <div className="miniLocal">
       <canvas
         ref={ref}
@@ -98,7 +103,6 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
         height={route.height * cell}
         aria-label={`Map of ${route.label}`}
       />
-      <span className="miniLabelText">{route.label}</span>
     </div>
   );
 }
@@ -122,6 +126,9 @@ function RegionMap({ world, state, outer }: { world: World; state: GameState; ou
         const palette = paletteFor(biome);
 
         return (
+          // No labels. The arms are told apart by the colour of what you have
+          // walked, which is the thing the map is actually for; four names
+          // pointing outward from a 176px square were more ink than answer.
           <g key={biome}>
             <line
               x1={centre}
@@ -155,18 +162,6 @@ function RegionMap({ world, state, outer }: { world: World; state: GameState; ou
                 </circle>
               );
             })}
-            {/* Alongside the arm rather than past the end of it: a label
-                set beyond the outermost ring runs off the edge, which is
-                how "pinewood" first rendered as "P". */}
-            <text
-              x={centre + dx * step * rings * 0.55 - dy * 10}
-              y={centre + dy * step * rings * 0.55 + dx * 10}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              className="miniLabel"
-            >
-              {biome}
-            </text>
           </g>
         );
       })}
