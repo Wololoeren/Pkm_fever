@@ -31,10 +31,11 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3100>. Pick a seed, choose one of the six starters
-it deals you, and walk east out of the hub into the grass. Arrow keys or WASD
-to move; in a battle, <kbd>1</kbd>–<kbd>4</kbd> for moves, <kbd>B</kbd> to
-throw a ball, <kbd>R</kbd> to run, <kbd>Enter</kbd> to dismiss a result.
+Then open <http://localhost:3100>. Pick a seed, choose one of the three
+starters it deals you — one grass, one fire, one water — and walk east out of
+the hub into the grass. Arrow keys or WASD to move; in a battle,
+<kbd>1</kbd>–<kbd>4</kbd> for moves, <kbd>B</kbd> to throw a ball, <kbd>R</kbd>
+to run, <kbd>Enter</kbd> to dismiss a result.
 
 Your progress autosaves to the browser as you go, and **Save to file** hands
 you the seed and input log as JSON — that is the whole save.
@@ -46,7 +47,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         106 tests, including the replay property everything rests on
+tests/         115 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld, wild encounters, a
@@ -57,6 +58,23 @@ and **1v1 duels over WebRTC**.
 
 Not yet: a tournament bracket — though a bracket is a spreadsheet and a series
 of 1v1s, which already work.
+
+### Starters
+
+One grass, one fire, one water, drawn from the real trios — Bulbasaur through
+Sprigatito. Each type is drawn independently, so a world can pair Charmander
+with Rowlet and Quaxly: 729 combinations rather than the nine a fixed trio per
+world would give.
+
+The list is curated, in `scripts/build-dex.mjs`, because there is nothing to
+derive it from. "Is a starter" is a designer's decision, not a property of the
+data — the first cut asked for three-stage lines with a base stat total
+between 280 and 330 and duly offered Beldum, Klink and Solosis, all of which
+are three-stage lines with a base stat total between 280 and 330. The build
+step checks the list against the manifest and refuses to emit a broken one,
+which is how it caught that Quilava evolves into *both* Typhlosion and
+Typhlosion-Hisui: an earlier "exactly one final form" rule had been quietly
+disqualifying Cyndaquil, Oshawott and Rowlet.
 
 ### Trainers
 

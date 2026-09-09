@@ -10,7 +10,7 @@ import {
   type BreedingItem,
 } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
-import type { GameState, Input } from "@/engine/engine";
+import { depositRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
@@ -135,6 +135,13 @@ export function HubPanel({ state, onInput }: { state: GameState; onInput: (input
           <Slot creature={second} index={1} onWithdraw={(slot) => onInput({ t: "withdraw", slot })} />
         </div>
 
+        {!slotsFull && state.party.length <= 1 && state.box.length > 0 ? (
+          <p className="hint">
+            Your party is down to one, so it cannot be deposited — but anything in the box can go
+            straight in.
+          </p>
+        ) : null}
+
         {slotsFull && !pair ? (
           <p className="error">
             These two share no egg group, so nothing will come of it. A Ditto pairs with almost
@@ -197,8 +204,8 @@ export function HubPanel({ state, onInput }: { state: GameState; onInput: (input
               key={creature.uid}
               creature={creature}
               action="Deposit"
-              label="Leave at the daycare"
-              disabled={slotsFull || state.party.length <= 1}
+              label={depositRefusal(state, "party", index) ?? "Leave at the daycare"}
+              disabled={Boolean(depositRefusal(state, "party", index))}
               onAct={() => onInput({ t: "deposit", from: "party", index })}
               extra={
                 <button
@@ -226,6 +233,17 @@ export function HubPanel({ state, onInput }: { state: GameState; onInput: (input
                 label="Into your party"
                 disabled={state.party.length >= 6}
                 onAct={() => onInput({ t: "retrieve", index })}
+                extra={
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={Boolean(depositRefusal(state, "box", index))}
+                    onClick={() => onInput({ t: "deposit", from: "box", index })}
+                    title={depositRefusal(state, "box", index) ?? "Straight to the daycare"}
+                  >
+                    Daycare
+                  </button>
+                }
               />
             ))}
           </div>

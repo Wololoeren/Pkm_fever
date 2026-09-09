@@ -70,7 +70,8 @@ export type BattleEvent =
   | { t: "caught" }
   | { t: "fleeFailed" }
   | { t: "fled" }
-  | { t: "noBalls" };
+  | { t: "noBalls" }
+  | { t: "timeout" };
 
 export interface Combatant {
   /** Everything this side can send out. A wild creature is a team of one. */
@@ -113,6 +114,24 @@ export interface BattleRules {
 export const WILD_RULES: BattleRules = { catchable: true, awardsExp: true };
 export const TRAINER_RULES: BattleRules = { catchable: false, awardsExp: true };
 export const DUEL_RULES: BattleRules = { catchable: false, awardsExp: false };
+
+/**
+ * The turn after which a battle is decided on health rather than allowed to
+ * continue.
+ *
+ * Not a nicety — without it some battles genuinely never end. Rowlet is
+ * Grass/Flying, so Wooper-Paldea's Mud Shot is a zero-times no-op, and if the
+ * Rowlet answers with Growl neither side can reduce the other's HP by a single
+ * point, ever. A wild battle could be run from; a trainer battle could not,
+ * and the game simply stopped.
+ *
+ * These games solve it with PP: moves run out and the attacker is forced into
+ * Struggle, which always damages and always recoils. That is the more faithful
+ * answer and it needs a PP system to mean anything. This is the guarantee
+ * underneath it — even with Struggle, two creatures healing each other back up
+ * would still need a stop — and 300 turns is far beyond any real battle.
+ */
+export const MAX_TURNS = 300;
 
 const NO_STAGES: Stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
 
@@ -547,6 +566,7 @@ export function resolveTurn(
   }
 
   settle(turn, rules);
+  if (!turn.battle.outcome && turn.battle.turn >= MAX_TURNS) decideOnHealth(turn);
   return finish(turn, caught, ballsUsed);
 }
 
@@ -619,6 +639,30 @@ function settle(turn: Turn, rules: BattleRules): void {
   }
 
   for (const side of down) turn.battle.awaitingSwitch[side] = true;
+}
+
+/**
+ * Decides a battle that has gone on too long, on remaining health.
+ *
+ * Compared as a fraction of each side's total, cross-multiplied so the
+ * comparison stays in integers: a side down to its last creature has not
+ * "won" by having more raw HP than a full team of smaller ones.
+ */
+function decideOnHealth(turn: Turn): void {
+  const totals = ([0, 1] as SideIndex[]).map((side) => {
+    const team = turn.battle.sides[side].team;
+    return {
+      hp: team.reduce((sum, creature) => sum + Math.max(0, creature.hp), 0),
+      max: team.reduce((sum, creature) => sum + maxHp(creature), 0),
+    };
+  });
+
+  turn.events.push({ t: "timeout" });
+
+  const ours = totals[0].hp * totals[1].max;
+  const theirs = totals[1].hp * totals[0].max;
+  if (ours === theirs) turn.battle.outcome = { t: "draw" };
+  else turn.battle.outcome = { t: "win", side: ours > theirs ? 0 : 1 };
 }
 
 function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnResult {

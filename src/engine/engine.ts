@@ -124,6 +124,9 @@ const TRAINER_REWARD_BALLS = 5;
  * grass. Encoded in the tag so nothing extra has to live in state. */
 const TRAINER_TAG = "trainer:";
 
+/** A battle against the grass. The counterpart to TRAINER_TAG. */
+const WILD_TAG = "wild:";
+
 /**
  * Reaching further out is what pays for the breeding items.
  *
@@ -180,6 +183,19 @@ export function initialState(world: World): GameState {
 
 function trainerIdOf(battle: BattleState | null): string | null {
   return battle?.tag.startsWith(TRAINER_TAG) ? battle.tag.slice(TRAINER_TAG.length) : null;
+}
+
+/**
+ * Whether balls and running are legal here.
+ *
+ * The UI has to ask, rather than inferring it from whether it was handed a
+ * ball count. It used to infer: page.tsx passed `balls` unconditionally and
+ * BattleView read `balls !== undefined` as "this is wild", so "Throw ball"
+ * and "Run" were rendered in trainer battles, where resolveTurn throws and
+ * dispatch swallows it. Buttons that visibly did nothing.
+ */
+export function isWildBattle(battle: BattleState | null): boolean {
+  return Boolean(battle?.tag.startsWith(WILD_TAG));
 }
 
 function withMoves(individual: Individual): Individual {
@@ -256,22 +272,54 @@ function arrive(world: World, state: GameState, routeId: string): GameState {
   return { ...state, visited, items: [...state.items, item].sort(), notice: { t: "found", item } };
 }
 
-function deposit(state: GameState, from: "party" | "box", index: number): GameState {
-  if (!atDaycare(state)) throw new IllegalInput("the daycare is in the hub");
+/**
+ * Why this deposit would be refused, or null if it would be accepted.
+ *
+ * Exported because the UI has to disable the button for exactly the cases the
+ * engine refuses, and it used to hand-copy an approximation of this rule:
+ * HubPanel disabled the party button on `party.length <= 1` while the engine
+ * refused on the count of members that can still *fight*, so a party of three
+ * with two fainted offered a button that threw. Worse, the box route was never
+ * offered at all — a player who boxed their spares had a party of one, no
+ * party deposit and no box deposit, and breeding was simply unreachable.
+ *
+ * One predicate, two callers, no drift.
+ */
+export function depositRefusal(
+  state: GameState,
+  from: "party" | "box",
+  index: number,
+): string | null {
+  if (!atDaycare(state)) return "the daycare is in the hub";
 
   const source = from === "party" ? state.party : state.box;
-  if (index < 0 || index >= source.length) throw new IllegalInput("no such creature");
+  if (index < 0 || index >= source.length) return "no such creature";
 
-  const slot: 0 | 1 | null =
-    state.daycare.slots[0] === null ? 0 : state.daycare.slots[1] === null ? 1 : null;
-  if (slot === null) throw new IllegalInput("the daycare is full");
+  if (state.daycare.slots[0] !== null && state.daycare.slots[1] !== null) {
+    return "the daycare is full";
+  }
 
   // Handing over the last thing that can fight would strand the player in the
   // hub with no way to earn the steps that produce an egg.
   const creature = source[index];
-  if (from === "party" && state.party.filter((member) => !isFainted(member)).length <= 1 && !isFainted(creature)) {
-    throw new IllegalInput("keep something that can fight");
+  if (
+    from === "party" &&
+    state.party.filter((member) => !isFainted(member)).length <= 1 &&
+    !isFainted(creature)
+  ) {
+    return "keep something that can fight";
   }
+
+  return null;
+}
+
+function deposit(state: GameState, from: "party" | "box", index: number): GameState {
+  const refusal = depositRefusal(state, from, index);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const source = from === "party" ? state.party : state.box;
+  const slot: 0 | 1 = state.daycare.slots[0] === null ? 0 : 1;
+  const creature = source[index];
 
   const slots: DaycareState["slots"] = [state.daycare.slots[0], state.daycare.slots[1]];
   slots[slot] = creature;
@@ -534,7 +582,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     phase: "battle",
     // The tag keeps this encounter's rolls distinct from every other one in
     // the world, so two battles never share a critical hit.
-    battle: startBattle(world.seed, `wild:${state.route}:${slot}`, state.party, [wild], leadIndex),
+    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, state.party, [wild], leadIndex),
     nextUid: state.nextUid + 1,
     notice: { t: "encounter" },
   };

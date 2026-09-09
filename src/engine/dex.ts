@@ -1,6 +1,7 @@
 import learnsetData from "../data/learnsets.json";
 import moveData from "../data/moves.json";
 import speciesData from "../data/species.json";
+import starterData from "../data/starters.json";
 import typeData from "../data/types.json";
 import type { SpeciesEntry, StatusId } from "./types";
 
@@ -106,6 +107,23 @@ for (const entry of ALL_SPECIES) {
   for (const evolution of entry.evolvesTo) {
     if (!PREVO.has(evolution.id)) PREVO.set(evolution.id, entry.id);
   }
+}
+
+/**
+ * The starter trios, one row per generation, one column per type.
+ *
+ * Curated in scripts/build-dex.mjs, because "is a starter" is a designer's
+ * decision rather than anything derivable: a heuristic over three-stage lines
+ * and base stat totals offers Beldum and Klink, which are neither.
+ */
+export const STARTER_TYPES: readonly string[] = starterData.types;
+export const STARTER_TRIOS: readonly (readonly string[])[] = starterData.trios;
+
+/** Every starter of one type, across every generation. */
+export function startersOfType(type: string): string[] {
+  const column = STARTER_TYPES.indexOf(type);
+  if (column < 0) return [];
+  return STARTER_TRIOS.map((trio) => trio[column]).filter((id) => SPECIES_BY_ID.has(id));
 }
 
 /** The bottom of this species' evolution line — what an egg hatches into. */

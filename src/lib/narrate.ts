@@ -117,6 +117,9 @@ export function narrate(
       case "noBalls":
         lines.push("No balls left!");
         break;
+      case "timeout":
+        lines.push("The battle has gone on long enough — it is decided on health.");
+        break;
     }
   }
 

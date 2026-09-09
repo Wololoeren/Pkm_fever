@@ -1,3 +1,4 @@
+import { STARTER_TYPES, startersOfType } from "./dex";
 import { NATURE_IDS } from "./natures";
 import { intBelow, intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
 import { clampIvs, WILD_IV_MAX } from "./stats";
@@ -61,7 +62,7 @@ export interface TrainerSpec {
 export interface World {
   config: WorldConfig;
   seed: string;
-  /** The six starters this world offers, drawn from every starter in the dex. */
+  /** The starters this world offers, drawn from every starter in the dex. */
   starters: string[];
   routes: Map<string, Route>;
   /** Who is standing where, by route. Derived from the seed like everything
@@ -181,16 +182,69 @@ function buildRoute(seed: string, biome: string, ring: number): Route {
 
 /** Every species that begins an evolution line of three, which is what a
  * starter is. Drawn from the manifest rather than a hardcoded list, so a
- * different roster still offers a sensible six. */
+ * different roster still offers a sensible three. */
 export function starterPool(allSpecies: readonly SpeciesEntry[]): SpeciesEntry[] {
   const byId = new Map(allSpecies.map((s) => [s.id, s]));
   return allSpecies.filter((species) => {
     if (species.evolvesTo.length !== 1) return false;
+    // At least one final form, not exactly one: Quilava evolves into both
+    // Typhlosion and Typhlosion-Hisui, and demanding a single one quietly
+    // disqualified three real starters.
     const middle = byId.get(species.evolvesTo[0].id);
-    if (!middle || middle.evolvesTo.length !== 1) return false;
+    if (!middle || middle.evolvesTo.length < 1) return false;
     const power = bst(species.base);
     return power >= 280 && power <= 330;
   });
+}
+
+/** How many partners a world deals — one of each starter type. */
+export const STARTER_COUNT = STARTER_TYPES.length;
+
+/**
+ * The starters this world offers: one grass, one fire, one water.
+ *
+ * Drawn from the real starter trios rather than from a heuristic. The first
+ * cut asked the manifest for three-stage lines with a base stat total between
+ * 280 and 330 and dealt Beldum, Klink and Solosis — all three of which are
+ * three-stage lines with a base stat total between 280 and 330, and none of
+ * which is a starter. There is no signature to derive; it is a list, and it
+ * lives in scripts/build-dex.mjs.
+ *
+ * Each type is drawn independently, so a world can offer Charmander beside
+ * Rowlet beside Quaxly — 729 combinations rather than the nine a fixed trio
+ * per world would give. Returned in type order, so the offer reads the same
+ * way every time.
+ *
+ * The fallback matters: point the build script at a different bestiary with no
+ * starter list and this returns to the old heuristic, because a roster that
+ * cannot be swapped is not a swappable roster.
+ */
+export function pickStarters(seed: string, allSpecies: readonly SpeciesEntry[]): string[] {
+  const chosen = STARTER_TYPES.map((type) => {
+    const options = startersOfType(type);
+    if (!options.length) return null;
+    return options[intBelow(rngFor(seed, "starter", type), options.length)];
+  }).filter((id): id is string => id !== null);
+
+  if (chosen.length === STARTER_TYPES.length) return chosen;
+
+  // No curated list for this roster. Spread the heuristic pool over distinct
+  // primary types instead, so the first choice the game asks is still a choice.
+  const shuffled = shuffle(rngFor(seed, "starters"), starterPool(allSpecies));
+  const fallback: SpeciesEntry[] = [];
+  const taken = new Set<string>();
+  for (const species of shuffled) {
+    if (fallback.length >= STARTER_COUNT) break;
+    if (taken.has(species.types[0])) continue;
+    taken.add(species.types[0]);
+    fallback.push(species);
+  }
+  for (const species of shuffled) {
+    if (fallback.length >= STARTER_COUNT) break;
+    if (!fallback.includes(species)) fallback.push(species);
+  }
+
+  return fallback.map((species) => species.id).sort();
 }
 
 /** The hub: no grass, no encounters, four ways out. Hand-shaped rather than
@@ -241,10 +295,7 @@ export function generateWorld(
     }
   }
 
-  const starters = shuffle(rngFor(seed, "starters"), starterPool(allSpecies))
-    .slice(0, 6)
-    .map((species) => species.id)
-    .sort();
+  const starters = pickStarters(seed, allSpecies);
 
   // Place the census. Rarer variants are placed further out, so the true
   // shiny is never sitting in the first patch of grass outside the hub.

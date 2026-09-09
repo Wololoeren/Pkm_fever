@@ -8,6 +8,8 @@ import {
   startBattle,
   aiAction,
   DUEL_RULES,
+  MAX_TURNS,
+  TRAINER_RULES,
   WILD_RULES,
   type BattleEvent,
   type BattleState,
@@ -203,6 +205,44 @@ describe("winning and losing", () => {
     const recovered = resolveTurn(battle, [{ t: "switch", partyIndex: 1 }, { t: "pass" }], WILD_RULES, 10);
     expect(recovered.battle.awaitingSwitch[0]).toBe(false);
     expect(recovered.battle.sides[0].active).toBe(1);
+  });
+});
+
+describe("battles that cannot end on their own", () => {
+  it("B14b: a matchup where neither side can land a scratch still terminates", () => {
+    // The real case, found by the deadlock probe: Rowlet is Grass/Flying, so
+    // Wooper-Paldea's Mud Shot is a zero-times no-op, and Growl and Tail Whip
+    // deal no damage either. Neither creature can reduce the other's HP by a
+    // single point. A wild battle could be run from; a trainer battle could
+    // not, and the game simply stopped.
+    let battle = startBattle(
+      SEED,
+      "wild:ashflats-1:2",
+      [creature("rowlet", { level: 12, moves: ["growl"] })],
+      [creature("wooperpaldea", { level: 10, moves: ["mudshot", "tailwhip"] })],
+    );
+
+    for (let i = 0; i < MAX_TURNS + 5 && !battle.outcome; i++) {
+      battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, aiAction(battle)], TRAINER_RULES).battle;
+    }
+
+    expect(battle.turn).toBe(MAX_TURNS);
+    expect(battle.outcome).not.toBeNull();
+    expect(battle.events.some((event) => event.t === "timeout")).toBe(true);
+    // Untouched on both sides, so it is a genuine draw rather than a coin toss.
+    expect(battle.outcome).toEqual({ t: "draw" });
+  });
+
+  it("B14c: a timeout goes to whoever has more health left", () => {
+    const healthy = creature("machop", { uid: 1, level: 40, moves: ["growl"] });
+    const hurt = { ...creature("machop", { uid: 2, level: 40, moves: ["growl"] }), hp: 3 };
+
+    let battle = startBattle(SEED, "duel", [healthy], [hurt]);
+    for (let i = 0; i < MAX_TURNS + 5 && !battle.outcome; i++) {
+      battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], DUEL_RULES).battle;
+    }
+
+    expect(battle.outcome).toEqual({ t: "win", side: 0 });
   });
 });
 

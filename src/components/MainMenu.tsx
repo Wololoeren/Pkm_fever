@@ -44,7 +44,7 @@ export function MainMenu({
       <div className="menuCard">
         <h2>Start new adventure</h2>
         <p className="muted">
-          The seed decides the whole world — the six starters you are offered, what lives in
+          The seed decides the whole world — the three starters you are offered, what lives in
           which grass, and where the one true shiny is hiding. Share it and you share the world.
         </p>
         <div className="row">

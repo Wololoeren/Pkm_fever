@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { ALL_SPECIES, movesAtLevel, species } from "@/engine/dex";
+import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
 import { STAT_IDS } from "@/engine/types";
 import { CENSUS_TOTAL, variant } from "@/engine/variants";
-import { encounterTable, HUB_ID, starterPool, wildAt } from "@/engine/world";
+import { encounterTable, HUB_ID, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
 import { testWorld } from "./helpers";
 
 /**
@@ -64,23 +64,59 @@ describe("the census", () => {
 });
 
 describe("starters", () => {
-  it("W6: every world offers six distinct starters", () => {
+  it("W6: every world offers three distinct starters", () => {
     for (const seed of SEEDS) {
       const { starters } = testWorld(seed);
-      expect(starters).toHaveLength(6);
-      expect(new Set(starters).size).toBe(6);
+      expect(starters).toHaveLength(STARTER_COUNT);
+      expect(new Set(starters).size).toBe(STARTER_COUNT);
     }
   });
 
-  it("W7: a starter is always the base of a three-stage line", () => {
-    const pool = new Set(starterPool(ALL_SPECIES).map((s) => s.id));
+  it("W6b: always one grass, one fire and one water, in that order", () => {
+    // The point of three rather than six: the first decision the game asks
+    // has to be a real one, and it is only real if the three answers differ.
+    for (const seed of SEEDS) {
+      const primaries = testWorld(seed).starters.map((id) => species(id).types[0]);
+      expect(primaries).toEqual(["grass", "fire", "water"]);
+    }
+  });
+
+  it("W7: every one of them is an actual starter", () => {
+    // The heuristic this replaced asked for three-stage lines with a base stat
+    // total between 280 and 330, and duly offered Beldum, Klink and Solosis.
+    const real = new Set(STARTER_TRIOS.flat());
+    for (const seed of SEEDS) {
+      for (const id of testWorld(seed).starters) expect(real.has(id)).toBe(true);
+    }
+  });
+
+  it("W7b: each is the bottom of a three-stage line", () => {
     for (const seed of SEEDS) {
       for (const id of testWorld(seed).starters) {
-        expect(pool.has(id)).toBe(true);
         const middle = species(species(id).evolvesTo[0].id);
-        expect(middle.evolvesTo.length).toBe(1);
+        // At least one final form: Quilava evolves into both Typhlosion and
+        // Typhlosion-Hisui, so "exactly one" would fail three real starters.
+        expect(middle.evolvesTo.length).toBeGreaterThanOrEqual(1);
       }
     }
+  });
+
+  it("W7c: the whole curated list is reachable, not just the first trio", () => {
+    // Each type is drawn independently, so a world can pair Charmander with
+    // Rowlet and Quaxly. Over enough seeds every starter should turn up.
+    const seen = new Set<string>();
+    for (let i = 0; i < 400; i++) {
+      for (const id of pickStarters(`SEED${i}`, ALL_SPECIES)) seen.add(id);
+    }
+    for (const id of STARTER_TRIOS.flat()) expect(seen.has(id)).toBe(true);
+  });
+
+  it("W7d: a roster with no curated list still offers three distinct types", () => {
+    // The fallback keeps the roster swappable: point the build script at a
+    // different bestiary and the game still opens with a choice.
+    const fallback = pickStarters("A1", ALL_SPECIES.filter((s) => !STARTER_TRIOS.flat().includes(s.id)));
+    expect(fallback).toHaveLength(STARTER_COUNT);
+    expect(new Set(fallback).size).toBe(STARTER_COUNT);
   });
 });
 

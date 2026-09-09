@@ -7,7 +7,7 @@ import {
   type BreedingItem,
   type DaycareState,
 } from "@/engine/breeding";
-import { applyInput, initialState } from "@/engine/engine";
+import { applyInput, depositRefusal, initialState } from "@/engine/engine";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
 import { STAT_IDS, type Individual, type StatTable } from "@/engine/types";
@@ -229,6 +229,58 @@ describe("the daycare", () => {
     expect(hatchling.speciesId).toBe("bulbasaur");
     expect(collected.daycare.eggReady).toBe(false);
     expect(collected.daycare.eggIndex).toBe(1);
+  });
+
+  it("BR16: you can deposit from the box, which is the only route with one creature left", () => {
+    // Breeding used to be unreachable in practice. The engine refused a party
+    // deposit that would leave nothing able to fight, which is right — but the
+    // UI offered no box deposit at all, so a player who boxed their spares had
+    // a party of one, no legal party deposit, and no other way in.
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const state = {
+      ...base,
+      party: [creature("machop", { uid: 90 })],
+      box: [creature("bulbasaur", { uid: 91 }), creature("oddish", { uid: 92 })],
+    };
+
+    // The party route is correctly refused: it is the last thing that can fight.
+    expect(() => applyInput(world, state, { t: "deposit", from: "party", index: 0 })).toThrow();
+
+    const after = applyInput(world, state, { t: "deposit", from: "box", index: 0 });
+    expect(after.daycare.slots[0]).not.toBeNull();
+    expect(after.box).toHaveLength(1);
+  });
+
+  it("BR17: the button's rule and the engine's rule are the same rule", () => {
+    // They were not. HubPanel disabled on `party.length <= 1` while the engine
+    // refused on the count that can still *fight*, so a party of three with two
+    // fainted offered a button that threw. One predicate, two callers.
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const state = {
+      ...base,
+      party: [
+        creature("machop", { uid: 90 }),
+        { ...creature("bulbasaur", { uid: 91 }), hp: 0 },
+        { ...creature("oddish", { uid: 92 }), hp: 0 },
+      ],
+      box: [creature("squirtle", { uid: 93 })],
+    };
+
+    for (const from of ["party", "box"] as const) {
+      const source = from === "party" ? state.party : state.box;
+      for (let index = 0; index < source.length; index++) {
+        const refusal = depositRefusal(state, from, index);
+        let threw = false;
+        try {
+          applyInput(world, state, { t: "deposit", from, index });
+        } catch {
+          threw = true;
+        }
+        expect(threw).toBe(Boolean(refusal));
+      }
+    }
   });
 
   it("BR15: an incompatible pair never produces anything", () => {

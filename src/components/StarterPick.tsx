@@ -16,12 +16,12 @@ const STAT_LABELS: Record<string, string> = {
 };
 
 /**
- * The six starters this world offers.
+ * The starters this world offers.
  *
- * Drawn from every three-stage line in the manifest and shuffled by the world
- * seed, so each seed offers a different six — and everyone playing that seed
- * is offered exactly the same six, which is what makes a shared-seed
- * tournament fair.
+ * One grass, one fire and one water, drawn from the real starter trios by the
+ * world seed — so each seed offers a different three, and everyone playing
+ * that seed is offered exactly the same three, which is what makes a
+ * shared-seed tournament fair.
  */
 export function StarterPick({ world, onPick }: { world: World; onPick: (index: number) => void }) {
   return (
@@ -29,7 +29,8 @@ export function StarterPick({ world, onPick }: { world: World; onPick: (index: n
       <header className="pageHead">
         <h2>Choose a partner</h2>
         <p className="muted">
-          Seed <code>{world.seed}</code> deals these six. Anyone else on this seed is offered the same.
+          Seed <code>{world.seed}</code> deals these {world.starters.length}. Anyone else on this
+          seed is offered the same.
         </p>
       </header>
 

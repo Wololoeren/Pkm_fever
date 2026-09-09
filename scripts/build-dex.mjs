@@ -282,6 +282,82 @@ const moves = [...usedMoves]
   }))
   .sort((a, b) => (a.id < b.id ? -1 : 1));
 
+// ---------------------------------------------------------------- starters
+
+/**
+ * The starter trios, in generation order, each column one type.
+ *
+ * Curated rather than derived, because there is no signature to derive from.
+ * "Is a starter" is a designer's decision, not a property of the data: the
+ * first cut asked for three-stage lines with a base stat total between 280 and
+ * 330 and duly offered Beldum, Klink and Solosis, which are three-stage lines
+ * with a base stat total between 280 and 330 and are not starters.
+ *
+ * So it is a list, and it lives here rather than in src/engine, which never
+ * names a species. The engine reads what this emits.
+ */
+const STARTER_TRIOS = [
+  ["bulbasaur", "charmander", "squirtle"],
+  ["chikorita", "cyndaquil", "totodile"],
+  ["treecko", "torchic", "mudkip"],
+  ["turtwig", "chimchar", "piplup"],
+  ["snivy", "tepig", "oshawott"],
+  ["chespin", "fennekin", "froakie"],
+  ["rowlet", "litten", "popplio"],
+  ["grookey", "scorbunny", "sobble"],
+  ["sprigatito", "fuecoco", "quaxly"],
+];
+
+/** Column order. A trio is always one of each, in this order. */
+const STARTER_TYPES = ["grass", "fire", "water"];
+
+/**
+ * Checks the list against the manifest and refuses to emit a broken one.
+ *
+ * A starter that is missing, mistyped, or not actually the bottom of a
+ * three-stage line would reach the player as a wrong or empty choice on the
+ * very first screen. Better to fail the build somebody ran on purpose.
+ */
+function checkStarters(byId) {
+  const problems = [];
+
+  for (const trio of STARTER_TRIOS) {
+    if (trio.length !== STARTER_TYPES.length) {
+      problems.push(`${trio.join("/")}: expected ${STARTER_TYPES.length} members`);
+      continue;
+    }
+
+    trio.forEach((id, column) => {
+      const entry = byId.get(id);
+      if (!entry) {
+        problems.push(`${id}: not in the manifest`);
+        return;
+      }
+      if (entry.types[0] !== STARTER_TYPES[column]) {
+        problems.push(`${id}: primary type is ${entry.types[0]}, expected ${STARTER_TYPES[column]}`);
+      }
+
+      // At *least* one final form, not exactly one: Quilava evolves into both
+      // Typhlosion and Typhlosion-Hisui, and Dewott and Dartrix branch the
+      // same way. Demanding a single final form quietly disqualified
+      // Cyndaquil, Oshawott and Rowlet — three real starters — which is
+      // exactly the kind of thing this check exists to catch.
+      const middle = entry.evolvesTo.length >= 1 ? byId.get(entry.evolvesTo[0].id) : null;
+      if (!middle || middle.evolvesTo.length < 1) {
+        problems.push(`${id}: not the bottom of a three-stage line`);
+      }
+    });
+  }
+
+  if (problems.length) {
+    console.error("! the starter list does not match the manifest:");
+    for (const problem of problems) console.error(`    ${problem}`);
+    process.exit(1);
+  }
+}
+
+checkStarters(byId);
+
 // ------------------------------------------------------------------- types
 
 /**
@@ -322,10 +398,12 @@ write("species.json", species);
 write("moves.json", moves);
 write("learnsets.json", learnsets);
 write("types.json", chart);
+write("starters.json", { types: STARTER_TYPES, trios: STARTER_TRIOS });
 
 console.log(`species    ${species.length}`);
 console.log(`moves      ${moves.length}`);
 console.log(`learnsets  ${Object.keys(learnsets).length}`);
 console.log(`types      ${typeNames.length}x${typeNames.length} chart`);
+console.log(`starters   ${STARTER_TRIOS.length} trios, one of each of ${STARTER_TYPES.join("/")}`);
 console.log(`sprites    ${mappedForms} regional forms mapped to their own art`);
 console.log(`skipped    ${skipped.length} formes with no learnset of their own`);

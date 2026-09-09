@@ -11,7 +11,7 @@ import { StarterPick } from "@/components/StarterPick";
 import { ITEM_BLURBS, ITEM_NAMES } from "@/engine/breeding";
 import { ALL_SPECIES } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, initialState, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { VARIANTS } from "@/engine/variants";
 import { generateWorld, HUB_ID, type World } from "@/engine/world";
@@ -110,14 +110,18 @@ export default function Page() {
         return;
       }
 
-      if (state.phase === "battle" && state.battle && !state.battle.awaitingSwitch) {
+      // awaitingSwitch is a pair, so testing the array itself is permanently
+      // truthy and the negation permanently false — which killed every battle
+      // key. Side 0 is us; a replacement is chosen from the party strip, not
+      // the keyboard.
+      if (state.phase === "battle" && state.battle && !state.battle.awaitingSwitch[0]) {
         if (key >= "1" && key <= "4") {
           event.preventDefault();
           dispatch({ t: "fight", moveIndex: Number(key) - 1 });
-        } else if (key === "b") {
+        } else if (key === "b" && isWildBattle(state.battle)) {
           event.preventDefault();
           dispatch({ t: "ball" });
-        } else if (key === "r") {
+        } else if (key === "r" && isWildBattle(state.battle)) {
           event.preventDefault();
           dispatch({ t: "flee" });
         }
@@ -201,7 +205,9 @@ export default function Page() {
         <BattleView
           battle={state.battle!}
           role={0}
-          balls={state.balls}
+          // Only a wild battle gets a ball count, because that is what
+          // BattleView reads as "balls and running are legal here".
+          balls={isWildBattle(state.battle) ? state.balls : undefined}
           onAction={dispatch as (action: BattleAction) => void}
           footer={
             state.phase === "battleEnd" ? (
