@@ -66,6 +66,31 @@ export function computeStat(
   return Math.floor(before * variantMult / 1000);
 }
 
+/**
+ * What one term of the raw sum is worth at this level, and at the cap.
+ *
+ * The pipeline scales the whole of `raw` by `level / 100`, so at level five a
+ * base of 45 is contributing four points rather than ninety — which is the
+ * single most common thing to be confused by on a stat screen, because the
+ * number the dex quotes and the number in the battle look nothing alike.
+ *
+ * The scaling is applied once, to the sum, so the shares shown here are each
+ * term's own scaling and will not always add to the total exactly. Off by at
+ * most a point or two, and it is the difference between "why is my base 45
+ * only giving me 20 HP" being answerable at a glance or not at all.
+ */
+export function termAtLevel(term: number, level: number): { now: number; max: number } {
+  return {
+    now: Math.floor(Math.max(0, term) * level / 100),
+    max: Math.max(0, term),
+  };
+}
+
+/** What a base stat contributes: doubled, then scaled by level. */
+export function baseAtLevel(base: number, level: number): { now: number; max: number } {
+  return termAtLevel(2 * base, level);
+}
+
 /** Clamps an IV table into the legal range. Used wherever IVs are produced —
  * a wild roll, an egg, a debug command — so no path can mint an out-of-range
  * individual that later replays differently. */

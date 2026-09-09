@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NATURE_MAGNITUDE, NATURES, natureVectorSum } from "@/engine/natures";
-import { computeStat, IV_MAX, WILD_IV_MAX } from "@/engine/stats";
+import { baseAtLevel, computeStat, IV_MAX, termAtLevel, WILD_IV_MAX } from "@/engine/stats";
 import { BATTLE_STAT_IDS, STAT_IDS } from "@/engine/types";
 import { APPEARANCE_COUNT, CENSUS_TOTAL, CHROMAS, variant } from "@/engine/variants";
 
@@ -125,6 +125,30 @@ describe("variants", () => {
     // They spike harder than the colours and pay for it twice.
     expect(Math.max(...Object.values(onyx.mult))).toBeGreaterThan(1100);
     expect(Object.values(onyx.mult).filter((m) => m < 1000)).toHaveLength(2);
+  });
+});
+
+describe("what a base stat is worth right now", () => {
+  it("V7: base is doubled, then scaled by level", () => {
+    // The number the dex quotes and the number in a level-five battle look
+    // nothing alike, which is the commonest confusion a stat screen causes.
+    expect(baseAtLevel(45, 100)).toEqual({ now: 90, max: 90 });
+    expect(baseAtLevel(45, 5)).toEqual({ now: 4, max: 90 });
+    expect(baseAtLevel(45, 50)).toEqual({ now: 45, max: 90 });
+    expect(baseAtLevel(0, 50)).toEqual({ now: 0, max: 0 });
+  });
+
+  it("V8: and the shares agree with the stat the battle actually uses", () => {
+    // Not to the point — the pipeline floors the sum once rather than each
+    // term — but close enough that the screen is not telling a story the
+    // battle disagrees with.
+    for (const level of [5, 25, 50, 100]) {
+      for (const base of [20, 45, 90, 130]) {
+        const real = computeStat(base, "atk", level, 31, 0, 0, 1000);
+        const shown = baseAtLevel(base, level).now + termAtLevel(31, level).now + 5;
+        expect(Math.abs(real - shown), `base ${base} at level ${level}`).toBeLessThanOrEqual(1);
+      }
+    }
   });
 });
 

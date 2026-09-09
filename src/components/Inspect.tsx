@@ -3,7 +3,14 @@
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
 import { natureVector } from "@/engine/natures";
-import { computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX, ivTotal } from "@/engine/stats";
+import {
+  baseAtLevel,
+  computeStats,
+  EV_MAX_PER_STAT,
+  EV_MAX_TOTAL,
+  IV_MAX,
+  ivTotal,
+} from "@/engine/stats";
 import { effortSpent } from "@/engine/effort";
 import { expForLevel, levelFromExp } from "@/engine/progression";
 import { STAT_IDS, type Individual, type StatId } from "@/engine/types";
@@ -100,6 +107,13 @@ export function Inspect({
     onInput({ t: "setMoves", index, moves: next });
   };
 
+  // What the shine and the colour are actually adding, in points rather than
+  // percentages. The multiplier is applied last, to the finished stat, so the
+  // honest way to show its worth is the same creature computed without it.
+  const plain = computeStats(entry, { ...creature, variantId: "normal" });
+  const special = {} as Record<StatId, number>;
+  for (const stat of STAT_IDS) special[stat] = stats[stat] - plain[stat];
+
   const toNext = creature.level < 100 ? expForLevel(creature.level + 1) - creature.exp : 0;
 
   return (
@@ -141,6 +155,12 @@ export function Inspect({
               what it is worth is the same on every creature and shows in the column above.
             </p>
             <p className="muted">
+              Base is shown as what it is worth <em>now</em> over what it is worth at level 100 —
+              the whole sum is scaled by level, so a base of 45 is contributing four points at level
+              five and ninety at the cap. That scaling is applied once to the total, so the columns
+              are each term&rsquo;s own share and may not add up to the last point.
+            </p>
+            <p className="muted">
               IV total <strong>{ivTotal(creature.ivs)}</strong> of {IV_MAX * STAT_IDS.length}. A wild
               catch rolls 0–6 per stat; anything higher was bred for.
             </p>
@@ -152,12 +172,13 @@ export function Inspect({
             </p>
             {!isSpecial(creature.variantId) ? null : (
               <p className="muted">
-                Form <strong>{form.name}</strong> — every stat in the table already includes its
-                multiplier (
+                Special is what <strong>{form.name}</strong> is worth in points. The multiplier is
+                applied last, to the finished stat (
                 {STAT_IDS.filter((stat) => form.mult[stat] !== 1000)
                   .map((stat) => `${STAT_LABELS[stat]} ${((form.mult[stat] - 1000) / 10).toFixed(1)}%`)
                   .join(", ") || "no change"}
-                ).
+                ), so at a low level a healthy-looking percentage can still be worth nothing at all —
+                which is the point of showing it in points instead.
               </p>
             )}
           </InfoDot>
@@ -171,6 +192,7 @@ export function Inspect({
                 <th className="num">IV</th>
                 <th className="num">Nature</th>
                 <th className="num">EV</th>
+                <th className="num">Special</th>
                 <th className="num">Total</th>
               </tr>
             </thead>
@@ -178,7 +200,10 @@ export function Inspect({
               {STAT_IDS.map((stat) => (
                 <tr key={stat}>
                   <td>{STAT_LABELS[stat]}</td>
-                  <td className="num">{entry.base[stat]}</td>
+                  <td className="num">
+                    {baseAtLevel(entry.base[stat], creature.level).now}
+                    <span className="muted">/{baseAtLevel(entry.base[stat], creature.level).max}</span>
+                  </td>
                   <td className="num">
                     {creature.ivs[stat]}
                     <span className="muted">/{IV_MAX}</span>
@@ -187,6 +212,13 @@ export function Inspect({
                     {stat === "hp" ? "—" : nature[stat] > 0 ? `+${nature[stat]}` : nature[stat] || "0"}
                   </td>
                   <td className="num muted">{creature.evs[stat]}</td>
+                  <td
+                    className={`num ${
+                      special[stat] > 0 ? "good" : special[stat] < 0 ? "error" : "muted"
+                    }`}
+                  >
+                    {special[stat] === 0 ? "—" : special[stat] > 0 ? `+${special[stat]}` : special[stat]}
+                  </td>
                   <td className="num strong">{stats[stat]}</td>
                 </tr>
               ))}
