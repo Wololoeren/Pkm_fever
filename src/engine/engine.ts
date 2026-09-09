@@ -691,8 +691,16 @@ function moveBetweenParty(state: GameState, index: number, direction: "store" | 
   };
 }
 
-function pickStarter(world: World, state: GameState, index: number): GameState {
-  if (state.phase !== "starter") throw new IllegalInput("starter already chosen");
+/**
+ * The creature behind one of the three cards, before anything is chosen.
+ *
+ * Pure in (world, index, uid), which is what lets the pick screen show the
+ * real thing — its nature, its IVs, the appearance the seed rolled — rather
+ * than the species' base stats and a normal-coloured sprite. Showing a plain
+ * sprite there was a quiet lie: forty rerolls could pass a chroma starter and
+ * never say so, because the appearance only became visible after choosing.
+ */
+export function offeredStarter(world: World, index: number, uid = 1): Individual {
   if (!Number.isInteger(index) || index < 0 || index >= world.starters.length) {
     throw new IllegalInput("no such starter");
   }
@@ -701,37 +709,46 @@ function pickStarter(world: World, state: GameState, index: number): GameState {
   const ivs = {} as StatTable;
   for (const stat of STAT_IDS) ivs[stat] = intBetween(rng, 0, STARTER_IV_MAX);
 
-  const starter = withMoves({
-    uid: state.nextUid,
-    speciesId: world.starters[index],
-    level: 5,
-    exp: 5 * 5 * 5,
-    ivs: clampIvs(ivs),
-    evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
-    natureId: NATURE_IDS[intBetween(rng, 0, NATURE_IDS.length - 1)],
-    // Its own named roll, so adding or removing anything above cannot shift
-    // which seeds deal a shiny starter.
-    variantId: starterAppearance(world.seed, index),
-    hp: 0,
-    status: null,
-    sleepTurns: 0,
-    moves: [],
-    nickname: null,
-    traded: false,
-    parents: null,
-    // Last, so the IVs and nature a seed already dealt do not move.
-    gender: rollGender(rng),
-  });
+  return atFullHealth(
+    withMoves({
+      uid,
+      speciesId: world.starters[index],
+      level: 5,
+      exp: 5 * 5 * 5,
+      ivs: clampIvs(ivs),
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      natureId: NATURE_IDS[intBetween(rng, 0, NATURE_IDS.length - 1)],
+      // Its own named roll, so adding or removing anything above cannot shift
+      // which seeds deal a shiny starter.
+      variantId: starterAppearance(world.seed, index),
+      hp: 0,
+      status: null,
+      sleepTurns: 0,
+      moves: [],
+      nickname: null,
+      traded: false,
+      parents: null,
+      // Last, so the IVs and nature a seed already dealt do not move.
+      gender: rollGender(rng),
+    }),
+  );
+}
+
+function pickStarter(world: World, state: GameState, index: number): GameState {
+  if (state.phase !== "starter") throw new IllegalInput("starter already chosen");
+
+  const starter = { ...offeredStarter(world, index, state.nextUid), uid: state.nextUid };
 
   return {
     ...state,
     tick: state.tick + 1,
     phase: "field",
-    party: [atFullHealth(starter)],
+    party: [starter],
     nextUid: state.nextUid + 1,
     notice: { t: "starter" },
   };
 }
+
 
 const DELTA: Record<Direction, [number, number]> = {
   n: [0, -1],

@@ -50,6 +50,14 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       }
     }
 
+    // Signs, over the tiles and under the people: a board says what a
+    // building is for, which is the difference between a town you can read
+    // and four identical red roofs.
+    for (const sign of route.signs) {
+      if (!inView(sign.x, sign.y, camX, camY, viewW, viewH)) continue;
+      signpost(ctx, (sign.x - camX) * TILE_PX, (sign.y - camY) * TILE_PX, sign.text);
+    }
+
     // Trainers, drawn before the player so walking onto one puts you in front.
     for (const trainer of world.trainers.get(route.id) ?? []) {
       if (!inView(trainer.x, trainer.y, camX, camY, viewW, viewH)) continue;
@@ -179,6 +187,50 @@ function decorate(ctx: CanvasRenderingContext2D, tile: number, px: number, py: n
     default:
       return;
   }
+}
+
+/**
+ * A board on a post, with its text on a plate above it.
+ *
+ * The text is drawn over the tile rather than on it, because a tile is 26px
+ * and "Trainers Centre" is not. The plate is sized to the text and centred on
+ * the post, so a long name grows sideways instead of becoming unreadable.
+ */
+function signpost(ctx: CanvasRenderingContext2D, px: number, py: number, text: string): void {
+  const cx = px + TILE_PX / 2;
+
+  ctx.save();
+
+  // The post and its board.
+  ctx.fillStyle = "#6b4f33";
+  ctx.fillRect(cx - 2, py + TILE_PX * 0.45, 4, TILE_PX * 0.5);
+  ctx.fillStyle = "#c9a468";
+  ctx.strokeStyle = "#4a3527";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(px + 3, py + TILE_PX * 0.18, TILE_PX - 6, TILE_PX * 0.34, 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // The plate, floating above so it never covers the door beside it.
+  ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const width = ctx.measureText(text).width + 10;
+  const plateY = py - 5;
+
+  ctx.fillStyle = "rgba(20,24,32,0.82)";
+  ctx.strokeStyle = "rgba(201,164,104,0.75)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(cx - width / 2, plateY, width, 13, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#f2e4c9";
+  ctx.fillText(text, cx, plateY + 7);
+
+  ctx.restore();
 }
 
 /** A small figure, so facing reads at a glance even at this size. */

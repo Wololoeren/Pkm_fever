@@ -5,7 +5,8 @@ import { species as speciesById } from "@/engine/dex";
 import { computeStats } from "@/engine/stats";
 import { GENDER_NAMES, GENDER_SYMBOLS } from "@/engine/gender";
 import type { Gender, Individual } from "@/engine/types";
-import { isSpecial, TOP_TIER, variant } from "@/engine/variants";
+import { chroma, isSpecial, TOP_TIER, variant } from "@/engine/variants";
+import { swatchFor } from "@/render/palette";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
 
@@ -26,16 +27,36 @@ export function HpBar({ creature }: { creature: Individual }) {
   );
 }
 
-/** The badge a variant earns. Normal creatures get nothing, so the strip stays
- * quiet until something interesting is in it. */
+/**
+ * The badges a variant earns — one per axis, never one for the pair.
+ *
+ * Shine and colour are independent, so "Shiny Tide" as a single tag reads as
+ * a third kind of thing rather than as a shiny that happens to be Tide. Two
+ * tags say what is actually true: this creature is on rung five, and it is
+ * wearing Tide. Normal creatures get neither, so the strip stays quiet until
+ * something interesting is in it.
+ */
 export function VariantTag({ variantId }: { variantId: string }) {
   if (!isSpecial(variantId)) return null;
   const form = variant(variantId);
-  // The rung decides the tag's colour; the colour is in the name. A shiny
-  // Tide is a shiny that happens to be Tide, not a third kind of thing.
-  const shade = form.tier === TOP_TIER ? "shiny" : form.tier > 0 ? "tint" : "chroma";
-  return <span className={`tag ${shade}`}>{form.name}</span>;
+
+  return (
+    <>
+      {form.tier > 0 && (
+        <span className={`tag ${form.tier === TOP_TIER ? "shiny" : "tint"}`}>
+          {TIER_LABELS[form.tier]}
+        </span>
+      )}
+      {form.chromaId && (
+        <span className="tag chroma" style={{ color: swatchFor(form), borderColor: swatchFor(form) }}>
+          {chroma(form.chromaId).name}
+        </span>
+      )}
+    </>
+  );
 }
+
+const TIER_LABELS = ["Normal", "Faded", "Washed", "Turning", "Nearly", "Shiny"];
 
 /** The symbol, coloured so it reads at a glance in a list. */
 export function GenderMark({ gender }: { gender: Gender }) {

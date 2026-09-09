@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         151 tests, including the replay property everything rests on
+tests/         152 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -179,6 +179,12 @@ path — then the two ways through are cut last, so generation can never seal a
 route off. Which tiles you can walk on and which hide encounters are
 properties of the tile, not of a coordinate, which is what let the hub stop
 being a special case and become a town.
+
+Every building carries a board beside its door saying what it is for, drawn
+with its text over the map — four identical red roofs is a town you cannot
+read. The sign goes beside the doorstep and never on it, which is a rule worth
+writing down: a sign that blocked its own door would be a very good joke and a
+very bad building.
 
 The buildings are real. Stepping on a door tile puts you in the room behind
 it, and the daycare and the trainers' centre are two of those rooms rather

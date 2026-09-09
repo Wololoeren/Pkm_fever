@@ -57,6 +57,20 @@ export type RouteKind = "town" | "route" | "interior";
 /** What a building is for. A house is somewhere to look at. */
 export type InteriorRole = "daycare" | "centre" | "house";
 
+/** What the board outside each kind of building says. */
+const SIGN_TEXT: Record<InteriorRole, string> = {
+  daycare: "Daycare",
+  centre: "Trainers Centre",
+  house: "House",
+};
+
+/** A board beside a door, saying what the building behind it is for. */
+export interface Sign {
+  x: number;
+  y: number;
+  text: string;
+}
+
 /** A tile that takes you somewhere else when you step on it. */
 export interface Door {
   x: number;
@@ -79,6 +93,8 @@ export interface Route {
   entry: { x: number; y: number };
   /** Doors on this map, keyed by the tile you step on. */
   doors: Door[];
+  /** Boards standing beside a door, and what each one says. */
+  signs: Sign[];
   /** For an interior: what it is for, and which map it belongs to. */
   role?: InteriorRole;
   parent?: string;
@@ -195,6 +211,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   const rng = rngFor(seed, "route", biome, ring);
   const grid = new Grid(ROUTE_WIDTH, ROUTE_HEIGHT, TILE.MEADOW);
   const doors: Door[] = [];
+  const signs: Sign[] = [];
   const interiors: Route[] = [];
   const id = routeId(biome, ring);
 
@@ -247,6 +264,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
       // it is what stops a town coordinate being used as a room coordinate.
       const inside = buildInterior(cabin, id, "house", "A cabin", back);
       doors.push({ x: door.x, y: door.y, to: cabin, at: inside.entry });
+      if (door.sign) signs.push({ ...door.sign, text: "Cabin" });
       interiors.push(inside);
     }
   }
@@ -265,6 +283,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
       tiles: grid.tiles,
       entry: { x: 1, y: spine[1] },
       doors,
+      signs,
       label: `${biome[0].toUpperCase()}${biome.slice(1)} · ring ${ring}`,
     },
     interiors,
@@ -298,6 +317,8 @@ function buildInterior(
     tiles: grid.tiles,
     entry: { x: exitX, y: ROOM_HEIGHT - 2 },
     doors: [{ x: exitX, y: ROOM_HEIGHT - 1, to: parent, at: back }],
+    // Nothing to sign-post indoors: you are already in the building.
+    signs: [],
     role,
     parent,
     label,
@@ -436,6 +457,7 @@ function buildTown(): { town: Route; interiors: Route[] } {
   grid.rect(midX - 1, 1, 3, TOWN_HEIGHT - 2, TILE.PATH);
 
   const doors: Door[] = [];
+  const signs: Sign[] = [];
   const interiors: Route[] = [];
   const plots: { x: number; y: number; role: InteriorRole; label: string }[] = [
     { x: 5, y: midY - 9, role: "daycare", label: "Daycare" },
@@ -452,12 +474,24 @@ function buildTown(): { town: Route; interiors: Route[] } {
     const back = { x: door.x, y: door.y + 1 };
     const inside = buildInterior(id, HUB_ID, plot.role, plot.label, back);
     doors.push({ x: door.x, y: door.y, to: id, at: inside.entry });
+    // What the sign says is the building's job, not its name: "Daycare" is
+    // useful from across the square, "A house" is at least honest.
+    if (door.sign) signs.push({ ...door.sign, text: SIGN_TEXT[plot.role] });
     interiors.push(inside);
   }
 
   // A fenced garden, so the middle of town is not only paving.
-  grid.rect(midX + 5, midY + 4, 8, 6, TILE.FLOWER);
-  grid.rect(midX + 5, midY + 4, 8, 1, TILE.FENCE);
+  //
+  // Painted only over ground that is still bare. The first cut sat at
+  // midX + 5 and quietly covered the whole south-east house — roof, door and
+  // doorstep — leaving a building that worked but could not be seen. Asking
+  // first is what stops decoration eating architecture.
+  const gardenX = midX - 6;
+  const gardenY = midY + 4;
+  if (grid.clear(gardenX, gardenY, 5, 6, [TILE.MEADOW])) {
+    grid.rect(gardenX, gardenY, 5, 6, TILE.FLOWER);
+    grid.rect(gardenX, gardenY, 5, 1, TILE.FENCE);
+  }
 
   // Four ways out, in the order the biomes are listed.
   grid.set(0, midY, TILE.PATH);
@@ -476,6 +510,7 @@ function buildTown(): { town: Route; interiors: Route[] } {
       tiles: grid.tiles,
       entry: { x: midX, y: midY },
       doors,
+      signs,
       label: "Hearth",
     },
     interiors,

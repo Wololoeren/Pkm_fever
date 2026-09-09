@@ -38,6 +38,9 @@ export const TILE = {
   FLOOR: 12,
   /** The tile you leave an interior by. */
   EXIT: 13,
+  /** A board beside a door saying what the building is. Solid, like the post
+   * it stands on. */
+  SIGN: 14,
 } as const;
 
 export type Tile = (typeof TILE)[keyof typeof TILE];
@@ -177,7 +180,7 @@ export function building(
   w: number,
   h: number,
   over: readonly number[],
-): { x: number; y: number } | null {
+): { x: number; y: number; sign: { x: number; y: number } | null } | null {
   // One row below the footprint has to be walkable, or the door opens onto a
   // wall and the building is decoration.
   if (!grid.clear(x, y, w, h, over)) return null;
@@ -192,7 +195,17 @@ export function building(
 
   // A step of path in front, so a door is never reached across tall grass.
   grid.set(doorX, doorY + 1, TILE.PATH);
-  return { x: doorX, y: doorY };
+
+  // A board beside the step, never on it: a sign that blocked its own door
+  // would be a very good joke and a very bad building. Left if there is room,
+  // right otherwise, and nowhere at all if the building is wedged in tight.
+  const signY = doorY + 1;
+  const signX = [doorX - 1, doorX + 1].find(
+    (candidate) => grid.inside(candidate, signY) && over.includes(grid.get(candidate, signY)),
+  );
+  if (signX !== undefined) grid.set(signX, signY, TILE.SIGN);
+
+  return { x: doorX, y: doorY, sign: signX === undefined ? null : { x: signX, y: signY } };
 }
 
 /** Scatters single tiles over whatever is already there. */

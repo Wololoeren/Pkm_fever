@@ -245,3 +245,29 @@ describe("doors", () => {
     expect(walkable(town.tiles[outdoors.y * town.width + outdoors.x])).toBe(true);
   });
 });
+
+describe("signs", () => {
+  it("W19: every building outside is sign-posted, and no sign blocks a door", () => {
+    for (const seed of ["A1", "B2", "C3", "D4"]) {
+      const world = testWorld(seed);
+      for (const route of world.routes.values()) {
+        if (route.kind === "interior") continue;
+
+        // A door you can see from outside has a board beside it.
+        expect(route.signs.length).toBe(route.doors.length);
+
+        for (const sign of route.signs) {
+          expect(sign.text.length).toBeGreaterThan(0);
+
+          // Standing on a signpost is not a thing, and standing in front of a
+          // door has to stay one — a sign that took the doorstep would seal
+          // the building it was advertising.
+          expect(walkable(route.tiles[sign.y * route.width + sign.x])).toBe(false);
+          for (const door of route.doors) {
+            expect([sign.x, sign.y]).not.toEqual([door.x, door.y + 1]);
+          }
+        }
+      }
+    }
+  });
+});

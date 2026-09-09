@@ -119,6 +119,8 @@ export function tileColor(biome: string, tile: number, x: number, y: number): st
       return checker ? "#a08560" : "#9a805c";
     case TILE.EXIT:
       return "#4a3527";
+    case TILE.SIGN:
+      return palette.path;
     default:
       return palette.meadow;
   }
