@@ -36,6 +36,40 @@ export interface Room<T> {
  * network which blocks WebRTC outright stops pretending it might work. */
 const CONNECT_GRACE_MS = 12000;
 
+/** How long after a deliberate teardown an abort is still that teardown's. */
+const CLOSE_ABORT_MS = 4000;
+
+/**
+ * Ignores the one rejection that leaving a room is *supposed* to cause.
+ *
+ * Closing a peer connection while it is still negotiating rejects whatever SDP
+ * exchange was in flight; Chrome words it "User-Initiated Abort, reason=Close
+ * called". That is not a failure, it is what leaving before you finished
+ * connecting *is* — and it is raised inside Trystero's negotiation rather than
+ * by anything we await, so no call site can catch it. It has to be caught
+ * where it surfaces.
+ *
+ * Deliberately narrow: only for a few seconds after a teardown we asked for,
+ * and only for that exact error. A real fault during a disconnect still
+ * reaches the console, which is the whole point of not reaching for a blanket
+ * handler here.
+ */
+function ignoreCloseAbort(): void {
+  if (typeof window === "undefined") return;
+
+  const handler = (event: PromiseRejectionEvent) => {
+    const reason: unknown = event.reason;
+    const name = (reason as { name?: unknown })?.name;
+    const message = (reason as { message?: unknown })?.message;
+    if (name === "OperationError" && typeof message === "string" && /close called/i.test(message)) {
+      event.preventDefault();
+    }
+  };
+
+  window.addEventListener("unhandledrejection", handler);
+  window.setTimeout(() => window.removeEventListener("unhandledrejection", handler), CLOSE_ABORT_MS);
+}
+
 export async function joinRoom<T extends { t: string }>(
   code: string,
   kind: string,
@@ -97,7 +131,18 @@ export async function joinRoom<T extends { t: string }>(
       channel.onMessage = null;
       room.onPeerJoin = null;
       room.onPeerLeave = null;
-      void room.leave();
+
+      ignoreCloseAbort();
+      try {
+        // `void` discards the promise without handling it, so a rejecting
+        // leave() was still an unhandled rejection. It is caught now, and
+        // leave() is allowed to be synchronous.
+        const closing = room.leave() as unknown;
+        if (closing instanceof Promise) closing.catch(() => {});
+      } catch {
+        // Already closed, or closed underneath us. Either way we are leaving.
+      }
+
       handlers.onStatus("closed");
     },
   };

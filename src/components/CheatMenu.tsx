@@ -7,7 +7,6 @@ import type { Cheat, GameState, Input } from "@/engine/engine";
 import { ALL_APPEARANCES, variant } from "@/engine/variants";
 import type { World } from "@/engine/world";
 import { displayName } from "@/lib/narrate";
-import { routeLabel } from "@/render/tiles";
 
 /**
  * Testing shortcuts, behind Ctrl+Shift+Alt+Z.
@@ -40,7 +39,22 @@ export function CheatMenu({
   // 1,134 species in a native select is fine and searchable by typing; a
   // custom combobox here would be scaffolding for scaffolding.
   const species = useMemo(() => [...ALL_SPECIES].sort((a, b) => a.num - b.num), []);
-  const routes = useMemo(() => [...world.routes.keys()].sort(), [world]);
+  // Routes carry their own label now, so ask them. Deriving one from the id
+  // put every interior in the list as "Hub · ring 0 · indoors" — four
+  // identical rows and no way to tell the daycare from a house.
+  const routes = useMemo(
+    () =>
+      [...world.routes.values()]
+        .map((route) => ({
+          id: route.id,
+          label:
+            route.kind === "interior"
+              ? `${world.routes.get(route.parent ?? "")?.label ?? "Somewhere"} · ${route.label}`
+              : route.label,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [world],
+  );
 
   return (
     <div className="cheatBackdrop" role="dialog" aria-label="Testing shortcuts">
@@ -159,9 +173,9 @@ export function CheatMenu({
         <h3>Warp</h3>
         <div className="row">
           <select value={route} onChange={(event) => setRoute(event.target.value)}>
-            {routes.map((id) => (
-              <option key={id} value={id}>
-                {routeLabel(id)}
+            {routes.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
               </option>
             ))}
           </select>
