@@ -5,7 +5,7 @@ import { species as speciesById } from "@/engine/dex";
 import { computeStats } from "@/engine/stats";
 import { GENDER_NAMES, GENDER_SYMBOLS } from "@/engine/gender";
 import type { Gender, Individual } from "@/engine/types";
-import { variant } from "@/engine/variants";
+import { isSpecial, TOP_TIER, variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
 
@@ -29,9 +29,12 @@ export function HpBar({ creature }: { creature: Individual }) {
 /** The badge a variant earns. Normal creatures get nothing, so the strip stays
  * quiet until something interesting is in it. */
 export function VariantTag({ variantId }: { variantId: string }) {
-  if (variantId === "normal") return null;
+  if (!isSpecial(variantId)) return null;
   const form = variant(variantId);
-  return <span className={`tag ${form.kind}`}>{form.name}</span>;
+  // The rung decides the tag's colour; the colour is in the name. A shiny
+  // Tide is a shiny that happens to be Tide, not a third kind of thing.
+  const shade = form.tier === TOP_TIER ? "shiny" : form.tier > 0 ? "tint" : "chroma";
+  return <span className={`tag ${shade}`}>{form.name}</span>;
 }
 
 /** The symbol, coloured so it reads at a glance in a list. */

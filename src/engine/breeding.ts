@@ -1,10 +1,11 @@
 import { baseFormOf, movesAtLevel, species as speciesById } from "./dex";
 import { gendersPair, rollGender } from "./gender";
 import { NATURE_IDS } from "./natures";
-import { intBetween, rngFor, shuffle, type Rng } from "./rng";
+import { intBelow, intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
 import { expForLevel } from "./progression";
 import { STAT_IDS, type Individual, type StatId, type StatTable } from "./types";
+import { appearanceId, CHROMA_IDS, TIER_COUNT, TOP_TIER, variant } from "./variants";
 
 /**
  * Breeding, and the reason the whole IV design works at all.
@@ -41,23 +42,52 @@ const INHERITED_SLOTS_WITH_HEIRLOOM = 5;
 export const STEPS_PER_EGG = 120;
 
 /**
- * The three things that make breeding better, and the only items in the game
- * so far. They are equipment rather than consumables: found once, then applied
- * to a pairing for as long as you want them.
+ * The things that make breeding better. They are equipment rather than
+ * consumables: found once, then applied to a pairing for as long as you want
+ * them.
+ *
+ * Three shape the stats, one shapes the shine ladder, and one lens per colour
+ * pulls toward that colour. A lens is the only way to aim at an appearance
+ * rather than wait for one, which is what makes going to find them worth the
+ * walk.
  */
-export const BREEDING_ITEMS = ["heirloom", "talisman", "catalyst"] as const;
-export type BreedingItem = (typeof BREEDING_ITEMS)[number];
+export const CHROMA_LENSES = CHROMA_IDS.map((id) => `lens-${id}`);
+
+export const BREEDING_ITEMS = [
+  "heirloom",
+  "talisman",
+  "catalyst",
+  "prism",
+  ...CHROMA_LENSES,
+] as readonly string[];
+export type BreedingItem = string;
+
+/** The colour a lens aims at, or null if the item is not a lens. */
+export function lensChroma(item: BreedingItem): string | null {
+  return item.startsWith("lens-") ? item.slice("lens-".length) : null;
+}
 
 export const ITEM_NAMES: Record<BreedingItem, string> = {
   heirloom: "Heirloom",
   talisman: "Talisman",
   catalyst: "Catalyst",
+  prism: "Prism",
+  ...Object.fromEntries(
+    CHROMA_IDS.map((id) => [`lens-${id}`, `${id.charAt(0).toUpperCase()}${id.slice(1)} Lens`]),
+  ),
 };
 
 export const ITEM_BLURBS: Record<BreedingItem, string> = {
   heirloom: "Passes down five of the parents' stat slots instead of three.",
   talisman: "The child always inherits the first parent's nature.",
   catalyst: "Strengthens the mutation on every inherited stat.",
+  prism: "Five times the chance a child climbs the shine ladder.",
+  ...Object.fromEntries(
+    CHROMA_IDS.map((id) => [
+      `lens-${id}`,
+      `One chance in five that the child takes the ${id} colour, whatever its parents wore.`,
+    ]),
+  ),
 };
 
 export interface DaycareState {
@@ -152,6 +182,8 @@ export function breed(
       ? first.natureId
       : NATURE_IDS[intBetween(rng, 0, NATURE_IDS.length - 1)];
 
+  const variantId = inheritAppearance(rng, first, second, applied);
+
   return {
     // The caller owns identity; it has the counter.
     uid: 0,
@@ -161,10 +193,7 @@ export function breed(
     ivs,
     evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
     natureId,
-    // Never a variant. Rare forms are placed when the world is made and
-    // counted exactly; letting breeding mint more would make the census a
-    // lie and turn every tournament into a breeding race for shinies.
-    variantId: "normal",
+    variantId,
     hp: 0,
     status: null,
     sleepTurns: 0,
@@ -174,6 +203,152 @@ export function breed(
     parents: [first.uid, second.uid],
     gender,
   };
+}
+
+/**
+ * How often a child climbs a rung it did not inherit, per mille.
+ *
+ * One percent, and a tenth of any climb climbs again — so from an ordinary
+ * pair, 0.9% of children come out Faded, 0.09% Washed, 0.009% Turning, and so
+ * on down to a true shiny at odds you would never plan around. It is a floor
+ * under every pairing rather than a strategy, and it means no lineage is
+ * permanently locked out of the ladder.
+ */
+const CLIMB_CHANCE = 10;
+const CLIMB_CHANCE_WITH_PRISM = 50;
+
+/** Given a climb, how often it climbs again. */
+const CASCADE = 0.1;
+
+/** How often a lens overrides the colour the parents would have given. */
+const LENS_CHANCE = 0.2;
+
+/**
+ * What the child looks like — a rung on the shine ladder, and a colour.
+ *
+ * The two are independent, which is the whole reason a shiny Tide can exist
+ * at all, so they are inherited by two unrelated rules and never traded off
+ * against each other.
+ */
+function inheritAppearance(
+  rng: Rng,
+  first: Individual,
+  second: Individual,
+  applied: readonly BreedingItem[],
+): string {
+  const a = variant(first.variantId);
+  const b = variant(second.variantId);
+  return appearanceId(inheritTier(rng, a.tier, b.tier, applied), inheritChroma(rng, a.chromaId, b.chromaId, applied));
+}
+
+/**
+ * The shine ladder: the child starts at the average of its parents.
+ *
+ * Two true shinies always make a true shiny; a shiny and an ordinary make
+ * something halfway. An odd sum cannot land between two rungs, so it falls to
+ * one of the two either side with even odds — which is what keeps the matrix
+ * symmetric rather than quietly rounding every pairing downward.
+ *
+ * On top of that sits the climb, which is the only way a lineage gains ground
+ * it was not given.
+ */
+export function inheritTier(
+  rng: Rng,
+  first: number,
+  second: number,
+  applied: readonly BreedingItem[] = [],
+): number {
+  const sum = first + second;
+  let tier = sum % 2 === 0 ? sum / 2 : (sum - 1) / 2 + (rng() < 0.5 ? 0 : 1);
+
+  const chance = applied.includes("prism") ? CLIMB_CHANCE_WITH_PRISM : CLIMB_CHANCE;
+  if (rng() * 1000 < chance) {
+    tier += 1;
+    while (tier < TOP_TIER && rng() < CASCADE) tier += 1;
+  }
+
+  return Math.min(TOP_TIER, tier);
+}
+
+/**
+ * The colour: carried, halved, or contested.
+ *
+ * Two of a colour always breed that colour. One of a colour is a coin flip.
+ * Two different colours favour the parents but leave a slice for something
+ * neither of them wore, so a line can drift somewhere new without being bred
+ * for it. A lens then gets one chance to overrule the lot.
+ */
+export function inheritChroma(
+  rng: Rng,
+  first: string | null,
+  second: string | null,
+  applied: readonly BreedingItem[] = [],
+): string | null {
+  let colour: string | null;
+
+  if (first && second && first === second) {
+    colour = first;
+  } else if (first && second) {
+    const roll = rng();
+    colour = roll < 0.4 ? first : roll < 0.8 ? second : CHROMA_IDS[intBelow(rng, CHROMA_IDS.length)];
+  } else if (first || second) {
+    colour = rng() < 0.5 ? (first ?? second) : null;
+  } else {
+    colour = null;
+  }
+
+  // Lenses are checked in a fixed order so two of them cannot depend on which
+  // was toggled first. Each is an independent chance; the first to land wins.
+  for (const item of [...applied].sort()) {
+    const wanted = lensChroma(item);
+    if (!wanted) continue;
+    if (rng() < LENS_CHANCE) {
+      colour = wanted;
+      break;
+    }
+  }
+
+  return colour;
+}
+
+/**
+ * The mixing matrix: what two parent rungs produce, as per-mille odds over
+ * the six rungs.
+ *
+ * Computed from the same rules `inheritTier` runs rather than tabulated
+ * beside them, because a matrix that can disagree with the code is worse than
+ * no matrix. Shown in the daycare, and asserted in a test.
+ */
+export function tierMatrix(first: number, second: number, applied: readonly BreedingItem[] = []): number[] {
+  const odds = new Array<number>(TIER_COUNT).fill(0);
+  const sum = first + second;
+  const climb = applied.includes("prism") ? CLIMB_CHANCE_WITH_PRISM : CLIMB_CHANCE;
+
+  const starts = sum % 2 === 0 ? [[sum / 2, 1]] : [[(sum - 1) / 2, 0.5], [(sum + 1) / 2, 0.5]];
+
+  for (const [start, share] of starts) {
+    // Already at the top: the climb has nowhere to go, and that probability
+    // stays where it is rather than evaporating. Dropping it is how a matrix
+    // starts summing to 990 and nobody notices for a year.
+    if (start >= TOP_TIER) {
+      odds[TOP_TIER] += share * 1000;
+      continue;
+    }
+
+    // Not climbing at all.
+    odds[start] += share * (1 - climb / 1000) * 1000;
+
+    // Climbing, then cascading: each further rung is a tenth as likely, and
+    // anything that would pass the top rung stops there.
+    let mass = share * (climb / 1000);
+    for (let step = 1; start + step <= TOP_TIER; step++) {
+      const lands = start + step === TOP_TIER ? mass : mass * (1 - CASCADE);
+      odds[start + step] += lands * 1000;
+      mass *= CASCADE;
+    }
+  }
+
+  return odds;
 }
 
 /**

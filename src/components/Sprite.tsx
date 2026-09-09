@@ -1,28 +1,48 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { tintTier, variant, variantSummary } from "@/engine/variants";
+import { chroma, TOP_TIER, variant, variantSummary } from "@/engine/variants";
 import { creatureSprite } from "@/render/creature";
+import { swatchFor } from "@/render/palette";
 import { cachedSprite, loadSprite, SPRITE_SIZE } from "@/render/sprites";
 
 /**
- * The badge that says a creature is not ordinary.
+ * The marks that say a creature is not ordinary.
  *
- * The palette shift alone is not enough to read: a two-fifths tint of
- * something already green is a colour you would have to have memorised the
- * original to notice. The mark says which ladder it is on and how far up.
+ * Two axes means two marks. Shine is a rung, so it gets a rung's glyph — a
+ * numbered spark on the way up, a star at the top. Colour is a colour, so it
+ * gets a dot painted in the colour the sprite pipeline actually produces for
+ * it, from the same transform, rather than a hand-picked one that could drift.
+ *
+ * Both matter, because the palette shift alone is not enough to read: a
+ * two-fifths tint of something already green is a colour you would have to
+ * have memorised the original to notice, and with eight colours a bare
+ * diamond stopped saying which.
  */
 function VariantMark({ variantId, size }: { variantId: string; size: number }) {
   const form = variant(variantId);
-  if (form.kind === "normal") return null;
+  if (form.tier === 0 && !form.chromaId) return null;
 
-  const tier = tintTier(variantId);
-  const glyph = form.kind === "shiny" ? "★" : form.kind === "chroma" ? "◆" : `✦${tier}`;
+  const fontSize = Math.max(9, Math.round(size * 0.16));
 
   return (
-    <span className={`mark ${form.kind}`} style={{ fontSize: Math.max(9, Math.round(size * 0.16)) }}>
-      {glyph}
-    </span>
+    <>
+      {form.tier > 0 && (
+        <span className={`mark ${form.tier === TOP_TIER ? "shiny" : "tint"}`} style={{ fontSize }}>
+          {form.tier === TOP_TIER ? "★" : `✦${form.tier}`}
+        </span>
+      )}
+      {form.chromaId && (
+        <span
+          className="mark chroma"
+          style={{ fontSize, color: swatchFor(form), borderColor: swatchFor(form) }}
+          // Eight colours is past what a shape can carry, so the letter does
+          // the work and the colour confirms it.
+        >
+          {chroma(form.chromaId).name.charAt(0)}
+        </span>
+      )}
+    </>
   );
 }
 

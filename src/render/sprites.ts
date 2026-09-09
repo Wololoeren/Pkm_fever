@@ -1,6 +1,6 @@
 import { species as speciesById } from "@/engine/dex";
 import { variant } from "@/engine/variants";
-import { applyHueShift, mixImages } from "./palette";
+import { applyColourShift, mixImages } from "./palette";
 
 /**
  * Real sprites, and the variant pipeline running on them.
@@ -92,10 +92,11 @@ async function build(speciesId: string, variantId: string): Promise<HTMLCanvasEl
   const form = variant(variantId);
   const num = speciesById(speciesId).spriteNum;
 
-  // A chroma or a shiny starts from the shiny sprite; everything else starts
-  // from the normal one.
-  const wantsShinyBase = form.kind === "shiny" || form.kind === "chroma";
-  const base = await loadImage(urlFor(num, wantsShinyBase));
+  // Shine first, colour second. Shine is a position between the two sprites
+  // the artists drew; colour is a transform of whatever that lands on. Doing
+  // it in this order is what makes a shiny Tide the Tide transform applied to
+  // the shiny palette, which is exactly what the name says it is.
+  const base = await loadImage(urlFor(num, false));
   if (!base) return null;
 
   const canvas = document.createElement("canvas");
@@ -106,7 +107,7 @@ async function build(speciesId: string, variantId: string): Promise<HTMLCanvasEl
 
   ctx.drawImage(base, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
 
-  if (form.kind === "tint") {
+  if (form.mix > 0) {
     const shiny = await loadImage(urlFor(num, true));
     if (shiny) {
       const target = document.createElement("canvas");
@@ -121,9 +122,11 @@ async function build(speciesId: string, variantId: string): Promise<HTMLCanvasEl
         ctx.putImageData(from, 0, 0);
       }
     }
-  } else if (form.kind === "chroma") {
+  }
+
+  if (form.chromaId) {
     const image = ctx.getImageData(0, 0, SPRITE_SIZE, SPRITE_SIZE);
-    applyHueShift(image, form.hueShift);
+    applyColourShift(image, form);
     ctx.putImageData(image, 0, 0);
   }
 

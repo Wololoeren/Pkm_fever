@@ -4,7 +4,10 @@ import {
   breedingRefusal,
   compatible,
   generationsToMax,
+  inheritChroma,
+  inheritTier,
   STEPS_PER_EGG,
+  tierMatrix,
   type BreedingItem,
   type DaycareState,
 } from "@/engine/breeding";
@@ -15,6 +18,7 @@ import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
 import { STAT_IDS, type Individual, type StatTable } from "@/engine/types";
 import { wildAt } from "@/engine/world";
+import { TIER_COUNT, TOP_TIER, variant } from "@/engine/variants";
 import { creature, standInside, testWorld } from "./helpers";
 
 /**
@@ -154,15 +158,30 @@ describe("what comes out", () => {
     expect(breed(SEED, partner, ditto, 0, []).speciesId).toBe("charmander");
   });
 
-  it("BR9: nothing bred is ever a variant, so the census stays exact", () => {
-    // A shiny parent must not be able to mint more shinies — the world holds
-    // exactly one, placed when it was made, and breeding may not forge them.
+  it("BR9: appearance is inherited on both axes at once", () => {
+    // The census counts what the *world* holds, not what exists. Breeding is
+    // the second path to an appearance, and the only path to a combination
+    // the world did not place.
     const mother = creature("bulbasaur", { uid: 1, variantId: "shiny" });
     const father = creature("bulbasaur", { uid: 2, variantId: "ember" });
 
-    for (let egg = 0; egg < 20; egg++) {
-      expect(breed(SEED, mother, father, egg, []).variantId).toBe("normal");
-    }
+    const children = Array.from({ length: 200 }, (_, egg) =>
+      variant(breed(SEED, mother, father, egg, []).variantId),
+    );
+
+    // Shiny x ordinary-rung averages to the middle of the ladder — and never
+    // below it, because the only thing that moves a child off the average is
+    // the climb, which only goes up.
+    for (const child of children) expect(child.tier).toBeGreaterThanOrEqual(2);
+    expect(children.filter((child) => child.tier === 2 || child.tier === 3).length).toBeGreaterThan(190);
+
+    // One Ember parent is a coin flip on the colour.
+    const ember = children.filter((child) => child.chromaId === "ember").length;
+    expect(ember).toBeGreaterThan(70);
+    expect(ember).toBeLessThan(130);
+
+    // Which means a tinted Ember — a combination — comes out routinely.
+    expect(children.some((child) => child.tier > 0 && child.chromaId === "ember")).toBe(true);
   });
 
   it("BR10: the talisman fixes the nature to the first parent's", () => {
@@ -372,5 +391,118 @@ describe("gender", () => {
     const seen = new Set<string>();
     for (let egg = 0; egg < 60; egg++) seen.add(breed(SEED, mother, father, egg, []).gender);
     expect(seen.size).toBeGreaterThan(1);
+  });
+});
+
+describe("the shine ladder", () => {
+  const roll = (a: number, b: number, applied: BreedingItem[] = [], count = 20000) => {
+    const seen = new Array(TIER_COUNT).fill(0);
+    for (let i = 0; i < count; i++) seen[inheritTier(rngFor("ladder", a, b, i), a, b, applied)]++;
+    return seen.map((n) => (n / count) * 1000);
+  };
+
+  it("BR17: two true shinies always make a true shiny", () => {
+    for (let i = 0; i < 500; i++) {
+      expect(inheritTier(rngFor("pair", i), TOP_TIER, TOP_TIER, [])).toBe(TOP_TIER);
+    }
+  });
+
+  it("BR18: a shiny and an ordinary make something half way", () => {
+    // Five rungs cannot be halved onto a rung, so it falls either side with
+    // even odds rather than rounding one way every time — which would make
+    // the matrix asymmetric and quietly punish one parent order.
+    const odds = roll(TOP_TIER, 0);
+    expect(odds[2]).toBeGreaterThan(430);
+    expect(odds[3]).toBeGreaterThan(430);
+    expect(odds[0] + odds[1]).toBe(0);
+  });
+
+  it("BR19: an ordinary pair still climbs, at one percent and a tenth of that", () => {
+    // The Factorio-shaped floor: 1% of children climb at all, and a tenth of
+    // those climb again. Nothing is ever permanently locked out of the ladder.
+    const odds = tierMatrix(0, 0);
+    expect(odds[1]).toBeCloseTo(9, 1);
+    expect(odds[2]).toBeCloseTo(0.9, 2);
+    expect(odds[3]).toBeCloseTo(0.09, 3);
+    expect(odds.reduce((total, n) => total + n, 0)).toBeCloseTo(1000, 6);
+  });
+
+  it("BR20: the matrix agrees with the rule it describes", () => {
+    // A published matrix that can drift from the code is worse than none.
+    for (const [a, b] of [[0, 0], [1, 3], [2, 2], [4, 5], [5, 0]]) {
+      const measured = roll(a, b);
+      const predicted = tierMatrix(a, b);
+      for (let tier = 0; tier < TIER_COUNT; tier++) {
+        expect(Math.abs(measured[tier] - predicted[tier])).toBeLessThan(15);
+      }
+    }
+  });
+
+  it("BR21: the prism multiplies the climb by five", () => {
+    expect(tierMatrix(0, 0, ["prism"])[1]).toBeCloseTo(45, 1);
+    expect(tierMatrix(2, 2, ["prism"])[3]).toBeCloseTo(45, 1);
+  });
+
+  it("BR22: nothing ever climbs past the top rung", () => {
+    for (let i = 0; i < 2000; i++) {
+      expect(inheritTier(rngFor("cap", i), 4, 5, ["prism"])).toBeLessThanOrEqual(TOP_TIER);
+    }
+    expect(tierMatrix(5, 5).reduce((total, n) => total + n, 0)).toBeCloseTo(1000, 6);
+  });
+});
+
+describe("colour", () => {
+  const rollChroma = (a: string | null, b: string | null, applied: BreedingItem[] = [], count = 20000) => {
+    const seen = new Map<string, number>();
+    for (let i = 0; i < count; i++) {
+      const got = inheritChroma(rngFor("colour", a ?? "-", b ?? "-", i), a, b, applied) ?? "none";
+      seen.set(got, (seen.get(got) ?? 0) + 1);
+    }
+    return (id: string) => ((seen.get(id) ?? 0) / count) * 1000;
+  };
+
+  it("BR23: two of a colour always breed that colour", () => {
+    for (let i = 0; i < 500; i++) {
+      expect(inheritChroma(rngFor("same", i), "tide", "tide", [])).toBe("tide");
+    }
+  });
+
+  it("BR24: one of a colour is a coin flip", () => {
+    const share = rollChroma("tide", null);
+    expect(share("tide")).toBeGreaterThan(450);
+    expect(share("none")).toBeGreaterThan(450);
+  });
+
+  it("BR25: two different colours favour the parents but leave room to drift", () => {
+    // 40% each parent, and a fifth spread over every colour — so a line can
+    // arrive somewhere neither parent came from without being bred for it.
+    const share = rollChroma("tide", "ember");
+    expect(share("tide")).toBeGreaterThan(400);
+    expect(share("ember")).toBeGreaterThan(400);
+    expect(share("onyx")).toBeGreaterThan(15);
+    expect(share("none")).toBe(0);
+  });
+
+  it("BR26: a lens is the only way to aim, and it is one chance in five", () => {
+    const plain = rollChroma(null, null);
+    expect(plain("none")).toBe(1000);
+
+    const lensed = rollChroma(null, null, ["lens-onyx"]);
+    expect(lensed("onyx")).toBeGreaterThan(180);
+    expect(lensed("onyx")).toBeLessThan(220);
+
+    // On top of parents rather than instead of them.
+    const both = rollChroma("tide", "tide", ["lens-onyx"]);
+    expect(both("onyx")).toBeGreaterThan(180);
+    expect(both("tide")).toBeGreaterThan(760);
+  });
+
+  it("BR27: two lenses are two chances, not one shared one", () => {
+    const share = rollChroma(null, null, ["lens-onyx", "lens-teal"]);
+    // 20%, then 20% of the remaining 80%.
+    expect(share("none")).toBeGreaterThan(610);
+    expect(share("none")).toBeLessThan(670);
+    expect(share("onyx")).toBeGreaterThan(150);
+    expect(share("teal")).toBeGreaterThan(130);
   });
 });

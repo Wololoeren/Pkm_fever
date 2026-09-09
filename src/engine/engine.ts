@@ -30,6 +30,7 @@ import {
   encounterTriggers,
   HUB_ID,
   routeId,
+  starterAppearance,
   trainerAt,
   wildAt,
   type World,
@@ -184,6 +185,27 @@ const ITEM_FOR_RING: Record<number, BreedingItem> = {
   2: "heirloom",
   4: "talisman",
   6: "catalyst",
+};
+
+/**
+ * The lenses and the prism are keyed to a biome as well as a ring.
+ *
+ * The three above are the core of breeding and drop from any route at the
+ * right distance, so nobody can miss them. These nine are specialised — each
+ * aims a pairing at one colour — so each asks you to have been somewhere
+ * specific rather than merely far. Eight colours over four biomes means two
+ * apiece, at the two depths that were not already spoken for.
+ */
+const ITEM_FOR_PLACE: Record<string, BreedingItem> = {
+  "ashflats:1": "lens-ember",
+  "marsh:1": "lens-tide",
+  "pinewood:1": "lens-static",
+  "meadow:1": "lens-verdant",
+  "pinewood:3": "lens-umbral",
+  "marsh:3": "lens-teal",
+  "ashflats:5": "lens-onyx",
+  "meadow:5": "lens-ivory",
+  "pinewood:5": "prism",
 };
 
 const STARTING_BALLS = 30;
@@ -516,7 +538,10 @@ function arrive(world: World, state: GameState, routeId: string): GameState {
   if (state.visited.includes(routeId)) return state;
 
   const visited = [...state.visited, routeId].sort();
-  const item = ITEM_FOR_RING[world.routes.get(routeId)?.ring ?? 0];
+  const route = world.routes.get(routeId);
+  const item =
+    (route ? ITEM_FOR_PLACE[`${route.biome}:${route.ring}`] : undefined) ??
+    ITEM_FOR_RING[route?.ring ?? 0];
   if (!item || state.items.includes(item)) return { ...state, visited, notice: null };
 
   return { ...state, visited, items: [...state.items, item].sort(), notice: { t: "found", item } };
@@ -684,7 +709,9 @@ function pickStarter(world: World, state: GameState, index: number): GameState {
     ivs: clampIvs(ivs),
     evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
     natureId: NATURE_IDS[intBetween(rng, 0, NATURE_IDS.length - 1)],
-    variantId: "normal",
+    // Its own named roll, so adding or removing anything above cannot shift
+    // which seeds deal a shiny starter.
+    variantId: starterAppearance(world.seed, index),
     hp: 0,
     status: null,
     sleepTurns: 0,

@@ -16,7 +16,7 @@ import { ALL_SPECIES } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
 import { applyInput, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
-import { VARIANTS } from "@/engine/variants";
+import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type World } from "@/engine/world";
 import {
   clearAutosave,
@@ -168,7 +168,7 @@ export default function Page() {
   const foundLabel = useMemo(() => {
     if (!state) return "";
     const special = state.found.filter((id) => id !== "normal").length;
-    return `${special} of ${VARIANTS.length - 1}`;
+    return `${special} of ${APPEARANCE_COUNT - 1}`;
   }, [state]);
 
   if (!session || !state) {

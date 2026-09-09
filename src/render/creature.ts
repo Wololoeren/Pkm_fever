@@ -146,7 +146,10 @@ export function creatureSprite(speciesId: string, variantId: string): HTMLCanvas
   // distance. The real pipeline in render/sprites does the true thing with
   // both images; this only has to hold the frame until it arrives.
   const form = variant(variantId);
-  const degrees = form.kind === "tint" ? (150 * form.mix) / 1000 : form.hueShift || (form.kind === "shiny" ? 150 : 0);
+  // No real sprites to interpolate between here, so shine is faked as a hue
+  // sweep of its own and the chroma is layered on top of it — the same two
+  // axes, in the same order, at placeholder quality.
+  const degrees = (150 * form.mix) / 1000 + form.hueShift;
   if (degrees !== 0) {
     const image = ctx.getImageData(0, 0, SIZE, SIZE);
     applyHueShift(image, degrees);

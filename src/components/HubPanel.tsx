@@ -6,6 +6,8 @@ import {
   generationsToMax,
   ITEM_BLURBS,
   ITEM_NAMES,
+  tierMatrix,
+  type DaycareState,
   STEPS_PER_EGG,
   type BreedingItem,
 } from "@/engine/breeding";
@@ -14,6 +16,7 @@ import { depositRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
+import { variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
 import { GenderMark, VariantTag } from "./PartyStrip";
@@ -25,6 +28,55 @@ import { GenderMark, VariantTag } from "./PartyStrip";
  * what makes walking out mean anything. The engine enforces it too — a
  * deposit anywhere else is refused.
  */
+
+/**
+ * What this pairing will do to the shine ladder, as a row of odds.
+ *
+ * The matrix is computed from the rule rather than written beside it, so the
+ * panel cannot claim odds the engine does not roll. With no pair deposited it
+ * shows the ordinary-times-ordinary row, which is the one worth knowing: even
+ * from nothing, every hundredth child climbs.
+ */
+function ShineMatrix({
+  pair,
+  applied,
+}: {
+  pair: DaycareState["slots"];
+  applied: readonly BreedingItem[];
+}) {
+  const first = pair[0] ? variant(pair[0].variantId).tier : 0;
+  const second = pair[1] ? variant(pair[1].variantId).tier : 0;
+  const odds = tierMatrix(first, second, applied);
+
+  return (
+    <div className="ladder">
+      <p className="muted">
+        {pair[0] && pair[1]
+          ? `${TIER_LABELS[first]} x ${TIER_LABELS[second]} — the child starts at the average and can climb.`
+          : "With nothing deposited, what an ordinary pair would give."}
+      </p>
+      <div className="ladderRow">
+        {odds.map((share, tier) => (
+          <div key={tier} className={`rung${share > 0 ? " lit" : ""}`} title={`${TIER_LABELS[tier]}`}>
+            <span className="rungName">{TIER_LABELS[tier]}</span>
+            <span className="rungOdds">{formatShare(share)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const TIER_LABELS = ["Normal", "Faded", "Washed", "Turning", "Nearly", "Shiny"];
+
+/** Odds this small need more than one decimal or they all read as "0.0%". */
+function formatShare(perMille: number): string {
+  if (perMille === 0) return "—";
+  const percent = perMille / 10;
+  if (percent >= 1) return `${percent.toFixed(percent >= 10 ? 0 : 1)}%`;
+  if (percent >= 0.01) return `${percent.toFixed(2)}%`;
+  return "<0.01%";
+}
 
 function ivBar({ ivs }: Individual) {
   const total = ivTotal(ivs);
@@ -201,6 +253,9 @@ export function HubPanel({
             Take the egg
           </button>
         </div>
+
+        <h3>The ladder</h3>
+        <ShineMatrix pair={state.daycare.slots} applied={state.daycare.applied} />
 
         <h3>Items</h3>
         <div className="items">

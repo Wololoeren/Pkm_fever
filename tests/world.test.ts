@@ -3,7 +3,7 @@ import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex"
 import { applyInput, initialState } from "@/engine/engine";
 import { walkable } from "@/engine/terrain";
 import { STAT_IDS } from "@/engine/types";
-import { CENSUS_TOTAL, variant } from "@/engine/variants";
+import { CENSUS_TOTAL, CHROMA_IDS, TOP_TIER, variant } from "@/engine/variants";
 import { encounterTable, HUB_ID, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
 import { outdoorRoutes, testWorld } from "./helpers";
 
@@ -25,18 +25,43 @@ describe("the census", () => {
     }
   });
 
-  it("W2: every world holds exactly one true shiny", () => {
+  it("W2: every world holds exactly one true shiny, and one wearing a colour", () => {
     for (const seed of SEEDS) {
-      const shinies = [...testWorld(seed).census.values()].filter((id) => id === "shiny");
-      expect(shinies).toHaveLength(1);
+      const placed = [...testWorld(seed).census.values()].map((id) => variant(id));
+      const top = placed.filter((form) => form.tier === TOP_TIER);
+
+      expect(top.filter((form) => form.chromaId === null)).toHaveLength(1);
+      expect(top.filter((form) => form.chromaId !== null)).toHaveLength(1);
     }
   });
 
-  it("W3: each chroma form appears exactly once", () => {
+  it("W2b: and which colour the crown wears is the seed's choice", () => {
+    const crowns = SEEDS.map((seed) => {
+      const placed = [...testWorld(seed).census.values()].map((id) => variant(id));
+      return placed.find((form) => form.tier === TOP_TIER && form.chromaId)!.chromaId;
+    });
+    // Not a fixed colour across every world, which is what would make the
+    // rarest thing in the game the same hunt in every save.
+    expect(new Set(crowns).size).toBeGreaterThan(1);
+  });
+
+  it("W3: each chroma form appears exactly once on its own", () => {
     for (const seed of SEEDS) {
       const placed = [...testWorld(seed).census.values()];
-      for (const id of ["ember", "tide", "static", "verdant", "umbral"]) {
-        expect(placed.filter((v) => v === id)).toHaveLength(1);
+      for (const id of CHROMA_IDS) {
+        expect(placed.filter((value) => value === id)).toHaveLength(1);
+      }
+    }
+  });
+
+  it("W3b: and once more wearing a rung of the ladder", () => {
+    for (const seed of SEEDS) {
+      const placed = [...testWorld(seed).census.values()].map((id) => variant(id));
+      for (const id of CHROMA_IDS) {
+        const tinted = placed.filter(
+          (form) => form.chromaId === id && form.tier > 0 && form.tier < TOP_TIER,
+        );
+        expect(tinted).toHaveLength(1);
       }
     }
   });
@@ -48,7 +73,7 @@ describe("the census", () => {
         const route = world.routes.get(key.split(":")[0]);
         expect(route).toBeDefined();
         expect(route!.ring).toBeGreaterThanOrEqual(1);
-        if (variant(variantId).kind !== "tint") {
+        if (variant(variantId).chromaId !== null) {
           expect(route!.ring).toBeGreaterThanOrEqual(world.config.rings - 2);
         }
       }

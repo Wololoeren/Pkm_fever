@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ALL_SPECIES } from "@/engine/dex";
 import { GENDER_NAMES, GENDERS, type Gender } from "@/engine/gender";
 import type { Cheat, GameState, Input } from "@/engine/engine";
-import { VARIANTS } from "@/engine/variants";
+import { ALL_APPEARANCES, variant } from "@/engine/variants";
 import type { World } from "@/engine/world";
 import { displayName } from "@/lib/narrate";
 import { routeLabel } from "@/render/tiles";
@@ -78,9 +78,9 @@ export function CheatMenu({
             onChange={(event) => setLevel(Number(event.target.value))}
           />
           <select value={variantId} onChange={(event) => setVariantId(event.target.value)}>
-            {VARIANTS.map((form) => (
-              <option key={form.id} value={form.id}>
-                {form.name}
+            {ALL_APPEARANCES.map((id) => (
+              <option key={id} value={id}>
+                {variant(id).name}
               </option>
             ))}
           </select>
@@ -116,9 +116,9 @@ export function CheatMenu({
                   aria-label={`Variant for ${displayName(creature)}`}
                   onChange={(event) => send({ op: "setVariant", index, variantId: event.target.value })}
                 >
-                  {VARIANTS.map((form) => (
-                    <option key={form.id} value={form.id}>
-                      {form.name}
+                  {ALL_APPEARANCES.map((id) => (
+                    <option key={id} value={id}>
+                      {variant(id).name}
                     </option>
                   ))}
                 </select>

@@ -6,7 +6,7 @@ import { natureVector } from "@/engine/natures";
 import { computeStats, IV_MAX, ivTotal } from "@/engine/stats";
 import { expForLevel, levelFromExp } from "@/engine/progression";
 import { STAT_IDS, type Individual, type StatId } from "@/engine/types";
-import { variant } from "@/engine/variants";
+import { isSpecial, variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark } from "./PartyStrip";
@@ -168,7 +168,7 @@ export function Inspect({
             IV total <strong>{ivTotal(creature.ivs)}</strong> of {IV_MAX * STAT_IDS.length}. A wild
             catch rolls 0–6 per stat; anything higher was bred for.
           </p>
-          {form.kind === "normal" ? null : (
+          {!isSpecial(creature.variantId) ? null : (
             <p className="muted">
               Form <strong>{form.name}</strong> — every stat above already includes its multiplier
               (

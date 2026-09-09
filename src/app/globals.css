@@ -455,8 +455,34 @@ button.small { padding: 5px 9px; font-size: 0.78rem; white-space: nowrap; }
   pointer-events: none;
 }
 .mark.tint   { color: #9fd8bf; border-color: #3f5a4d; }
-.mark.chroma { color: #d8a8e0; border-color: #5a3f5f; }
 .mark.shiny  { color: #f0cd76; border-color: #7a6231; }
+/* The colour mark sits under the shine mark, so a shiny Tide shows both
+   without either covering the sprite's face. */
+.mark.chroma { top: auto; bottom: 0; }
+
+.ladder { margin-bottom: 14px; }
+.ladderRow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  margin-top: 6px;
+}
+.rung {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  text-align: center;
+  /* Unreachable rungs stay visible rather than vanishing: the shape of the
+     ladder is the information, not just this pairing's slice of it. */
+  opacity: 0.4;
+}
+.rung.lit { opacity: 1; }
+.rungName { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.rungOdds { font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------------ duel */
 

@@ -5,7 +5,7 @@ import { building, clump, Grid, meander, speckle, TILE } from "./terrain";
 import { intBelow, intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
 import { clampIvs, WILD_IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type SpeciesEntry, type StatTable, type WorldConfig } from "./types";
-import { PLACED_VARIANTS } from "./variants";
+import { appearanceId, CENSUS_PLAN, CHROMA_IDS, TOP_TIER } from "./variants";
 
 /**
  * The world is a pure function of (config, seed). Nothing here is stored in a
@@ -343,6 +343,48 @@ export const STARTER_COUNT = STARTER_TYPES.length;
  * starter list and this returns to the old heuristic, because a roster that
  * cannot be swapped is not a swappable roster.
  */
+/**
+ * What the starter you are offered looks like.
+ *
+ * Twenty times the wild rate, on both axes, rolled independently. The wild
+ * census works out at about 1.4% for a rung of the tint ladder, 0.17% for a
+ * colour and 0.035% for a true shiny per encounter inside the census window;
+ * this is that, times twenty, in per-mille integers. The tint ladder is *not*
+ * multiplied — the ladder is common enough already, and the thing worth
+ * rerolling a seed for is a colour or a shine, not a Faded Squirtle.
+ *
+ * Independence is the point. A shiny colour starter is 7 in 10,000 times
+ * 35 in 1,000, which is about one seed in four thousand — a real jackpot
+ * rather than a thing the opening screen hands out.
+ */
+const STARTER_SHINY = 7;
+const STARTER_TINT = [6, 4, 3, 1];
+const STARTER_CHROMA = 35;
+
+export function starterAppearance(seed: string, index: number): string {
+  const rng = rngFor(seed, "starterLook", index);
+
+  const shine = rng() * 1000;
+  let tier = 0;
+  if (shine < STARTER_SHINY) {
+    tier = TOP_TIER;
+  } else {
+    let floor = STARTER_SHINY;
+    for (let rung = 0; rung < STARTER_TINT.length; rung++) {
+      floor += STARTER_TINT[rung];
+      if (shine < floor) {
+        tier = rung + 1;
+        break;
+      }
+    }
+  }
+
+  const colour =
+    rng() * 1000 < STARTER_CHROMA ? CHROMA_IDS[intBelow(rng, CHROMA_IDS.length)] : null;
+
+  return appearanceId(tier, colour);
+}
+
 export function pickStarters(seed: string, allSpecies: readonly SpeciesEntry[]): string[] {
   const chosen = STARTER_TYPES.map((type) => {
     const options = startersOfType(type);
@@ -463,28 +505,42 @@ export function generateWorld(
 
   const starters = pickStarters(seed, allSpecies);
 
-  // Place the census. Rarer variants are placed further out, so the true
-  // shiny is never sitting in the first patch of grass outside the hub.
+  // Place the census. Rarer forms are placed further out, so the true shiny
+  // is never sitting in the first patch of grass outside Hearth.
   const census = new Map<string, string>();
   const routeIds = [...routes.values()].filter((route) => route.kind === "route").map((route) => route.id).sort();
-  for (const placed of PLACED_VARIANTS) {
-    for (let copy = 0; copy < placed.census; copy++) {
-      const rng = rngFor(seed, "census", placed.id, copy);
-      const minRing = placed.kind === "tint" ? 1 : Math.max(1, config.rings - 2);
-      const eligible = routeIds.filter((id) => (routes.get(id)?.ring ?? 0) >= minRing);
 
-      // A slot already spoken for goes to the next one along rather than
-      // overwriting, so the census total is exact rather than approximate.
-      let key = "";
-      for (let attempt = 0; attempt < 64; attempt++) {
-        const route = eligible[intBetween(rng, 0, eligible.length - 1)];
-        const slot = intBetween(rng, 0, CENSUS_SLOT_RANGE - 1);
-        key = `${route}:${slot}`;
-        if (!census.has(key)) break;
-      }
-      census.set(key, placed.id);
+  const place = (id: string, rng: Rng, minRing: number) => {
+    const eligible = routeIds.filter((route) => (routes.get(route)?.ring ?? 0) >= minRing);
+    if (!eligible.length) return;
+
+    // A slot already spoken for goes to the next one along rather than
+    // overwriting, so the census total is exact rather than approximate.
+    let key = "";
+    for (let attempt = 0; attempt < 64; attempt++) {
+      const route = eligible[intBetween(rng, 0, eligible.length - 1)];
+      const slot = intBetween(rng, 0, CENSUS_SLOT_RANGE - 1);
+      key = `${route}:${slot}`;
+      if (!census.has(key)) break;
+    }
+    census.set(key, id);
+  };
+
+  const depthRing = (depth: number) =>
+    depth === 1 ? 1 : depth === 2 ? Math.max(1, config.rings - 2) : config.rings;
+
+  for (const entry of CENSUS_PLAN) {
+    for (let copy = 0; copy < entry.count; copy++) {
+      place(entry.id, rngFor(seed, "census", entry.id, copy), depthRing(entry.depth));
     }
   }
+
+  // The crown: one shiny wearing a colour, the rarest thing in the world, on
+  // the outermost ring. Which colour is the seed's to choose, so two players
+  // sharing a seed are hunting the same one and no two seeds hunt the same.
+  const crownRng = rngFor(seed, "census", "crown");
+  const crown = appearanceId(TOP_TIER, CHROMA_IDS[intBetween(crownRng, 0, CHROMA_IDS.length - 1)]);
+  place(crown, crownRng, depthRing(3));
 
   const trainers = new Map<string, TrainerSpec[]>();
   for (const route of routes.values()) {

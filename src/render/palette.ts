@@ -78,16 +78,62 @@ export function rotateHue(lab: Oklab, degrees: number): Oklab {
  * Rotates every opaque pixel's hue, in place. This is a chroma form.
  */
 export function applyHueShift(data: ImageData, degrees: number): void {
-  if (degrees === 0) return;
+  applyColourShift(data, { hueShift: degrees, hueSet: null, lightShift: 0, satScale: 1000 });
+}
+
+/** What a chroma does to a colour. Per-mille where it is a magnitude, so the
+ * numbers match the ones the engine stores. */
+export interface ColourShift {
+  hueShift: number;
+  hueSet: number | null;
+  lightShift: number;
+  satScale: number;
+}
+
+/**
+ * The whole chroma transform, in place, in OKLCh.
+ *
+ * Hue rotation alone cannot reach black or white, because neither is a hue —
+ * that is why lightness and colourfulness are here too. Lightness moves toward
+ * the end it is heading for rather than by a flat amount, so a shift that
+ * darkens never clips a dark pixel to nothing and never flattens the shading
+ * that makes a sprite read as a shape.
+ */
+export function applyColourShift(data: ImageData, shift: ColourShift): void {
+  const neutral =
+    shift.hueShift === 0 && shift.hueSet === null && shift.lightShift === 0 && shift.satScale === 1000;
+  if (neutral) return;
 
   const pixels = data.data;
   for (let i = 0; i < pixels.length; i += 4) {
     if (pixels[i + 3] === 0) continue;
-    const [r, g, b] = oklabToRgb(rotateHue(rgbToOklab(pixels[i], pixels[i + 1], pixels[i + 2]), degrees));
+
+    let lab = rgbToOklab(pixels[i], pixels[i + 1], pixels[i + 2]);
+    lab = shift.hueSet === null ? rotateHue(lab, shift.hueShift) : setHue(lab, shift.hueSet);
+
+    if (shift.satScale !== 1000) {
+      lab = { L: lab.L, a: (lab.a * shift.satScale) / 1000, b: (lab.b * shift.satScale) / 1000 };
+    }
+
+    if (shift.lightShift !== 0) {
+      const towards = shift.lightShift > 0 ? 1 : 0;
+      const amount = Math.abs(shift.lightShift) / 1000;
+      lab = { L: lab.L + (towards - lab.L) * amount, a: lab.a, b: lab.b };
+    }
+
+    const [r, g, b] = oklabToRgb(lab);
     pixels[i] = r;
     pixels[i + 1] = g;
     pixels[i + 2] = b;
   }
+}
+
+/** Replaces the hue outright, keeping lightness and colourfulness. For a
+ * colour that has to *be* something on every species rather than be turned. */
+export function setHue(lab: Oklab, degrees: number): Oklab {
+  const chroma = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
+  const radians = (degrees * Math.PI) / 180;
+  return { L: lab.L, a: chroma * Math.cos(radians), b: chroma * Math.sin(radians) };
 }
 
 /**
@@ -102,6 +148,31 @@ export function applyHueShift(data: ImageData, degrees: number): void {
  * one to one; where they disagree about transparency the opaque one wins,
  * which keeps the silhouette intact.
  */
+/**
+ * What a chroma would do to a representative colour, as a hex string.
+ *
+ * Derived rather than hand-picked, so a badge can never claim a colour the
+ * sprite pipeline does not actually produce. The reference is a mid-lightness
+ * warm orange — roughly where most creature art sits — so Onyx reads dark and
+ * Ivory reads pale, which is the whole point of those two.
+ */
+export function swatchFor(shift: ColourShift): string {
+  const lab = (() => {
+    let value = rgbToOklab(214, 122, 74);
+    value = shift.hueSet === null ? rotateHue(value, shift.hueShift) : setHue(value, shift.hueSet);
+    value = { L: value.L, a: (value.a * shift.satScale) / 1000, b: (value.b * shift.satScale) / 1000 };
+    if (shift.lightShift !== 0) {
+      const towards = shift.lightShift > 0 ? 1 : 0;
+      const amount = Math.abs(shift.lightShift) / 1000;
+      value = { L: value.L + (towards - value.L) * amount, a: value.a, b: value.b };
+    }
+    return value;
+  })();
+
+  const [r, g, b] = oklabToRgb(lab);
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
 export function mixImages(base: ImageData, target: ImageData, t: number): void {
   if (t <= 0) return;
 

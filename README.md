@@ -16,8 +16,9 @@ way:
   That makes it small, portable, and *verifiable* — replaying it is the
   integrity check, so a forged team has to be an actual playthrough.
 - **Shiny hunting is exploration, not a slot machine.** Rare forms are placed
-  during world generation, so every world holds exactly one true shiny and
-  exactly one of each chroma form, findable and finite.
+  during world generation, so every world holds exactly one true shiny, one
+  shiny wearing a colour, and one of each of the eight chromas — findable and
+  finite. Breeding is the second path, and the slow one.
 - **Two players on one seed inhabit the same world.** Which makes "same seed,
   ten hours, bring your best six" a complete and self-balancing tournament
   format.
@@ -47,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         136 tests, including the replay property everything rests on
+tests/         151 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -240,13 +241,40 @@ and some locked to one gender. That is a manifest field and a build-script
 change rather than an engine one, and a flat split is a rule that needs
 neither.
 
-Three items make it faster, and each is found by reaching further out — ring 2,
-4 and 6. They are equipment rather than stock: found once, then applied to a
-pairing for as long as you want them.
+Twelve items make it faster. Three shape the stats and drop from any route at
+ring 2, 4 and 6, so nobody can miss them; the other nine shape appearance and
+are keyed to a *biome* as well as a ring, so each asks you to have been
+somewhere specific rather than merely far. All of them are equipment rather
+than stock: found once, then applied to a pairing for as long as you want.
 
-Nothing bred is ever a variant. The world holds exactly one true shiny, placed
-when it was made; letting breeding mint more would make the census a lie and
-turn every tournament into a breeding race.
+### Inheriting an appearance
+
+Shine and colour are two independent axes, so a shiny Tide is a real thing —
+and breeding is the only way to aim at one.
+
+**Shine** is a ladder of six rungs, and a child starts at the **average of its
+parents**. Two true shinies always make a true shiny. A shiny and an ordinary
+make something halfway; five rungs cannot be halved onto a rung, so it falls
+either side with even odds rather than rounding one way every time, which
+would make the matrix asymmetric and quietly punish one parent order.
+
+On top of that sits **the climb**, shaped after Factorio's quality mechanic:
+**1%** of children rise a rung they were not given, and a tenth of any climb
+climbs again. From an ordinary pair that is 0.9% Faded, 0.09% Washed, 0.009%
+Turning, and on down to a true shiny at odds nobody would plan around. It is a
+floor under every pairing rather than a strategy — no lineage is ever
+permanently locked out of the ladder. The **Prism** multiplies it by five.
+
+**Colour** is carried, halved or contested. Two of a colour always breed that
+colour. One of a colour is a coin flip. Two *different* colours give 40% to
+each parent and leave a fifth spread over every colour, so a line can arrive
+somewhere neither parent came from without being bred for it. A **lens** —
+there is one per colour — then gets one chance in five to overrule the lot,
+and is the only way to aim rather than wait.
+
+The daycare shows the matrix for whatever is deposited. It is computed from
+the same function the engine rolls against rather than tabulated beside it: a
+published matrix that can drift from the code is worse than no matrix.
 
 ### Sprites
 
@@ -256,8 +284,15 @@ reads pixels back off the canvas and a host that omits those headers would
 taint it and take every variant with it. Showdown's archive is the better art
 and cannot be used for exactly that reason.
 
-Two images per species, normal and shiny, and all eleven appearances are
-derived from that pair. Until they arrive — or with no network at all — a
+Two images per species, normal and shiny, and all 54 appearances are derived
+from that pair. Shine is a position between the two; colour is a transform of
+whatever that lands on, applied second — which is what makes a shiny Tide the
+Tide transform on the shiny palette, exactly what the name says it is. Six of
+the colours are hue rotations in OKLCh, holding lightness so contrast
+survives; Teal *sets* its hue instead of turning it, because teal has to be
+teal on every species rather than teal on some and olive on others; and Onyx
+and Ivory move lightness in opposite directions while draining colour, because
+no rotation reaches black or white — neither of them is a hue. Until they arrive — or with no network at all — a
 placeholder creature is generated from the species id so nothing is ever a
 hole in the page.
 
@@ -306,22 +341,38 @@ bearing:
   IV scale, which is not arbitrary: at level 50 one IV point is worth half a
   stat point, so ±24 is worth ±12 — exactly what a vanilla nature is worth.
   A vector of ±6 would move a stat by three points and nobody would care.
-- **Eleven appearances, each a fixed multiplier on every stat.** Four gradient
-  tints, five chroma sidegrades, and the true shiny at ×1.085. That cap is
-  deliberate: a flat multiplier on every stat is far stronger than it feels,
-  and at ×1.15 the true shiny would be worth more than the entire IV range,
-  which would make the game a lottery instead of a breeding puzzle.
+- **Fifty-four appearances, on two axes that do not interfere.** Six rungs of
+  shine — four tints and the true shiny at ×1.085 on every stat — times eight
+  colours or none. Six colours are sidegrades (+10% to two stats, −3% to one);
+  Onyx and Ivory spike harder and pay for it twice (+18% to one, −5% to two),
+  because they are a different kind of thing visually and should be one
+  mechanically too. The two axes fold into a single multiplier before the stat
+  pipeline runs, so a stat is never floored twice and a shiny Tide is exactly a
+  Tide shiny.
+
+  The ×1.085 cap on shine is deliberate: a flat multiplier on every stat is far
+  stronger than it feels, and at ×1.15 the true shiny would be worth more than
+  the entire IV range, which would make the game a lottery instead of a
+  breeding puzzle.
 
 `tests/stats.test.ts` pins all of this against hand-computed numbers, because
 if one of them changes, the game changed and every save replays differently.
 
 ### The census
 
-Rare forms are not rolled at an encounter. World generation places exactly
-1 shiny, 1 of each of the 5 chroma forms and 40 tints at specific encounter
-slots, rarer things further from the hub. Nobody finishes a long save having
-seen nothing because the dice hated them, and everyone on a seed has the same
-census in the same places.
+Rare forms are not rolled at an encounter. World generation places exactly 58
+special creatures at specific encounter slots — 40 tints anywhere, one of each
+of the 8 colours and one tinted example of each out in the far third, the true
+shiny out there too, and one **crown**: a shiny wearing a colour, on the
+outermost ring, the colour chosen by the seed so no two worlds hunt the same
+one. Nobody finishes a long save having seen nothing because the dice hated
+them, and everyone on a seed has the same census in the same places.
+
+Starters roll their own appearance at **twenty times the wild rate** on each
+axis independently: 3.5% for a colour, 0.7% for a true shiny, and the tint
+ladder left at the wild 1.4%. Which puts a shiny colour starter at about one
+seed in four thousand — a real jackpot rather than something the opening
+screen hands out.
 
 ### Battles
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NATURE_MAGNITUDE, NATURES, natureVectorSum } from "@/engine/natures";
 import { computeStat, IV_MAX, WILD_IV_MAX } from "@/engine/stats";
-import { BATTLE_STAT_IDS } from "@/engine/types";
-import { CENSUS_TOTAL, VARIANTS, variant } from "@/engine/variants";
+import { BATTLE_STAT_IDS, STAT_IDS } from "@/engine/types";
+import { APPEARANCE_COUNT, CENSUS_TOTAL, CHROMAS, variant } from "@/engine/variants";
 
 /**
  * The arithmetic these pin is the whole balance argument for the custom
@@ -75,16 +75,56 @@ describe("variants", () => {
   });
 
   it("V3: chroma forms are sidegrades — every one gives something up", () => {
-    for (const form of VARIANTS.filter((v) => v.kind === "chroma")) {
+    for (const form of CHROMAS) {
       const mults = Object.values(form.mult);
       expect(Math.max(...mults)).toBeGreaterThan(1000);
       expect(Math.min(...mults)).toBeLessThan(1000);
     }
   });
 
-  it("V4: there are eleven appearances and a census of 46", () => {
-    expect(VARIANTS).toHaveLength(11);
-    expect(CENSUS_TOTAL).toBe(46);
+  it("V4: there are 54 appearances and a census of 58", () => {
+    // Six rungs times eight colours or none.
+    expect(APPEARANCE_COUNT).toBe(54);
+    expect(CENSUS_TOTAL).toBe(58);
+  });
+
+  it("V5: the two axes are independent and fold into one multiplier", () => {
+    // The reason the whole model changed: a shiny Tide is a real thing, and it
+    // is the shiny multiplier and the Tide multiplier composed, not either of
+    // them winning.
+    const form = variant("shiny:tide");
+    expect(form.tier).toBe(5);
+    expect(form.chromaId).toBe("tide");
+    expect(form.name).toBe("Shiny Tide");
+
+    const shiny = variant("shiny").mult;
+    const tide = variant("tide").mult;
+    for (const stat of STAT_IDS) {
+      expect(form.mult[stat]).toBe(Math.round((shiny[stat] * tide[stat]) / 1000));
+    }
+
+    // And a colour at rung zero still spells the way it always did, so every
+    // id a version 2 save could hold still parses.
+    expect(variant("tide").tier).toBe(0);
+    expect(variant("tint3").chromaId).toBeNull();
+  });
+
+  it("V6: Onyx and Ivory are opposites, and neither is a hue", () => {
+    const onyx = CHROMAS.find((form) => form.id === "onyx")!;
+    const ivory = CHROMAS.find((form) => form.id === "ivory")!;
+
+    // No rotation reaches black or white, which is why these two move
+    // lightness instead — in opposite directions, and both drain colour.
+    expect(onyx.hueShift).toBe(0);
+    expect(ivory.hueShift).toBe(0);
+    expect(onyx.lightShift).toBeLessThan(0);
+    expect(ivory.lightShift).toBeGreaterThan(0);
+    expect(onyx.satScale).toBeLessThan(1000);
+    expect(ivory.satScale).toBeLessThan(1000);
+
+    // They spike harder than the colours and pay for it twice.
+    expect(Math.max(...Object.values(onyx.mult))).toBeGreaterThan(1100);
+    expect(Object.values(onyx.mult).filter((m) => m < 1000)).toHaveLength(2);
   });
 });
 
