@@ -13,6 +13,7 @@ import { species as speciesById } from "@/engine/dex";
 import { depositRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
+import type { World } from "@/engine/world";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
 import { GenderMark, VariantTag } from "./PartyStrip";
@@ -124,15 +125,23 @@ function Row({
 }
 
 export function HubPanel({
+  world,
   state,
   onInput,
   onPvp,
   onInspect,
+  showDaycare,
+  showPvp,
 }: {
+  world: World;
   state: GameState;
   onInput: (input: Input) => void;
   onPvp: () => void;
   onInspect: (uid: number) => void;
+  /** The daycare and the centre are separate buildings; each panel belongs to
+   * the one you are standing in. */
+  showDaycare: boolean;
+  showPvp: boolean;
 }) {
   const [first, second] = state.daycare.slots;
   const refusal = first && second ? breedingRefusal(first, second) : null;
@@ -142,6 +151,7 @@ export function HubPanel({
 
   return (
     <section className="hub">
+      {showDaycare ? (
       <div className="hubCol">
         <h3>Daycare</h3>
         <p className="muted">
@@ -217,8 +227,11 @@ export function HubPanel({
           })}
         </div>
       </div>
+      ) : null}
 
       <div className="hubCol">
+        {showPvp ? (
+          <>
         <h3>Other players</h3>
         <p className="muted">
           Battle or trade with somebody else, browser to browser. Both happen here rather than
@@ -229,6 +242,8 @@ export function HubPanel({
             PvP
           </button>
         </div>
+          </>
+        ) : null}
 
         <h3>Party</h3>
         <div className="boxList">
@@ -238,8 +253,8 @@ export function HubPanel({
               creature={creature}
               onInspect={onInspect}
               action="Deposit"
-              label={depositRefusal(state, "party", index) ?? "Leave at the daycare"}
-              disabled={Boolean(depositRefusal(state, "party", index))}
+              label={depositRefusal(world, state, "party", index) ?? "Leave at the daycare"}
+              disabled={Boolean(depositRefusal(world, state, "party", index))}
               onAct={() => onInput({ t: "deposit", from: "party", index })}
               extra={
                 <button
@@ -272,9 +287,9 @@ export function HubPanel({
                   <button
                     type="button"
                     className="ghost small"
-                    disabled={Boolean(depositRefusal(state, "box", index))}
+                    disabled={Boolean(depositRefusal(world, state, "box", index))}
                     onClick={() => onInput({ t: "deposit", from: "box", index })}
-                    title={depositRefusal(state, "box", index) ?? "Straight to the daycare"}
+                    title={depositRefusal(world, state, "box", index) ?? "Straight to the daycare"}
                   >
                     Daycare
                   </button>

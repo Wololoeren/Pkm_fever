@@ -30,13 +30,11 @@ import {
   encounterTriggers,
   HUB_ID,
   routeId,
-  TILE_BLOCK,
-  TILE_GRASS,
-  TILE_PATH,
   trainerAt,
   wildAt,
   type World,
 } from "./world";
+import { hidesEncounters, walkable } from "./terrain";
 
 /**
  * The reducer. Everything the player does arrives here as an Input, and the
@@ -272,23 +270,23 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       if (state.phase !== "battleEnd") throw new IllegalInput("nothing to dismiss");
       return { ...state, tick: state.tick + 1, phase: "field", battle: null };
     case "deposit":
-      return deposit(state, input.from, input.index);
+      return deposit(world, state, input.from, input.index);
     case "withdraw":
-      return withdraw(state, input.slot);
+      return withdraw(world, state, input.slot);
     case "collectEgg":
       return collectEgg(world, state);
     case "toggleItem":
-      return toggleItem(state, input.item);
+      return toggleItem(world, state, input.item);
     case "store":
       return moveBetweenParty(state, input.index, "store");
     case "retrieve":
       return moveBetweenParty(state, input.index, "retrieve");
     case "trade":
-      return trade(state, input.give, input.receive);
+      return trade(world, state, input.give, input.receive);
     case "cheat":
       return cheat(world, state, input.cheat);
     case "setMoves":
-      return setMoves(state, input.index, input.moves);
+      return setMoves(world, state, input.index, input.moves);
   }
 }
 
@@ -301,8 +299,13 @@ export const MAX_MOVES = 4;
  * gone wrong twice already — the daycare button and the ball button both
  * carried their own approximation of a rule the engine owned.
  */
-export function movesRefusal(state: GameState, index: number, moves: readonly string[]): string | null {
-  if (!inTown(state)) return "moves are rearranged in town";
+export function movesRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  moves: readonly string[],
+): string | null {
+  if (!inTown(world, state)) return "moves are rearranged in town";
   if (index < 0 || index >= state.party.length) return "no such creature";
   if (!moves.length) return "keep at least one move";
   if (moves.length > MAX_MOVES) return `no more than ${MAX_MOVES}`;
@@ -316,8 +319,8 @@ export function movesRefusal(state: GameState, index: number, moves: readonly st
   return null;
 }
 
-function setMoves(state: GameState, index: number, moves: string[]): GameState {
-  const refusal = movesRefusal(state, index, moves);
+function setMoves(world: World, state: GameState, index: number, moves: string[]): GameState {
+  const refusal = movesRefusal(world, state, index, moves);
   if (refusal) throw new IllegalInput(refusal);
 
   return {
@@ -440,8 +443,8 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
  * unique within one save, and two players who both started a world have both
  * been handing out uid 1.
  */
-function trade(state: GameState, give: number, receive: Individual): GameState {
-  if (!inTown(state)) throw new IllegalInput("trading happens in town");
+function trade(world: World, state: GameState, give: number, receive: Individual): GameState {
+  if (!inTown(world, state)) throw new IllegalInput("trading happens in town");
   if (give < 0 || give >= state.party.length) throw new IllegalInput("no such creature");
 
   const arrival: Individual = {
@@ -470,12 +473,25 @@ function trade(state: GameState, give: number, receive: Individual): GameState {
  * makes walking out mean anything. Today there is one town; when there are
  * more, this is the one place that has to learn about them.
  */
-export function inTown(state: GameState): boolean {
-  return state.phase === "field" && state.route === HUB_ID;
+export function inTown(world: World, state: GameState): boolean {
+  if (state.phase !== "field") return false;
+  const route = world.routes.get(state.route);
+  if (!route) return false;
+  return route.kind === "town" || (route.kind === "interior" && world.routes.get(route.parent ?? "")?.kind === "town");
 }
 
-function atDaycare(state: GameState): boolean {
-  return inTown(state);
+/** Inside a building with a given job. */
+function inside(world: World, state: GameState, role: string): boolean {
+  if (state.phase !== "field") return false;
+  return world.routes.get(state.route)?.role === role;
+}
+
+/**
+ * The daycare is a building you walk into now, not a panel that follows you.
+ * That is most of what makes a town somewhere rather than a menu.
+ */
+function atDaycare(world: World, state: GameState): boolean {
+  return inside(world, state, "daycare");
 }
 
 /**
@@ -520,11 +536,12 @@ function arrive(world: World, state: GameState, routeId: string): GameState {
  * One predicate, two callers, no drift.
  */
 export function depositRefusal(
+  world: World,
   state: GameState,
   from: "party" | "box",
   index: number,
 ): string | null {
-  if (!atDaycare(state)) return "the daycare is in the hub";
+  if (!atDaycare(world, state)) return "you are not in the daycare";
 
   const source = from === "party" ? state.party : state.box;
   if (index < 0 || index >= source.length) return "no such creature";
@@ -547,8 +564,8 @@ export function depositRefusal(
   return null;
 }
 
-function deposit(state: GameState, from: "party" | "box", index: number): GameState {
-  const refusal = depositRefusal(state, from, index);
+function deposit(world: World, state: GameState, from: "party" | "box", index: number): GameState {
+  const refusal = depositRefusal(world, state, from, index);
   if (refusal) throw new IllegalInput(refusal);
 
   const source = from === "party" ? state.party : state.box;
@@ -569,8 +586,8 @@ function deposit(state: GameState, from: "party" | "box", index: number): GameSt
   };
 }
 
-function withdraw(state: GameState, slot: 0 | 1): GameState {
-  if (!atDaycare(state)) throw new IllegalInput("the daycare is in the hub");
+function withdraw(world: World, state: GameState, slot: 0 | 1): GameState {
+  if (!atDaycare(world, state)) throw new IllegalInput("you are not in the daycare");
 
   const creature = state.daycare.slots[slot];
   if (!creature) throw new IllegalInput("that slot is empty");
@@ -590,7 +607,7 @@ function withdraw(state: GameState, slot: 0 | 1): GameState {
 }
 
 function collectEgg(world: World, state: GameState): GameState {
-  if (!atDaycare(state)) throw new IllegalInput("the daycare is in the hub");
+  if (!atDaycare(world, state)) throw new IllegalInput("you are not in the daycare");
   if (!state.daycare.eggReady) throw new IllegalInput("no egg yet");
 
   const [first, second] = state.daycare.slots;
@@ -611,8 +628,8 @@ function collectEgg(world: World, state: GameState): GameState {
   };
 }
 
-function toggleItem(state: GameState, item: BreedingItem): GameState {
-  if (!atDaycare(state)) throw new IllegalInput("the daycare is in the hub");
+function toggleItem(world: World, state: GameState, item: BreedingItem): GameState {
+  if (!atDaycare(world, state)) throw new IllegalInput("you are not in the daycare");
   if (!state.items.includes(item)) throw new IllegalInput("you do not have that");
 
   const applied = state.daycare.applied.includes(item)
@@ -707,7 +724,6 @@ function exitFrom(world: World, from: string, x: number, y: number): { route: st
   const route = world.routes.get(from);
   if (!route) return null;
 
-  const midY = Math.floor(route.height / 2);
   const lastX = route.width - 1;
   const lastY = route.height - 1;
 
@@ -716,23 +732,36 @@ function exitFrom(world: World, from: string, x: number, y: number): { route: st
     const side = x === 0 ? 0 : y === 0 ? 1 : x === lastX ? 2 : y === lastY ? 3 : -1;
     if (side < 0 || side >= biomes.length) return null;
     const target = world.routes.get(routeId(biomes[side], 1));
-    return target ? { route: target.id, x: 1, y: Math.floor(target.height / 2) } : null;
+    return target ? { route: target.id, x: target.entry.x, y: target.entry.y } : null;
   }
 
   if (x === 0) {
-    if (route.ring <= 1) return { route: HUB_ID, x: 1, y: midY };
+    if (route.ring <= 1) {
+      const town = world.routes.get(HUB_ID);
+      return town ? { route: HUB_ID, x: 1, y: Math.floor(town.height / 2) } : null;
+    }
     const inward = world.routes.get(routeId(route.biome, route.ring - 1));
-    return inward ? { route: inward.id, x: inward.width - 2, y: Math.floor(inward.height / 2) } : null;
+    // Arriving from outside lands you at the far end of the path, which the
+    // route knows and this no longer has to guess.
+    return inward ? { route: inward.id, x: inward.width - 2, y: exitRowOf(inward) } : null;
   }
 
   if (x === lastX) {
     const outward = world.routes.get(routeId(route.biome, route.ring + 1));
-    return outward ? { route: outward.id, x: 1, y: Math.floor(outward.height / 2) } : null;
+    return outward ? { route: outward.id, x: outward.entry.x, y: outward.entry.y } : null;
   }
 
   // Hub gaps are the only north/south doors; a route's own top and bottom are
   // solid, so reaching here means the border tile is decorative.
   return null;
+}
+
+/** Which row the eastern way out of a route sits on. */
+function exitRowOf(route: { width: number; height: number; tiles: number[] }): number {
+  for (let y = 0; y < route.height; y++) {
+    if (walkable(route.tiles[y * route.width + (route.width - 1)])) return y;
+  }
+  return Math.floor(route.height / 2);
 }
 
 function move(world: World, state: GameState, dir: Direction): GameState {
@@ -747,10 +776,18 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   if (nx < 0 || ny < 0 || nx >= route.width || ny >= route.height) throw new IllegalInput("off the map");
 
   const tile = route.tiles[ny * route.width + nx];
-  if (tile === TILE_BLOCK) throw new IllegalInput("blocked");
+  if (!walkable(tile)) throw new IllegalInput("blocked");
+
+  // A door is a transition rather than a step: stepping onto one puts you on
+  // the other side of it.
+  const door = route.doors.find((entry) => entry.x === nx && entry.y === ny);
+  if (door) {
+    const arrived = arrive(world, state, door.to);
+    return walked({ ...arrived, tick: state.tick + 1, route: door.to, x: door.at.x, y: door.at.y });
+  }
 
   const onBorder = nx === 0 || ny === 0 || nx === route.width - 1 || ny === route.height - 1;
-  if (onBorder && tile === TILE_PATH) {
+  if (onBorder) {
     const exit = exitFrom(world, state.route, nx, ny);
     if (exit) {
       const arrived = arrive(world, state, exit.route);
@@ -800,7 +837,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     }
   }
 
-  if (tile !== TILE_GRASS || route.ring < 1) return moved;
+  if (!hidesEncounters(tile) || route.kind !== "route") return moved;
 
   const stepped = (state.steps[state.route] ?? 0) + 1;
   const steps = { ...state.steps, [state.route]: stepped };

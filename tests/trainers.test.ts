@@ -99,10 +99,10 @@ describe("what they bring", () => {
 /**
  * Puts the player on a path tile beside a trainer, and says which way to step.
  *
- * Not simply "one tile west": the routes are a cross, so a trainer standing on
- * the vertical corridor has grass either side of them and only north and south
- * are walkable. The player is placed rather than pathfound — this is about
- * what happens on arrival, and walking is covered elsewhere.
+ * Not simply "one tile west": the path meanders, so which sides of a trainer
+ * are walkable depends on where the path went. The player is placed rather
+ * than pathfound — this is about what happens on arrival, and walking is
+ * covered elsewhere.
  */
 function approach(
   world: ReturnType<typeof testWorld>,
@@ -135,10 +135,14 @@ describe("fighting them", () => {
   function reachRoute(seed: string) {
     const world = testWorld(seed);
     let state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
-    // Out of the hub, eastward, into ring 1.
-    for (let i = 0; i < 14 && state.route === "hub-0"; i++) {
+    // Out of town, eastward, onto the first ring. The town is a place now
+    // rather than a screen, so this is a walk of twenty-odd steps and the
+    // stopping condition is arriving somewhere with people on it, not a
+    // fixed count.
+    for (let i = 0; i < 60 && world.routes.get(state.route)!.kind !== "route"; i++) {
       state = applyInput(world, state, { t: "move", dir: "e" });
     }
+    expect(world.routes.get(state.route)!.kind).toBe("route");
     return { world, state };
   }
 

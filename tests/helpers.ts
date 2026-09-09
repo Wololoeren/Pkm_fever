@@ -3,12 +3,32 @@ import { ALL_SPECIES, species } from "@/engine/dex";
 import { applyInput, initialState, type GameState, type Input } from "@/engine/engine";
 import { expForLevel } from "@/engine/progression";
 import { intBelow, rngFor } from "@/engine/rng";
+import { TILE, walkable } from "@/engine/terrain";
 import { DEFAULT_WORLD, type Gender, type Individual, type StatusId } from "@/engine/types";
-import { generateWorld, HUB_ID, type World } from "@/engine/world";
+import { generateWorld, type World } from "@/engine/world";
 
 /** A world built the way the game builds one. */
 export function testWorld(seed: string): World {
   return generateWorld(DEFAULT_WORLD, seed, ALL_SPECIES);
+}
+
+/** Every outdoor route. Interiors are maps too, and almost nothing that is
+ * true of a route is true of a room inside a cabin. */
+export function outdoorRoutes(world: World) {
+  return [...world.routes.values()].filter((route) => route.kind === "route");
+}
+
+/**
+ * Puts the player inside the building with this job.
+ *
+ * The daycare and the centre are places you walk into now, so a fixture that
+ * stands in the town square and expects to deposit a creature is standing
+ * outside a closed door.
+ */
+export function standInside(world: World, state: GameState, role: "daycare" | "centre"): GameState {
+  const room = [...world.routes.values()].find((route) => route.role === role);
+  if (!room) throw new Error(`no ${role} in this world`);
+  return { ...state, route: room.id, x: room.entry.x, y: room.entry.y };
 }
 
 /**
@@ -57,34 +77,78 @@ type Direction = "n" | "s" | "e" | "w";
 const DIRECTIONS: readonly Direction[] = ["n", "s", "e", "w"];
 
 /**
+ * The first step toward the nearest tile of a kind, or null if there is none.
+ *
+ * A breadth-first search over walkable tiles, run fresh each step. Wasteful,
+ * and it does not matter: this is a fixture generator, not the game.
+ */
+function stepToward(route: { width: number; height: number; tiles: number[] }, x: number, y: number, want: number): Direction | null {
+  const seen = new Uint8Array(route.width * route.height);
+  const queue: { x: number; y: number; first: Direction | null }[] = [{ x, y, first: null }];
+  seen[y * route.width + x] = 1;
+
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    for (const dir of DIRECTIONS) {
+      const nx = at.x + (dir === "e" ? 1 : dir === "w" ? -1 : 0);
+      const ny = at.y + (dir === "s" ? 1 : dir === "n" ? -1 : 0);
+      if (nx < 0 || ny < 0 || nx >= route.width || ny >= route.height) continue;
+
+      const index = ny * route.width + nx;
+      if (seen[index]) continue;
+      seen[index] = 1;
+
+      const tile = route.tiles[index];
+      if (!walkable(tile)) continue;
+
+      const first = at.first ?? dir;
+      if (tile === want) return first;
+      queue.push({ x: nx, y: ny, first });
+    }
+  }
+  return null;
+}
+
+/**
  * Where the walker tries to go next, best candidate first.
  *
- * A uniform random walk makes a terrible fixture. The hub is a 24x18 room
- * whose four exits are one tile each, so a random walk spends hundreds of
- * steps failing to find one; and on a route, the entry tile sits one step
- * from the western exit, so any real chance of going west sends the walker
- * straight back to the hub again. The first attempt at this produced 495
- * moves and 12 steps in grass, which would have made the replay test pass
- * while covering none of the battle system.
+ * A uniform random walk makes a terrible fixture. It used to be enough to
+ * wander north and south off a straight path, because the path was a cross
+ * and everything beside it was tall grass. On the built world it is not:
+ * routes are 44x34, most of the ground is meadow you can cross without
+ * meeting anything, and the tall grass sits in a handful of clumps. A random
+ * walk on that produced 499 moves and no fights at all — a determinism test
+ * over a log of pure footsteps, covering none of the battle system.
  *
- * So: beeline out of the hub, which is a lobby rather than anything under
- * test, and wander north/south with an eastward drift once on a route — north
- * and south step off the horizontal path into the grass, east leads outward
- * into higher rings. Every direction stays available as a fallback, so the
- * walker can never wedge itself into a corner.
+ * So the walker hunts. Off the grass it searches for the nearest patch and
+ * steps toward it; on the grass it mills about, which is what triggers
+ * encounters. Every direction stays as a fallback, so it can never wedge
+ * itself into a corner, and an occasional eastward push carries it out to the
+ * higher rings rather than farming ring one forever.
  */
 function walkCandidates(world: World, state: GameState, rng: () => number): Input[] {
   const route = world.routes.get(state.route);
-  const midY = route ? Math.floor(route.height / 2) : 9;
   const order: Direction[] = [];
 
-  if (state.route === HUB_ID) {
+  if (!route || route.kind !== "route") {
+    // Town and interiors are lobbies rather than anything under test: leave.
+    const midY = route ? Math.floor(route.height / 2) : 9;
     if (state.y < midY) order.push("s");
     else if (state.y > midY) order.push("n");
     else order.push("e");
+    return [...order, ...DIRECTIONS].map((dir) => ({ t: "move", dir }) as Input);
+  }
+
+  const here = route.tiles[state.y * route.width + state.x];
+  const roam: Direction[] = ["n", "n", "s", "s", "e", "w"];
+
+  if (here === TILE.GRASS) {
+    order.push(roam[intBelow(rng, roam.length)]);
+  } else if (intBelow(rng, 12) === 0) {
+    order.push("e");
   } else {
-    const weighted: Direction[] = ["n", "n", "n", "n", "s", "s", "s", "s", "e", "e", "e"];
-    order.push(weighted[intBelow(rng, weighted.length)]);
+    const hunt = stepToward(route, state.x, state.y, TILE.GRASS);
+    order.push(hunt ?? "e");
   }
 
   return [...order, ...DIRECTIONS].map((dir) => ({ t: "move", dir }) as Input);
@@ -103,7 +167,7 @@ export function play(world: World, count: number, salt = "walk"): { inputs: Inpu
   let state = initialState(world);
   const inputs: Input[] = [];
 
-  for (let i = 0; inputs.length < count && i < count * 12; i++) {
+  for (let i = 0; inputs.length < count && i < count * 16; i++) {
     const rng = rngFor(salt, i);
     const candidates: Input[] = [];
 

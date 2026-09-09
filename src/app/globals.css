@@ -541,6 +541,24 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   padding: 6px;
   flex: none;
 }
+.miniLocal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.miniLocal canvas {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+.miniLabelText {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 .miniLabel {
   fill: var(--muted);
   font-size: 9px;

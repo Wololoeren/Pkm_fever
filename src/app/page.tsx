@@ -17,7 +17,7 @@ import type { BattleAction } from "@/engine/battle";
 import { applyInput, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { VARIANTS } from "@/engine/variants";
-import { generateWorld, HUB_ID, type World } from "@/engine/world";
+import { generateWorld, type World } from "@/engine/world";
 import {
   clearAutosave,
   downloadSave,
@@ -146,7 +146,14 @@ export default function Page() {
     return () => window.removeEventListener("keydown", onKey);
   }, [state, dispatch]);
 
-  const inHub = state?.phase === "field" && state.route === HUB_ID;
+  // What you can do is a property of where you are standing. The daycare and
+  // the centre are buildings now, so their panels appear when you are inside
+  // one rather than following you around town.
+  const here = state ? session?.world.routes.get(state.route) : undefined;
+  const indoors = state?.phase === "field" && here?.kind === "interior";
+  const inDaycare = indoors && here?.role === "daycare";
+  const inCentre = indoors && here?.role === "centre";
+  const inHub = inDaycare || inCentre;
 
   /** What the inspector is looking at, and whether it is in the party — which
    * decides whether its moves can be rearranged. */
@@ -206,7 +213,7 @@ export default function Page() {
     <main className="shell game">
       <header className="hud">
         <div>
-          <h2>{routeLabel(state.route)}</h2>
+          <h2>{here?.label ?? routeLabel(state.route)}</h2>
           <p className="muted">
             seed <code>{session.seed}</code> · {session.inputs.length} moves · hash <code>{stateHash(state)}</code>
           </p>
@@ -281,7 +288,26 @@ export default function Page() {
         </section>
       )}
 
-      {inHub ? <HubPanel state={state} onInput={dispatch} onPvp={() => setPvp(true)} onInspect={setInspecting} /> : null}
+      {inHub ? (
+        <HubPanel
+          world={session.world}
+          state={state}
+          onInput={dispatch}
+          onPvp={() => setPvp(true)}
+          onInspect={setInspecting}
+          showDaycare={Boolean(inDaycare)}
+          showPvp={Boolean(inCentre)}
+        />
+      ) : null}
+
+      {indoors && !inHub ? (
+        <section className="panel">
+          <p className="muted">
+            Somebody lives here. There is nothing to do but look around — step back out the way
+            you came.
+          </p>
+        </section>
+      ) : null}
 
       {cheats ? (
         <CheatMenu world={session.world} state={state} onInput={dispatch} onClose={() => setCheats(false)} />
@@ -289,6 +315,7 @@ export default function Page() {
 
       {inspected ? (
         <Inspect
+          world={session.world}
           creature={inspected.creature}
           index={inspected.index}
           state={state}

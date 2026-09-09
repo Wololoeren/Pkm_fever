@@ -33,7 +33,7 @@ npm run dev
 
 Then open <http://localhost:3100>. Pick a seed, choose one of the three
 starters it deals you — one grass, one fire, one water — and walk east out of
-the hub into the grass. Arrow keys or WASD to move; in a battle,
+Hearth into the grass. Arrow keys or WASD to move; in a battle,
 <kbd>1</kbd>–<kbd>4</kbd> for moves, <kbd>B</kbd> to throw a ball, <kbd>R</kbd>
 to run, <kbd>Enter</kbd> to dismiss a result.
 
@@ -47,10 +47,12 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         134 tests, including the replay property everything rests on
+tests/         136 tests, including the replay property everything rests on
 ```
 
-Working: world generation and the census, the overworld, wild encounters, a
+Working: world generation and the census, the overworld — a town you walk
+around and buildings you walk into, routes with meandering paths, woodland,
+ponds and tall grass, and a camera that follows you — wild encounters, a
 full single battle system — damage, the type chart, criticals, accuracy, stat
 stages, five status conditions, drain, recoil and healing — plus catching,
 experience, levelling, move learning, evolution, breeding, the box, save/load,
@@ -160,14 +162,41 @@ diamond for a chroma, a numbered spark for each rung of the tint ladder. A
 two-fifths tint of something already green is a colour you would have to have
 memorised the original to notice.
 
+### The world
+
+A town at the centre, four biomes running outward from it, and further out
+means higher levels and rarer things. Hearth is 40x28 with a crossroads, four
+buildings, a fenced garden and four ways out; the routes beyond it are 44x34,
+which is well past what fits on a screen, so the camera follows you and stops
+at the edges. That is the point of the size: a place you cross rather than
+take in at a glance.
+
+Nothing on a route is placed by hand. A path meanders from the western way in
+to the eastern way out, woodland clumps thicken with the ring, tall grass
+falls in patches, a pond gets a sand rim, and a cabin sometimes sits beside the
+path — then the two ways through are cut last, so generation can never seal a
+route off. Which tiles you can walk on and which hide encounters are
+properties of the tile, not of a coordinate, which is what let the hub stop
+being a special case and become a town.
+
+The buildings are real. Stepping on a door tile puts you in the room behind
+it, and the daycare and the trainers' centre are two of those rooms rather
+than panels that follow you around. A room knows where its own front step is,
+and the door outside asks it — wiring the two by hand put the player at a town
+coordinate inside a 13x10 room, off the map and unable to move in any
+direction, while every test passed, because the tests placed the player by
+asking the room. `W17` asks the doors instead.
+
 ### The map
 
-The minimap draws the world in the shape it has: a hub with four arms, rings
-along each. Not a scaled-down copy of the tiles — difficulty is
-one-dimensional along an arm, so the useful question is "which arm, how far
-out", and a minified tile view would answer a different one. Unvisited rings
-are drawn but empty: the shape of the world is not a secret, only what is in
-it.
+Two maps, because there are two questions. A scaled-down view of the map you
+are standing on, with doors, unbeaten trainers and you marked on it, answers
+"where am I here". Under it, a corridor diagram — a town with four arms, rings
+along each — answers "which arm, how far out", which is the only thing
+difficulty depends on and the thing a minified tile view hides. Unvisited
+rings are drawn but empty: the shape of the world is not a secret, only what
+is in it. Standing indoors lights up the town you are indoors in, because a
+door is not a journey.
 
 ### Testing shortcuts
 
@@ -184,9 +213,9 @@ opposite of what this design is for.
 
 ### Breeding
 
-The daycare is in the hub, and it is a place rather than a menu you carry — a
-deposit anywhere else is refused, because walking back is what makes walking
-out mean anything. Leave two compatible creatures there, walk 120 steps, and
+The daycare is a building in Hearth that you walk into, rather than a menu you
+carry — a deposit anywhere else is refused, because walking back is what makes
+walking out mean anything. Leave two compatible creatures there, walk 120 steps, and
 there is an egg.
 
 Every stat is inherited from one parent or the other, and three of the six

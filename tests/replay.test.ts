@@ -5,7 +5,7 @@ import { expForLevel } from "@/engine/progression";
 import { WILD_IV_MAX } from "@/engine/stats";
 import { STAT_IDS } from "@/engine/types";
 import { wildAt } from "@/engine/world";
-import { play, testWorld } from "./helpers";
+import { outdoorRoutes, play, testWorld } from "./helpers";
 
 /**
  * The property the entire project rests on.
@@ -127,10 +127,9 @@ describe("the anti-scum property", () => {
 
   it("A3: no wild creature exceeds the wild IV ceiling", () => {
     const world = testWorld(SEED);
-    for (const route of world.routes.keys()) {
-      if (route === "hub-0") continue;
+    for (const route of outdoorRoutes(world)) {
       for (let slot = 0; slot < 25; slot++) {
-        const wild = wildAt(world, ALL_SPECIES, route, slot, 1);
+        const wild = wildAt(world, ALL_SPECIES, route.id, slot, 1);
         for (const stat of STAT_IDS) {
           expect(wild.ivs[stat]).toBeLessThanOrEqual(WILD_IV_MAX);
           expect(wild.ivs[stat]).toBeGreaterThanOrEqual(0);

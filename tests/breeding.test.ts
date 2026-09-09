@@ -9,13 +9,13 @@ import {
   type DaycareState,
 } from "@/engine/breeding";
 import { ALL_SPECIES } from "@/engine/dex";
-import { applyInput, depositRefusal, initialState } from "@/engine/engine";
+import { applyInput, depositRefusal, initialState, inTown } from "@/engine/engine";
 import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
 import { STAT_IDS, type Individual, type StatTable } from "@/engine/types";
 import { wildAt } from "@/engine/world";
-import { creature, testWorld } from "./helpers";
+import { creature, standInside, testWorld } from "./helpers";
 
 /**
  * Breeding, and the hole it was built to fill.
@@ -197,24 +197,20 @@ describe("who can breed with whom", () => {
 });
 
 describe("the daycare", () => {
-  it("BR13: it is a place in the hub, not a menu you carry", () => {
+  it("BR13: it is a building you walk into, not a menu you carry", () => {
     const world = testWorld("PKMFEVER1");
-    let state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const start = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
 
-    // In the hub, depositing your only creature is refused for a different
-    // reason: you would have nothing left to walk with.
-    expect(() => applyInput(world, state, { t: "deposit", from: "party", index: 0 })).toThrow();
+    // Standing in the town square is standing outside a closed door.
+    expect(depositRefusal(world, start, "party", 0)).toBe("you are not in the daycare");
 
-    // Walk out, and the daycare is no longer reachable at all.
-    for (let i = 0; i < 12; i++) {
-      try {
-        state = applyInput(world, state, { t: "move", dir: "e" });
-      } catch {
-        break;
-      }
-    }
-    expect(state.route).not.toBe("hub-0");
-    expect(() => applyInput(world, state, { t: "deposit", from: "party", index: 0 })).toThrow();
+    // Inside, the refusal changes to the real one: you would have nothing
+    // left to walk with.
+    const inside = standInside(world, start, "daycare");
+    expect(depositRefusal(world, inside, "party", 0)).toBe("keep something that can fight");
+
+    // And it is a room of the town, so the things town allows still apply.
+    expect(inTown(world, inside)).toBe(true);
   });
 
   it("BR14: an egg costs footsteps, and only from a compatible pair", () => {
@@ -235,8 +231,8 @@ describe("the daycare", () => {
     const walked = applyInput(world, pair, { t: "move", dir: "n" });
     expect(walked.daycare.eggReady).toBe(true);
 
-    // Collecting is only possible back in the hub, and yields a level one.
-    const collected = applyInput(world, { ...walked, route: "hub-0" }, { t: "collectEgg" });
+    // Collecting means going back to the daycare itself.
+    const collected = applyInput(world, standInside(world, walked, "daycare"), { t: "collectEgg" });
     const hatchling = [...collected.party, ...collected.box].at(-1)!;
     expect(hatchling.level).toBe(1);
     expect(hatchling.speciesId).toBe("bulbasaur");
@@ -250,7 +246,7 @@ describe("the daycare", () => {
     // UI offered no box deposit at all, so a player who boxed their spares had
     // a party of one, no legal party deposit, and no other way in.
     const world = testWorld("PKMFEVER1");
-    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const base = standInside(world, applyInput(world, initialState(world), { t: "pickStarter", index: 0 }), "daycare");
     const state = {
       ...base,
       party: [creature("machop", { uid: 90 })],
@@ -270,7 +266,7 @@ describe("the daycare", () => {
     // refused on the count that can still *fight*, so a party of three with two
     // fainted offered a button that threw. One predicate, two callers.
     const world = testWorld("PKMFEVER1");
-    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const base = standInside(world, applyInput(world, initialState(world), { t: "pickStarter", index: 0 }), "daycare");
     const state = {
       ...base,
       party: [
@@ -284,7 +280,7 @@ describe("the daycare", () => {
     for (const from of ["party", "box"] as const) {
       const source = from === "party" ? state.party : state.box;
       for (let index = 0; index < source.length; index++) {
-        const refusal = depositRefusal(state, from, index);
+        const refusal = depositRefusal(world, state, from, index);
         let threw = false;
         try {
           applyInput(world, state, { t: "deposit", from, index });

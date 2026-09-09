@@ -10,6 +10,7 @@ import { variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark } from "./PartyStrip";
+import type { World } from "@/engine/world";
 import { Sprite } from "./Sprite";
 
 /**
@@ -64,12 +65,14 @@ function MoveRow({
 }
 
 export function Inspect({
+  world,
   creature,
   index,
   state,
   onInput,
   onClose,
 }: {
+  world: World;
   creature: Individual;
   /** Party index, or -1 for anything not in the party. */
   index: number;
@@ -85,13 +88,13 @@ export function Inspect({
   const pool = learnableAt(creature.speciesId, creature.level).sort((a, b) =>
     moveById(a).name < moveById(b).name ? -1 : 1,
   );
-  const editable = index >= 0 && movesRefusal(state, index, creature.moves) === null;
+  const editable = index >= 0 && movesRefusal(world, state, index, creature.moves) === null;
 
   const toggle = (moveId: string) => {
     const next = creature.moves.includes(moveId)
       ? creature.moves.filter((id) => id !== moveId)
       : [...creature.moves, moveId];
-    if (movesRefusal(state, index, next)) return;
+    if (movesRefusal(world, state, index, next)) return;
     onInput({ t: "setMoves", index, moves: next });
   };
 
@@ -196,7 +199,7 @@ export function Inspect({
             formality.
           </p>
         ) : (
-          <p className="hint">{movesRefusal(state, index, creature.moves) ?? "Not right now."}</p>
+          <p className="hint">{movesRefusal(world, state, index, creature.moves) ?? "Not right now."}</p>
         )}
 
         <div className="moveList">

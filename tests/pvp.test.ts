@@ -17,6 +17,19 @@ function inTown(seed = "PKMFEVER1") {
   return { world, state };
 }
 
+/** Out of town and onto the first ring, whichever way the town opens. */
+function walkOut(world: ReturnType<typeof testWorld>, from: ReturnType<typeof initialState>) {
+  let state = from;
+  for (let i = 0; i < 60 && world.routes.get(state.route)?.kind !== "route"; i++) {
+    try {
+      state = applyInput(world, state, { t: "move", dir: "e" });
+    } catch {
+      break;
+    }
+  }
+  return state;
+}
+
 /** Two trade sessions wired to each other, with no network in between. */
 function connectTrade() {
   const bus: Array<["a" | "b", TradeMessage]> = [];
@@ -150,11 +163,8 @@ describe("what a trade does to the save", () => {
 
   it("P7: trading happens in town, like everything else you walk back for", () => {
     const { world, state } = inTown();
-    let outside = state;
-    for (let i = 0; i < 14 && outside.route === "hub-0"; i++) {
-      outside = applyInput(world, outside, { t: "move", dir: "e" });
-    }
-    expect(outside.route).not.toBe("hub-0");
+    const outside = walkOut(world, state);
+    expect(world.routes.get(outside.route)?.kind).toBe("route");
 
     expect(() =>
       applyInput(world, outside, { t: "trade", give: 0, receive: creature("squirtle", { uid: 9 }) }),
@@ -223,9 +233,9 @@ describe("choosing moves", () => {
     const known = learnableAt(lead.speciesId, lead.level);
 
     // Something no starter learns at level five.
-    expect(movesRefusal(state, 0, ["hyperbeam"])).toBe("it has not learned that");
-    expect(movesRefusal(state, 0, [known[0], known[0]])).toBe("no duplicates");
-    expect(movesRefusal(state, 0, [])).toBe("keep at least one move");
+    expect(movesRefusal(world, state, 0, ["hyperbeam"])).toBe("it has not learned that");
+    expect(movesRefusal(world, state, 0, [known[0], known[0]])).toBe("no duplicates");
+    expect(movesRefusal(world, state, 0, [])).toBe("keep at least one move");
     expect(() => applyInput(world, state, { t: "setMoves", index: 0, moves: ["hyperbeam"] })).toThrow();
   });
 
@@ -238,11 +248,8 @@ describe("choosing moves", () => {
 
   it("P14: moves are rearranged in town, not in the grass", () => {
     const { world, state } = inTown();
-    let outside = state;
-    for (let i = 0; i < 14 && outside.route === "hub-0"; i++) {
-      outside = applyInput(world, outside, { t: "move", dir: "e" });
-    }
-    expect(outside.route).not.toBe("hub-0");
-    expect(movesRefusal(outside, 0, outside.party[0].moves)).toBe("moves are rearranged in town");
+    const outside = walkOut(world, state);
+    expect(world.routes.get(outside.route)?.kind).toBe("route");
+    expect(movesRefusal(world, outside, 0, outside.party[0].moves)).toBe("moves are rearranged in town");
   });
 });

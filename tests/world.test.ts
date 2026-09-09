@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
+import { applyInput, initialState } from "@/engine/engine";
+import { walkable } from "@/engine/terrain";
 import { STAT_IDS } from "@/engine/types";
 import { CENSUS_TOTAL, variant } from "@/engine/variants";
 import { encounterTable, HUB_ID, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
-import { testWorld } from "./helpers";
+import { outdoorRoutes, testWorld } from "./helpers";
 
 /**
  * World generation invariants — the "census, not lottery" design, checked
@@ -123,8 +125,7 @@ describe("starters", () => {
 describe("routes", () => {
   it("W8: no route is empty, so no patch of grass can soft-lock", () => {
     const world = testWorld("A1");
-    for (const route of world.routes.values()) {
-      if (route.id === HUB_ID) continue;
+    for (const route of outdoorRoutes(world)) {
       const table = encounterTable(ALL_SPECIES, route.biome, route.ring, world.config.rings);
       expect(table.length).toBeGreaterThan(0);
     }
@@ -144,7 +145,7 @@ describe("routes", () => {
     // starter it is meant to be fought with.
     for (const seed of SEEDS) {
       const world = testWorld(seed);
-      for (const route of world.routes.values()) {
+      for (const route of outdoorRoutes(world)) {
         if (route.ring !== 1) continue;
         for (let slot = 0; slot < 30; slot++) {
           expect(wildAt(world, ALL_SPECIES, route.id, slot, 1).level).toBeLessThanOrEqual(STARTER_LEVEL);
@@ -155,10 +156,9 @@ describe("routes", () => {
 
   it("W10: every wild creature knows at least one move", () => {
     const world = testWorld("A1");
-    for (const route of world.routes.keys()) {
-      if (route === HUB_ID) continue;
+    for (const route of outdoorRoutes(world)) {
       for (let slot = 0; slot < 10; slot++) {
-        const wild = wildAt(world, ALL_SPECIES, route, slot, 1);
+        const wild = wildAt(world, ALL_SPECIES, route.id, slot, 1);
         expect(movesAtLevel(wild.speciesId, wild.level).length).toBeGreaterThan(0);
       }
     }
@@ -173,5 +173,50 @@ describe("routes", () => {
       expect(entry.catchRate).toBeGreaterThanOrEqual(3);
       expect(entry.catchRate).toBeLessThanOrEqual(255);
     }
+  });
+});
+
+describe("doors", () => {
+  it("W17: every door lands you somewhere you could stand", () => {
+    // The interior knows where its own front step is; the town knows where
+    // its door tile is. Wiring one to the other by hand put the player at a
+    // town coordinate inside a 13x10 room — off the map, invisible, and
+    // unable to move in any direction. The tests passed anyway, because they
+    // placed the player by asking the room. This asks the doors.
+    for (const seed of ["A1", "B2", "C3", "D4"]) {
+      const world = testWorld(seed);
+      for (const route of world.routes.values()) {
+        for (const door of route.doors) {
+          const target = world.routes.get(door.to);
+          expect(target, `${route.id} has a door to nowhere`).toBeDefined();
+
+          const { x, y } = door.at;
+          expect(x, `${route.id} -> ${door.to}`).toBeGreaterThanOrEqual(0);
+          expect(y, `${route.id} -> ${door.to}`).toBeGreaterThanOrEqual(0);
+          expect(x).toBeLessThan(target!.width);
+          expect(y).toBeLessThan(target!.height);
+          expect(walkable(target!.tiles[y * target!.width + x])).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("W18: and walking through one and back leaves you outside it again", () => {
+    const world = testWorld("A1");
+    let state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    const town = world.routes.get(state.route)!;
+    const door = town.doors[0];
+    state = { ...state, x: door.x, y: door.y + 1 };
+    const indoors = applyInput(world, state, { t: "move", dir: "n" });
+
+    expect(indoors.route).toBe(door.to);
+    const room = world.routes.get(indoors.route)!;
+    expect(walkable(room.tiles[indoors.y * room.width + indoors.x])).toBe(true);
+
+    // The way out is the tile below the one you arrive on.
+    const outdoors = applyInput(world, indoors, { t: "move", dir: "s" });
+    expect(outdoors.route).toBe(town.id);
+    expect(walkable(town.tiles[outdoors.y * town.width + outdoors.x])).toBe(true);
   });
 });
