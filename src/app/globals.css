@@ -251,6 +251,23 @@ button.ghost { background: transparent; }
 .hp.mid { background: var(--warn); }
 .hp.low { background: var(--danger); }
 
+/* One ball per team member, above the health bar. Red-over-white so it reads
+   as a ball at nine pixels; grey once its owner is beaten. */
+.ballRow { display: flex; gap: 3px; margin-bottom: 3px; }
+.plate.right .ballRow { justify-content: flex-end; }
+.ball {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid #0e1215;
+  background: linear-gradient(#d4675a 0 44%, #0e1215 44% 56%, #e8edf1 56%);
+}
+.ball.out {
+  background: linear-gradient(#3d474f 0 44%, #0e1215 44% 56%, #59646e 56%);
+  opacity: 0.55;
+}
+.ball.here { box-shadow: 0 0 0 1px var(--accent); }
+
 .log {
   background: var(--panel);
   border: 1px solid var(--line);

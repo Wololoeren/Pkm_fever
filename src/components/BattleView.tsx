@@ -7,7 +7,7 @@ import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
-import { GenderMark, HpBar, PartyStrip, VariantTag } from "./PartyStrip";
+import { GenderMark, HpBar, PartyStrip, TeamBalls, VariantTag } from "./PartyStrip";
 import { EvolutionScene } from "./EvolutionScene";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
@@ -22,7 +22,18 @@ import { Sprite } from "./Sprite";
  * it one engine.
  */
 
-function Nameplate({ creature, right }: { creature: Individual; right?: boolean }) {
+function Nameplate({
+  creature,
+  team,
+  active,
+  right,
+}: {
+  creature: Individual;
+  /** Everything this side can still send out, for the row of balls. */
+  team: readonly Individual[];
+  active: number;
+  right?: boolean;
+}) {
   const stats = computeStats(speciesById(creature.speciesId), creature);
   return (
     <div className={`plate${right ? " right" : ""}`}>
@@ -32,6 +43,7 @@ function Nameplate({ creature, right }: { creature: Individual; right?: boolean 
         </strong>
         <span className="muted">Lv{creature.level}</span>
       </div>
+      <TeamBalls team={team} active={active} />
       <HpBar creature={creature} />
       <div className="plateFoot">
         <span className="muted">
@@ -88,6 +100,7 @@ export function BattleView({
   const foe = activeOf(battle, them);
   const mustSwitch = battle.awaitingSwitch[role];
   const ourTeam = battle.sides[role].team;
+  const theirTeam = battle.sides[them].team;
   const wildBattle = balls !== undefined;
 
   const lines = narrate(battle.events, (side) =>
@@ -109,13 +122,13 @@ export function BattleView({
             field is secret: a duel commits to a move before it is revealed,
             so reading the opponent cannot be used to cheat. */}
         <div className="slot wild hoverable" tabIndex={0}>
-          <Nameplate creature={foe} />
+          <Nameplate creature={foe} team={theirTeam} active={battle.sides[them].active} />
           <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={148} faint={foe.hp <= 0} />
           <StatHover creature={foe} />
         </div>
         <div className="slot mine hoverable" tabIndex={0}>
           <Sprite speciesId={player.speciesId} variantId={player.variantId} size={148} flip faint={player.hp <= 0} />
-          <Nameplate creature={player} right />
+          <Nameplate creature={player} team={ourTeam} active={battle.sides[role].active} right />
           <StatHover creature={player} />
         </div>
       </div>

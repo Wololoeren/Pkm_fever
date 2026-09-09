@@ -46,6 +46,37 @@ export function ExpBar({ creature }: { creature: Individual }) {
   );
 }
 
+/**
+ * How many are left on a side, as balls above the health bar.
+ *
+ * A health bar says how the creature in front of you is doing and nothing at
+ * all about how long the fight has left to run. One ball per team member says
+ * both at a glance: six of them means settle in, one means this is the last
+ * of them. Beaten ones grey out where they stand rather than disappearing,
+ * because a row that shrinks has to be counted, and a row that stays put can
+ * simply be read.
+ *
+ * Nothing is drawn for a team of one. A single ball over a wild creature
+ * would be reporting a fact nobody was in any doubt about.
+ */
+export function TeamBalls({ team, active }: { team: readonly Individual[]; active?: number }) {
+  if (team.length < 2) return null;
+
+  const standing = team.filter((one) => one.hp > 0).length;
+  const label = `${standing} of ${team.length} still standing`;
+
+  return (
+    <div className="ballRow" title={label} aria-label={label}>
+      {team.map((one, index) => (
+        <span
+          key={index}
+          className={`ball${one.hp <= 0 ? " out" : ""}${index === active ? " here" : ""}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function HpBar({ creature }: { creature: Individual }) {
   const max = maxHp(creature);
   const share = max > 0 ? Math.max(0, creature.hp / max) : 0;
