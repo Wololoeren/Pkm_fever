@@ -251,6 +251,13 @@ button.ghost { background: transparent; }
 .hp.mid { background: var(--warn); }
 .hp.low { background: var(--danger); }
 
+/* An option that will not be undone asks twice, and says so in red while it
+   waits. */
+.talkOption.armed {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 /* One ball per team member, above the health bar. Red-over-white so it reads
    as a ball at nine pixels; grey once its owner is beaten. */
 .ballRow { display: flex; gap: 3px; margin-bottom: 3px; }

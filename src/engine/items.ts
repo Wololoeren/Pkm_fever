@@ -1,4 +1,4 @@
-import { CHROMA_IDS } from "./variants";
+import { chroma, CHROMA_IDS } from "./variants";
 
 /**
  * The bag, and what is in it.
@@ -13,7 +13,7 @@ import { CHROMA_IDS } from "./variants";
  * I have" had two different answers depending on what you asked about.
  */
 
-export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure" | "hm" | "key";
+export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure" | "hm" | "key" | "lure";
 
 export interface ItemSpec {
   id: string;
@@ -44,7 +44,41 @@ export interface ItemSpec {
   /** Rods: how far out the water they reach — a higher number fishes deeper
    * tables, the same way a further ring holds better things. */
   reach?: number;
+  /**
+   * Breeding: what this adds to the climb, in basis points.
+   *
+   * Flat rather than a multiplier, and additive with every other one held,
+   * because a stack of multipliers is a number nobody can predict from the
+   * labels. A hundred basis points is one percent.
+   */
+  climbBonus?: number;
+  /** Breeding: spent when the egg is produced rather than kept. */
+  consumed?: boolean;
+  /** Lures: what draws, and how far down the route's census it can reach. */
+  lure?: LureSpec;
 }
+
+/**
+ * What a lure attracts.
+ *
+ * `pull` is a number of encounter slots, not a probability, because a variant
+ * in this world is a property of a place rather than a die roll: there is no
+ * chance to raise, only a distance to close.
+ */
+export interface LureSpec {
+  /** Anything above the bottom rung of the shine ladder. */
+  shine?: boolean;
+  /** One particular colour. */
+  chromaId?: string;
+  /** How many encounters ahead it can reach. */
+  pull: number;
+}
+
+/** How long a lure burns for, in moves. */
+export const LURE_MOVES = 500;
+
+/** How many encounters ahead a lure can reach. */
+const LURE_PULL = 6;
 
 const ITEM_LIST: ItemSpec[] = [
   // --------------------------------------------------------------- balls
@@ -183,6 +217,40 @@ const ITEM_LIST: ItemSpec[] = [
     stacks: false,
     reach: 3,
   },
+
+  // --------------------------------------------------------------- lures
+  //
+  // A lure does not make a shiny. Nothing does: this world decides what is
+  // rare and where it stands when it is generated, and an item that could
+  // roll one into existence would take the census apart. What a lure does is
+  // close the distance — while it is burning, the next unusual thing on this
+  // route comes to you sooner, and the ordinary encounters between here and
+  // there are what you pay for it.
+  //
+  // It will never walk you past something rare to reach something rarer. A
+  // Chroma Lure that found a true shiny two slots ahead simply does not fire,
+  // because a hunting aid that can burn the thing you were hunting is a trap
+  // wearing an item's clothes.
+  {
+    id: "lure-shiny",
+    name: "Shiny Lure",
+    kind: "lure",
+    price: 12000,
+    sell: 4000,
+    blurb: `Draws anything with shine on it, for ${LURE_MOVES} moves.`,
+    stacks: true,
+    lure: { shine: true, pull: LURE_PULL },
+  },
+  ...CHROMA_IDS.map((id) => ({
+    id: `lure-${id}`,
+    name: `${chroma(id).name} Lure`,
+    kind: "lure" as const,
+    price: 6000,
+    sell: 2000,
+    blurb: `Draws anything wearing ${chroma(id).name.toLowerCase()}, for ${LURE_MOVES} moves.`,
+    stacks: true,
+    lure: { chromaId: id, pull: LURE_PULL },
+  })),
 
   // ------------------------------------------------------------ treasure
   {
@@ -337,6 +405,27 @@ const KEYS: ItemSpec[] = [
 ];
 
 /**
+ * Five ways to buy the climb outright, in ascending order of how far you have
+ * to walk for one.
+ *
+ * A light word each, because they are the same thing at five strengths and a
+ * family of names says that faster than a table would. The last two sit on the
+ * outermost ring, which is the hardest thing this world has to ask for.
+ */
+const CLIMB_ITEMS: { id: string; name: string; blurb: string; climbBonus: number }[] = [
+  { id: "glint", name: "Glint", blurb: "One percent onto the climb, permanently.", climbBonus: 100 },
+  { id: "gleam", name: "Gleam", blurb: "Two percent onto the climb, permanently.", climbBonus: 200 },
+  { id: "lustre", name: "Lustre", blurb: "Three percent onto the climb, permanently.", climbBonus: 300 },
+  { id: "radiance", name: "Radiance", blurb: "Five percent onto the climb. Kept at the far end of the world.", climbBonus: 500 },
+  {
+    id: "brilliance",
+    name: "Brilliance",
+    blurb: "Ten percent onto the climb. There is one, and it is as far out as anything gets.",
+    climbBonus: 1000,
+  },
+];
+
+/**
  * The breeding equipment, folded into the same catalogue.
  *
  * They were a separate list with their own names and blurbs, which meant the
@@ -353,6 +442,11 @@ const BREEDING_ITEMS: ItemSpec[] = [
     name: `${id.charAt(0).toUpperCase()}${id.slice(1)} Lens`,
     blurb: `One chance in five that the child takes the ${id} colour, whatever its parents wore.`,
   })),
+  // The light family: five flat additions to the climb, sitting further and
+  // further out. They add to each other and to everything else, which is the
+  // point of stating them flat — a player holding three of them can work out
+  // what they are worth without running the engine in their head.
+  ...CLIMB_ITEMS,
 ].map((entry) => ({
   ...entry,
   kind: "breeding" as const,
@@ -363,7 +457,27 @@ const BREEDING_ITEMS: ItemSpec[] = [
   stacks: false,
 }));
 
-export const ITEMS: readonly ItemSpec[] = [...ITEM_LIST, ...TOOLS, ...KEYS, ...BREEDING_ITEMS];
+/**
+ * Glitter, which is the other half of what the Appraiser in the north pays.
+ *
+ * Alone among the breeding equipment it is a consumable: it is spent the
+ * moment the egg is produced, whatever the egg turned out to be. That is what
+ * keeps a pile of it from becoming a permanent ten percent — it buys attempts,
+ * not a better world, and the only way to get more is to give up more shine.
+ */
+const GLITTER: ItemSpec = {
+  id: "glitter",
+  name: "Glitter",
+  kind: "breeding",
+  price: 0,
+  sell: 800,
+  blurb: "Ten percent onto the climb, spent the moment the egg appears.",
+  stacks: true,
+  climbBonus: 1000,
+  consumed: true,
+};
+
+export const ITEMS: readonly ItemSpec[] = [...ITEM_LIST, ...TOOLS, ...KEYS, ...BREEDING_ITEMS, GLITTER];
 
 const BY_ID = new Map(ITEMS.map((entry) => [entry.id, entry]));
 
@@ -393,6 +507,11 @@ export const TOOLS_LIST: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kin
 /** Every rod, shortest first. */
 export const RODS: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "rod").sort(
   (a, b) => (a.reach ?? 0) - (b.reach ?? 0),
+);
+
+/** Every lure, cheapest first. */
+export const LURES: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "lure").sort(
+  (a, b) => a.price - b.price || a.id.localeCompare(b.id),
 );
 
 export type Bag = Record<string, number>;

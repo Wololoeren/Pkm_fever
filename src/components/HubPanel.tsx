@@ -6,6 +6,7 @@ import {
   generationsToMax,
   chromaOdds,
   climbChance,
+  flatBonus,
   tierMatrix,
   type DaycareState,
   STEPS_PER_EGG,
@@ -77,6 +78,20 @@ function ShineMatrix({
         A climb is worth {(climbChance(applied, levelSum) / 100).toFixed(2)}% here — one percent to
         begin with, and a twentieth of a percent for every level across the pair
         {levelSum ? ` (${levelSum} of them)` : ""}. Raising them is worth something too.
+        {flatBonus(applied) ? (
+          <>
+            {" "}
+            What you have applied adds a flat{" "}
+            <strong>{(flatBonus(applied) / 100).toFixed(2)}%</strong> on top.
+          </>
+        ) : null}
+        {applied.includes("glitter") ? (
+          <>
+            {" "}
+            The Glitter goes when the egg does — one pinch per egg, and the odds above drop back
+            when the last of it is spent.
+          </>
+        ) : null}
       </p>
 
       <h4 className="ladderSub">Colour</h4>

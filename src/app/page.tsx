@@ -356,6 +356,22 @@ export default function Page() {
           {state.notice?.t === "released" ? (
             <p className="muted">You let {state.notice.name} go.</p>
           ) : null}
+          {state.notice?.t === "appraised" ? (
+            <p className="good">
+              Sold your {state.notice.name} — {state.notice.tier} rung
+              {state.notice.tier === 1 ? "" : "s"} of shine, for{" "}
+              {state.notice.money
+                ? `¤${state.notice.money.toLocaleString()}`
+                : `${state.notice.glitter} Glitter`}
+              .
+            </p>
+          ) : null}
+          {state.notice?.t === "lured" ? (
+            <p className="good">
+              Lit the {item(state.notice.item).name}. It burns until move{" "}
+              {state.notice.until.toLocaleString()}.
+            </p>
+          ) : null}
           {state.notice?.t === "hatched" ? (
             <p className="good">The egg hatched!{state.notice.boxed ? " Party was full, so it went to the box." : ""}</p>
           ) : null}

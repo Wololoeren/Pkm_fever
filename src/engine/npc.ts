@@ -7,18 +7,31 @@ import { variant } from "./variants";
 /**
  * The people who are not trying to fight you.
  *
- * Five kinds, and the split is by what talking to one *does* rather than by
- * what they are: somebody who says a useful thing, somebody who hands you
- * something once, somebody who patches you up, somebody who wants a swap, and
- * somebody with a job. A person with no effect is a hint-giver, which is why
- * that kind exists rather than a sixth that does nothing.
+ * The split is by what talking to one *does* rather than by what they are:
+ * somebody who says a useful thing, somebody who hands you something once,
+ * somebody who patches you up, somebody who wants a swap, somebody with a job,
+ * somebody who runs a gym, and somebody who buys. A person with no effect is a
+ * hint-giver, which is why that kind exists rather than one that does nothing.
  *
  * They are authored, not generated. A procedural villager says procedural
  * things, and the whole point of a person standing in a doorway is that
  * somebody decided what they would say.
  */
 
-export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest" | "gym";
+export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest" | "gym" | "buy";
+
+/**
+ * What a buyer pays for one rung of the shine ladder.
+ *
+ * Per rung, not per creature, so a Faded is worth a fifth of a true shiny and
+ * the ladder means the same thing at the counter as it does everywhere else.
+ * Five thousand for a true shiny is deliberately close to a Nugget: shine is
+ * worth real money, and it is not worth *only* money.
+ */
+export const SHINE_PRICE = 1000;
+
+/** And how much Glitter, if you would rather have that. One rung, one dust. */
+export const SHINE_GLITTER = 1;
 
 /** What a trader will accept. Every field named must match. */
 export interface TradeWant {
@@ -94,6 +107,10 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
     | { at: "town"; x: number; y: number }
     | { at: "interior"; role: "centre" | "mart" | "daycare" | "house"; index?: number }
     | { at: "ring"; biome: string; ring: number }
+    /** Inside the cabin on that route — or, on a seed that grew no cabin
+     * there, outside on the route itself. A person who exists on some seeds
+     * and not others is not a person, it is a bug with a name. */
+    | { at: "cabin"; biome: string; ring: number }
     | { at: "gym"; gymId: string };
 }
 
@@ -178,6 +195,20 @@ export const NPCS: readonly NpcPlacement[] = [
       "Did you know the whole world is just a number?",
       "Dad says if you tell someone the seed they get the exact same three starters and the exact same everything. Even where the shiny is.",
       "I told him that means the shiny is already decided and he said yes, that is the point.",
+    ],
+  },
+
+  // ------------------------------------------------ north, behind a door
+  {
+    id: "buy-appraiser",
+    name: "Appraiser",
+    kind: "buy",
+    where: { at: "cabin", biome: "pinewood", ring: 3 },
+    lines: [
+      "Shut the door. Thank you. The light in here is mine and I would like to keep it.",
+      "I buy shine. Not colour — colour is somebody else's trade — shine. A thousand a rung, so five for a true one, and I do not argue about the arithmetic because the arithmetic is not mine.",
+      "Or you take it in Glitter. Same count, one for a rung. Put it in with a pair at the daycare and the next egg is ten percent more likely to come up a rung — and then the Glitter is gone, because that is what it is for.",
+      "(He does not look up while you decide. He has done this a great many times.)",
     ],
   },
 

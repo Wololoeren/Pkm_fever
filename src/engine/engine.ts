@@ -13,6 +13,7 @@ import {
   breed,
   compatible,
   emptyDaycare,
+  GLITTER,
   STEPS_PER_EGG,
   type BreedingItem,
   type DaycareState,
@@ -21,7 +22,7 @@ import { ALL_SPECIES, learnableAt, movesAtLevel, species as speciesById } from "
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { expForLevel, MAX_LEVEL } from "./progression";
-import { matchesWant, wantText, type NpcSpec } from "./npc";
+import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
   isQuest,
   progressOf,
@@ -59,10 +60,12 @@ import {
   isItem,
   item,
   ITEMS,
+  LURE_MOVES,
   removeItem,
   RODS,
   type Bag,
   type ItemSpec,
+  type LureSpec,
 } from "./items";
 
 /**
@@ -161,6 +164,15 @@ export type Input =
   | { t: "npcAccept" }
   /** Giving one of yours to a trader, by party slot. */
   | { t: "npcTrade"; index: number }
+  /**
+   * Selling the shine off one of yours, by party slot.
+   *
+   * `confirm` carries the creature's own uid for the same reason a release
+   * does: this is the other input in the game that a step backwards does not
+   * undo, and a boolean would be satisfied by any stray click that reached the
+   * engine. `take` is the player's, not the buyer's — he pays either way.
+   */
+  | { t: "npcSell"; index: number; take: "money" | "glitter"; confirm: number }
   /** Claiming a finished quest. */
   | { t: "claimQuest"; id: string }
   /** Using a tool on whatever is in the way in this direction. */
@@ -214,7 +226,9 @@ export type Notice =
   | { t: "questDone"; id: string }
   | { t: "cleared"; item: string }
   | { t: "badge"; gym: string }
-  | { t: "released"; name: string };
+  | { t: "released"; name: string }
+  | { t: "appraised"; name: string; tier: number; money: number; glitter: number }
+  | { t: "lured"; item: string; until: number };
 
 export interface GameState {
   tick: number;
@@ -265,6 +279,14 @@ export interface GameState {
    * they have been. They come back stronger. */
   beatenAt: Record<string, number>;
   wins: Record<string, number>;
+  /**
+   * Lures currently burning: item id, and the move count they die at.
+   *
+   * An expiry rather than a countdown, so nothing has to be decremented on
+   * every step and a lure cannot drift out of step with the clock it was
+   * measured against. Expired entries are swept the next time one is lit.
+   */
+  lures: Record<string, number>;
   /** Whether a testing shortcut was ever used in this save. Once true, always
    * true: the point is that a cheated save cannot quietly become an honest one. */
   cheated: boolean;
@@ -312,6 +334,15 @@ const ITEM_FOR_PLACE: Record<string, BreedingItem> = {
   "marsh:3": "lens-teal",
   "ashflats:5": "lens-onyx",
   "meadow:5": "lens-ivory",
+
+  // The five flat additions to the climb, laid out by how far you have to go
+  // for one. A percent is a two-ring walk; ten percent is the far end of the
+  // world, and there is exactly one of it.
+  "meadow:2": "glint",
+  "ashflats:2": "gleam",
+  "pinewood:4": "lustre",
+  "marsh:6": "radiance",
+  "meadow:6": "brilliance",
   "pinewood:5": "prism",
 };
 
@@ -357,6 +388,7 @@ export function initialState(world: World): GameState {
     beaten: [],
     talking: null,
     helped: [],
+    lures: {},
     questsTaken: [],
     questsDone: [],
     taken: [],
@@ -446,6 +478,8 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return npcAccept(world, state);
     case "npcTrade":
       return npcTrade(world, state, input.index);
+    case "npcSell":
+      return npcSell(world, state, input.index, input.take, input.confirm);
     case "claimQuest":
       return claimQuest(world, state, input.id);
     case "useTool":
@@ -793,13 +827,31 @@ function collectEgg(world: World, state: GameState): GameState {
   const hatched = { ...child, uid: state.nextUid };
   const boxed = state.party.length >= PARTY_LIMIT;
 
+  // Glitter is spent on the egg, not on the outcome. It bought the roll, the
+  // roll happened, and whether it came up shine is not the Glitter's business.
+  // The last one lifts itself off the pairing on the way out, because a pinch
+  // of dust still applied with none in the bag is the daycare quoting odds it
+  // cannot pay.
+  const spending = state.daycare.applied.includes(GLITTER) && hasItem(state.bag, GLITTER);
+  const bag = spending ? removeItem(state.bag, GLITTER) : state.bag;
+  const applied = spending && !hasItem(bag, GLITTER)
+    ? state.daycare.applied.filter((one) => one !== GLITTER)
+    : state.daycare.applied;
+
   return {
     ...state,
     tick: state.tick + 1,
     party: boxed ? state.party : [...state.party, atFullHealth(hatched)],
     box: boxed ? [...state.box, atFullHealth(hatched)] : state.box,
     nextUid: state.nextUid + 1,
-    daycare: { ...state.daycare, eggReady: false, eggIndex: state.daycare.eggIndex + 1, steps: 0 },
+    bag,
+    daycare: {
+      ...state.daycare,
+      applied,
+      eggReady: false,
+      eggIndex: state.daycare.eggIndex + 1,
+      steps: 0,
+    },
     notice: { t: "hatched", boxed },
   };
 }
@@ -975,10 +1027,14 @@ export function itemRefusal(state: GameState, itemId: string, index: number): st
   if (!isItem(itemId)) return "no such item";
   if (!hasItem(state.bag, itemId)) return "you have none";
 
+  // A lure is lit, not used on anybody, so the party slot is not consulted at
+  // all — asking a lure which creature it is for is asking the wrong question.
+  const spec = item(itemId);
+  if (spec.lure) return lureLeft(state, itemId) > 0 ? "that one is already burning" : null;
+
   const target = state.party[index];
   if (!target) return "nobody there";
 
-  const spec = item(itemId);
   if (spec.kind !== "medicine") return `the ${spec.name} is not used on a creature`;
 
   const fainted = target.hp <= 0;
@@ -997,6 +1053,24 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
   if (refusal) throw new IllegalInput(refusal);
 
   const spec = item(itemId);
+
+  if (spec.lure) {
+    const until = state.tick + 1 + LURE_MOVES;
+    // Dead lures are swept here rather than every step: this is the only
+    // moment the record grows, so it is the only moment it needs tidying.
+    const burning = Object.fromEntries(
+      Object.entries(state.lures).filter(([, ends]) => ends > state.tick),
+    );
+
+    return {
+      ...state,
+      tick: state.tick + 1,
+      bag: removeItem(state.bag, itemId),
+      lures: { ...burning, [itemId]: until },
+      notice: { t: "lured", item: itemId, until },
+    };
+  }
+
   const party = [...state.party];
   const target = party[index];
   const max = maxHp(target);
@@ -1022,6 +1096,68 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
     bag: removeItem(state.bag, itemId),
     notice: { t: "used", item: itemId, on: speciesById(next.speciesId).name },
   };
+}
+
+/**
+ * The lures still burning, at this move count.
+ *
+ * Derived from the expiry written down when each was lit, rather than counted
+ * down every step — the same reason quest progress is asked of the save rather
+ * than stored in it. A lure whose number has passed is simply not in the list.
+ */
+export function activeLures(state: GameState): ItemSpec[] {
+  return Object.entries(state.lures)
+    .filter(([id, until]) => until > state.tick && isItem(id) && item(id).lure)
+    .map(([id]) => item(id))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** How many moves this lure has left, or zero. */
+export function lureLeft(state: GameState, id: string): number {
+  return Math.max(0, (state.lures[id] ?? 0) - state.tick);
+}
+
+/** Whether a lure would come to this appearance. */
+function lureTakes(lure: LureSpec, variantId: string): boolean {
+  const form = variant(variantId);
+  if (lure.chromaId) return form.chromaId === lure.chromaId;
+  if (lure.shine) return form.tier > 0;
+  return false;
+}
+
+/**
+ * Which encounter this route serves next, given what is burning.
+ *
+ * Ordinarily the answer is "the one after the last": a route's encounters are
+ * a fixed list decided when the world was made, walked one at a time, and that
+ * is what makes hunting exploration rather than rerolling.
+ *
+ * A lure does not add anything to that list. It reaches down it. If something
+ * unusual is standing within the lure's pull, and it is the kind the lure
+ * draws, the encounters between here and there are spent and you meet it now.
+ *
+ * The loop stops at the *first* marked slot whether or not it matches, and
+ * that is the whole safety of the thing: a Chroma Lure can never burn past a
+ * true shiny to reach an Ember. It fires only when the next rare thing on this
+ * route is the one it was hunting, and otherwise costs nothing but the money.
+ *
+ * Exported so a test can ask the grass's own question rather than a copy of
+ * it. Nothing in the UI reads it: a lure that told you what it was about to
+ * find would not be a lure.
+ */
+export function nextEncounterSlot(world: World, state: GameState, routeId: string): number {
+  const from = state.nextSlot[routeId] ?? 0;
+  const lures = activeLures(state);
+  if (!lures.length) return from;
+
+  const pull = Math.max(...lures.map((spec) => spec.lure!.pull));
+  for (let ahead = 0; ahead <= pull; ahead++) {
+    const marked = world.census.get(`${routeId}:${from + ahead}`);
+    if (!marked) continue;
+    return lures.some((spec) => lureTakes(spec.lure!, marked)) ? from + ahead : from;
+  }
+
+  return from;
 }
 
 /**
@@ -1315,6 +1451,12 @@ export function offerRefusal(world: World, state: GameState): string | null {
       return null;
     }
 
+    case "buy":
+      if (!state.party.some((one) => variant(one.variantId).tier > 0)) {
+        return "nothing you are carrying has any shine on it";
+      }
+      return null;
+
     case "trade":
       if (state.helped.includes(person.id)) return "they have already traded with you";
       if (!person.wants) return "there is nothing to take";
@@ -1363,6 +1505,74 @@ function npcAccept(world: World, state: GameState): GameState {
     default:
       throw new IllegalInput("that is not something they offer");
   }
+}
+
+/**
+ * Why this one cannot be sold to the buyer in front of you.
+ *
+ * The `confirm` uid is the same safety catch a release carries, for the same
+ * reason: selling is the other thing in this game that walking back does not
+ * undo, and the save being a log means reloading does not undo it either.
+ *
+ * One predicate, two callers — the panel greys the button for exactly what the
+ * engine would refuse, in the engine's own words.
+ */
+export function appraiseRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  confirm: number,
+): string | null {
+  const standing = offerRefusal(world, state);
+  if (standing) return standing;
+
+  const person = speakingTo(world, state)!;
+  if (person.kind !== "buy") return "they are not buying";
+
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (variant(creature.variantId).tier <= 0) return "there is no shine on that one";
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+/** What the buyer pays for this one, either way round. */
+export function appraisal(creature: Individual): { money: number; glitter: number } {
+  const tier = variant(creature.variantId).tier;
+  return { money: tier * SHINE_PRICE, glitter: tier * SHINE_GLITTER };
+}
+
+function npcSell(
+  world: World,
+  state: GameState,
+  index: number,
+  take: "money" | "glitter",
+  confirm: number,
+): GameState {
+  const refusal = appraiseRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const going = state.party[index];
+  const paid = appraisal(going);
+  const tier = variant(going.variantId).tier;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, slot) => slot !== index),
+    money: take === "money" ? state.money + paid.money : state.money,
+    bag: take === "glitter" ? addItem(state.bag, GLITTER, paid.glitter) : state.bag,
+    // `found` is untouched on purpose. The census remembers what you have
+    // caught, not what you still hold; selling one does not un-see it.
+    notice: {
+      t: "appraised",
+      name: speciesById(going.speciesId).name,
+      tier,
+      money: take === "money" ? paid.money : 0,
+      glitter: take === "glitter" ? paid.glitter : 0,
+    },
+  };
 }
 
 /** Why this creature will not do for the trader in front of you. */
@@ -1775,7 +1985,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   const leadIndex = state.party.findIndex((creature) => !isFainted(creature));
   if (leadIndex < 0) return { ...moved, steps };
 
-  const slot = state.nextSlot[state.route] ?? 0;
+  const slot = nextEncounterSlot(world, state, state.route);
   const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, state.nextUid)));
 
   return {
@@ -2012,6 +2222,7 @@ export function stateHash(state: GameState): string {
     daycare,
     state.visited.join(","),
     state.beaten.join(","),
+    counters(state.lures),
     state.cheated ? "1" : "0",
   ].join(";");
 

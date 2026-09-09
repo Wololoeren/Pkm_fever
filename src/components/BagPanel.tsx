@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import {
+  activeLures,
   flyRefusal,
   itemRefusal,
+  lureLeft,
   toolRefusal,
   type GameState,
   type Input,
@@ -19,6 +21,10 @@ import { displayName } from "@/lib/narrate";
  * revealed like a move for a duel to stay fair, and a heal the other side
  * cannot answer is the shortest road to a battle that never ends. Healing
  * between fights is the bargain the rest of the game already asks for.
+ *
+ * Most things here are used *on* somebody, so choosing one opens a party
+ * picker. A lure is not: it is lit, and then it is simply true for a while, so
+ * it goes off the moment it is pressed and reports itself at the top instead.
  */
 
 /** The tabs, in the order they are reached for. */
@@ -27,6 +33,7 @@ const TABS: { kind: ItemKind; label: string }[] = [
   { kind: "ball", label: "Balls" },
   { kind: "hm", label: "Tools" },
   { kind: "rod", label: "Rods" },
+  { kind: "lure", label: "Lures" },
   { kind: "treasure", label: "Valuables" },
   { kind: "breeding", label: "Breeding" },
   { kind: "key", label: "Keys" },
@@ -71,8 +78,18 @@ export function BagPanel({
 
   if (!bagEntries(state.bag).length) return <p className="muted">Your bag is empty.</p>;
 
+  const burning = activeLures(state);
+
   return (
     <div className="bag">
+      {burning.length ? (
+        <p className="good">
+          {burning
+            .map((spec) => `${spec.name} — ${lureLeft(state, spec.id)} moves`)
+            .join(" · ")}
+        </p>
+      ) : null}
+
       <div className="tabs" role="tablist">
         {TABS.map((entry) => {
           const count = (held.get(entry.kind) ?? []).reduce((total, [, n]) => total + n, 0);
@@ -102,21 +119,33 @@ export function BagPanel({
             // Only medicine is used on a creature; everything else is held,
             // worn or sold, and offering a target picker for a Nugget would be
             // a lie about what the button does.
-            const usable = spec.kind === "medicine" || spec.field === "clear" || spec.field === "travel";
+            const usable =
+              spec.kind === "medicine" ||
+              spec.kind === "lure" ||
+              spec.field === "clear" ||
+              spec.field === "travel";
+            const burning = spec.kind === "lure" ? lureLeft(state, id) : 0;
+            const why = spec.kind === "lure" ? itemRefusal(state, id, 0) : null;
 
             return (
               <button
                 key={id}
                 type="button"
                 className={`itemCard${selected === id ? " on" : ""}`}
-                disabled={!usable}
-                onClick={() => setChosen(selected === id ? null : id)}
-                title={usable ? "Use on…" : "Nothing to use this on"}
+                disabled={!usable || Boolean(why)}
+                onClick={() => {
+                  // A lure has no target to pick, so pressing it *is* using it.
+                  if (spec.kind === "lure") onInput({ t: "useItem", item: id, index: 0 });
+                  else setChosen(selected === id ? null : id);
+                }}
+                title={why ?? (usable ? (spec.kind === "lure" ? "Light it" : "Use on…") : "Nothing to use this on")}
               >
                 <span className="itemName">
                   {spec.name} x{count}
                 </span>
-                <span className="muted itemBlurb">{spec.blurb}</span>
+                <span className="muted itemBlurb">
+                  {burning ? `Burning — ${burning} moves left.` : (why ?? spec.blurb)}
+                </span>
               </button>
             );
           })}

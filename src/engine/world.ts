@@ -406,6 +406,17 @@ function profileFor(biome: string): BiomeProfile {
  */
 export const ARM_ORDER: readonly string[] = ["meadow", "pinewood", "ashflats", "marsh"];
 
+/**
+ * Routes that must have a cabin, because the roster puts somebody inside one.
+ *
+ * Read off the roster rather than listed here, so moving a person moves their
+ * roof with them. A door somebody is written to be standing behind is not
+ * scenery, and it does not get to depend on a die.
+ */
+const CABIN_ROUTES = new Set(
+  NPCS.flatMap((who) => (who.where.at === "cabin" ? [`${who.where.biome}:${who.where.ring}`] : [])),
+);
+
 /** How coarse the maze is. Eight tiles a cell over 88x68 gives 10x8 rooms. */
 const CELL = 8;
 
@@ -552,40 +563,61 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   const interiors: Route[] = [];
 
   /**
-   * A cabin in one of the rooms, sometimes — and only where it leaves the way
-   * through intact.
+   * A cabin in one of the rooms — always where somebody is meant to be living
+   * in one, and otherwise about three routes in five.
    *
    * It used to simply go up. Dropped into one of pinewood's small rooms it
    * filled the room end to end, `sealUnreachable` then filled in everything
    * past it, and the route lost its own exit tile: from ring five outward, an
    * arm of the world became unreachable. Putting it up and taking it down
    * again is cheaper than reasoning about which rooms are wide enough.
+   *
+   * Which is also why a route somebody *lives* on tries every room in turn
+   * rather than one at random. Pinewood's rooms are the small ones, and one
+   * random attempt succeeded on one pinewood route in forty-eight — so a
+   * person written to be standing in a cabin in the north was, in practice,
+   * always standing outside in the rain instead. Eight gyms became a promise
+   * the same way; this is the same fix.
    */
   let cabinBack: { x: number; y: number } | null = null;
   let gymBack: { x: number; y: number } | null = null;
 
-  if (rng() < 0.6) {
-    const cell = plan.order[intBetween(rng, 1, plan.order.length - 1)];
-    const at = centreOf(cell.cx, cell.cy);
-    const before = [...grid.tiles];
-    const door = building(grid, at.x - 2, at.y - 2, 5, 4, [profile.ground, TILE.GRASS, TILE.FLOWER]);
-    const open = door ? reachable(grid, { x: 1, y: inSide.y }) : null;
-    // The way through, *and* the building's own doorstep. Checking only the
-    // first left doors opening onto ground the seal then filled in.
-    const stillOpen =
-      door !== null &&
-      open![outSide.y * ROUTE_WIDTH + (ROUTE_WIDTH - 2)] === 1 &&
-      open![(door.y + 1) * ROUTE_WIDTH + door.x] === 1;
+  const cabinWanted = CABIN_ROUTES.has(`${biome}:${ring}`);
+  if (cabinWanted || rng() < 0.6) {
+    const over = [profile.ground, TILE.GRASS, TILE.FLOWER];
+    const rooms = cabinWanted
+      ? shuffle(rng, [...plan.order])
+      : [plan.order[intBetween(rng, 1, plan.order.length - 1)]];
 
-    if (!stillOpen) {
-      grid.tiles.splice(0, grid.tiles.length, ...before);
-    } else if (door) {
+    for (const cell of rooms) {
+      const at = centreOf(cell.cx, cell.cy);
+
+      // Ask before copying: snapshotting six thousand tiles for a room that
+      // was never going to fit is the whole of what made generation slow.
+      if (!grid.clear(at.x - 2, at.y - 2, 5, 4, over)) continue;
+
+      const before = [...grid.tiles];
+      const door = building(grid, at.x - 2, at.y - 2, 5, 4, over);
+      const open = door ? reachable(grid, { x: 1, y: inSide.y }) : null;
+      // The way through, *and* the building's own doorstep. Checking only the
+      // first left doors opening onto ground the seal then filled in.
+      const stillOpen =
+        door !== null &&
+        open![outSide.y * ROUTE_WIDTH + (ROUTE_WIDTH - 2)] === 1 &&
+        open![(door.y + 1) * ROUTE_WIDTH + door.x] === 1;
+
+      if (!stillOpen || !door) {
+        grid.tiles.splice(0, grid.tiles.length, ...before);
+        continue;
+      }
+
       const cabin = `${id}:cabin`;
       cabinBack = { x: door.x, y: door.y + 1 };
       const inside = buildInterior(cabin, id, "house", "A cabin", cabinBack, rng);
       doors.push({ x: door.x, y: door.y, to: cabin, at: inside.entry });
       if (door.sign) signs.push({ ...door.sign, text: "Cabin" });
       interiors.push(inside);
+      break;
     }
   }
 
@@ -1092,6 +1124,16 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
           if (!route) return null;
           return { route, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), route) };
         }
+        case "cabin": {
+          const outside = routes.get(routeId(entry.where.biome, entry.where.ring));
+          const inside = routes.get(`${routeId(entry.where.biome, entry.where.ring)}:cabin`);
+          // A cabin grows on about three routes in five, so the one asked for
+          // is sometimes not there. The person still is: they wait outside
+          // instead, the same way a gym leader whose hall could not be built
+          // stands on the route. Somebody the seed can delete is not somebody.
+          if (inside) return { route: inside, wish: { x: Math.floor(inside.width / 2), y: 3 } };
+          return outside ? { route: outside, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), outside) } : null;
+        }
         case "gym": {
           const spec = gym(entry.where.gymId);
           const hall = routes.get(`${routeId(spec.biome, spec.ring)}:gym`);
@@ -1138,6 +1180,7 @@ const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
   { item: "revive", weight: 4 },
   { item: "hyperpotion", weight: 3 },
   { item: "ultraball", weight: 2 },
+  { item: "lure-shiny", weight: 2 },
   { item: "nugget", weight: 1 },
 ];
 

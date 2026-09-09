@@ -1,5 +1,6 @@
 import { baseFormOf, movesAtLevel, species as speciesById } from "./dex";
 import { gendersPair, rollGender } from "./gender";
+import { isItem, item as itemSpec } from "./items";
 import { NATURE_IDS } from "./natures";
 import { intBelow, intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
@@ -53,11 +54,24 @@ export const STEPS_PER_EGG = 120;
  */
 export const CHROMA_LENSES = CHROMA_IDS.map((id) => `lens-${id}`);
 
+/**
+ * The five flat additions to the climb, weakest first.
+ *
+ * Their sizes live in the item catalogue with everything else about them, so
+ * this is a list of names and not a second table of numbers to keep in step.
+ */
+export const CLIMB_ITEMS = ["glint", "gleam", "lustre", "radiance", "brilliance"] as const;
+
+/** The one piece of breeding equipment that is spent rather than kept. */
+export const GLITTER = "glitter";
+
 export const BREEDING_ITEMS = [
   "heirloom",
   "talisman",
   "catalyst",
   "prism",
+  ...CLIMB_ITEMS,
+  GLITTER,
   ...CHROMA_LENSES,
 ] as readonly string[];
 export type BreedingItem = string;
@@ -202,6 +216,14 @@ const CLIMB_CHANCE = 100;
 const CLIMB_CHANCE_WITH_PRISM = 500;
 
 /**
+ * Everything else that touches the climb is *added* to that, never multiplied
+ * into it. The Prism was the only multiplier and it stays the only one: two
+ * multipliers in the same expression is a number no player can predict from
+ * reading their own bag, and the whole point of showing the odds in the
+ * daycare is that they can be reasoned about before the egg exists.
+ */
+
+/**
  * What every level between the two parents adds to the climb.
  *
  * Five basis points — a twentieth of a percent — for each level on each
@@ -282,7 +304,22 @@ export function inheritTier(
  */
 export function climbChance(applied: readonly BreedingItem[], levelSum: number): number {
   const base = applied.includes("prism") ? CLIMB_CHANCE_WITH_PRISM : CLIMB_CHANCE;
-  return Math.min(BASIS, base + Math.max(0, levelSum) * LEVEL_BASIS_POINTS);
+  return Math.min(BASIS, base + Math.max(0, levelSum) * LEVEL_BASIS_POINTS + flatBonus(applied));
+}
+
+/**
+ * What the light items and the Glitter add, in basis points.
+ *
+ * Read off the item catalogue rather than restated here. A second table of
+ * "how much is a Lustre worth" is a second thing to forget to update, and the
+ * bag already has to know the answer to print the blurb.
+ */
+export function flatBonus(applied: readonly BreedingItem[]): number {
+  let total = 0;
+  for (const id of applied) {
+    if (isItem(id)) total += itemSpec(id).climbBonus ?? 0;
+  }
+  return total;
 }
 
 /**
