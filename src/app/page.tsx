@@ -272,9 +272,17 @@ export default function Page() {
         />
       ) : (
         <section className="field">
+          {/* The map, the little map, and what you are out here for. The
+              quests sit beside the minimap because they are read the same
+              way — a glance while walking, rather than something you stop and
+              open a panel for. */}
           <div className="fieldRow">
             <GameCanvas world={session.world} state={state} />
             <MiniMap world={session.world} state={state} />
+            <section className="panel questsBeside">
+              <h3>Quests</h3>
+              <QuestPanel world={session.world} state={state} onInput={dispatch} />
+            </section>
           </div>
           <p className="hint">
             <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to
@@ -416,13 +424,6 @@ export default function Page() {
             />
           </section>
         )}
-
-        {state.phase === "field" ? (
-          <section className="panel">
-            <h3>Quests</h3>
-            <QuestPanel world={session.world} state={state} onInput={dispatch} />
-          </section>
-        ) : null}
 
         {state.phase === "field" ? (
           <section className="panel">

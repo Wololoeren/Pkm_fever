@@ -50,7 +50,10 @@ kbd {
 /* ------------------------------------------------------------------ shell */
 
 .shell {
-  max-width: 1080px;
+  /* Wide enough for the map, the minimap and the quest list side by side.
+     The map is four times the size it was when this was 1080, and the row
+     they share needs about 1120 before it starts wrapping. */
+  max-width: 1180px;
   margin: 0 auto;
   padding: 28px 20px 60px;
   display: flex;
@@ -561,6 +564,18 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* --------------------------------------------------------------- mini map */
 
 .fieldRow { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+
+/* Beside the minimap, and no taller than the map it stands next to: a quest
+   list that grows past the world it describes pushes everything else off the
+   screen the moment you take on a fourth job. */
+.questsBeside {
+  width: 240px;
+  flex: none;
+  margin: 0;
+  max-height: 442px;
+  overflow-y: auto;
+}
+.questsBeside h3 { margin-top: 0; }
 
 .miniMap {
   background: var(--panel);
