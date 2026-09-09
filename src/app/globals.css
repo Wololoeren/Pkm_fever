@@ -723,6 +723,12 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   overflow-y: auto;
 }
 
+button.danger {
+  color: #e0857f;
+  border-color: #7a3f3a;
+  background: #2a1a1a;
+}
+
 /* ------------------------------------------------------------ talk, quests */
 
 .talk { border-color: var(--accent); }

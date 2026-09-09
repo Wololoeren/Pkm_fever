@@ -3,6 +3,8 @@
 import { offerRefusal, speakingTo, tradeRefusal, type GameState, type Input } from "@/engine/engine";
 import { dialogueOf, givesText } from "@/engine/npc";
 import { goalText, quest as questSpec, rewardText } from "@/engine/quests";
+import { gym as gymSpec, gymBreakdown } from "@/engine/gyms";
+import { item } from "@/engine/items";
 import type { World } from "@/engine/world";
 import { displayName } from "@/lib/narrate";
 
@@ -31,6 +33,7 @@ export function TalkPanel({
     heal: "Yes, please",
     quest: "Take the job",
     trade: "Trade",
+    gym: "Challenge",
     hint: "",
   };
 
@@ -54,6 +57,22 @@ export function TalkPanel({
           <strong>{questSpec(person.questId).name}</strong> — {goalText(questSpec(person.questId).goal)}. Pays{" "}
           {rewardText(questSpec(person.questId).reward)}.
         </p>
+      ) : null}
+
+      {person.kind === "gym" && person.gymId ? (
+        (() => {
+          const spec = gymSpec(person.gymId);
+          const sums = gymBreakdown(spec, state.tick, state.badges.length);
+          return (
+            <p className="muted">
+              <strong>{spec.name}</strong> — {spec.team} {spec.type} types at level{" "}
+              <strong>{sums.total}</strong>. That is {sums.base} to start with, {sums.fromMoves} for
+              the {state.tick.toLocaleString()} moves you have taken, and {sums.fromBadges} for the{" "}
+              {state.badges.length} badges you already hold. Winning hands over{" "}
+              {item(spec.tool).name}.
+            </p>
+          );
+        })()
       ) : null}
 
       {person.kind === "trade" && person.gives ? (

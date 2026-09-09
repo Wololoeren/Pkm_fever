@@ -28,7 +28,8 @@ import {
   quest as questSpec,
   type QuestView,
 } from "./quests";
-import { hash32, intBetween, rngFor } from "./rng";
+import { gym as gymSpec, gymLevel } from "./gyms";
+import { hash32, intBelow, intBetween, rngFor } from "./rng";
 import { clampIvs, computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatTable } from "./types";
 import { variant } from "./variants";
@@ -36,13 +37,20 @@ import {
   encounterTriggers,
   fishAt,
   propBlocks,
+  type Route,
   HUB_ID,
   starterAppearance,
   trainerAt,
   wildAt,
   type World,
 } from "./world";
-import { hidesEncounters, TILE, walkable } from "./terrain";
+import {
+  clearedBy,
+  hidesEncounters,
+  OBSTACLES,
+  passable,
+  TILE,
+} from "./terrain";
 import {
   addItem,
   bagEntries,
@@ -154,7 +162,21 @@ export type Input =
   /** Giving one of yours to a trader, by party slot. */
   | { t: "npcTrade"; index: number }
   /** Claiming a finished quest. */
-  | { t: "claimQuest"; id: string };
+  | { t: "claimQuest"; id: string }
+  /** Using a tool on whatever is in the way in this direction. */
+  | { t: "useTool"; item: string; dir: Direction }
+  /** Flying to somewhere already walked to. */
+  | { t: "fly"; route: string }
+  /**
+   * Letting one go, for good.
+   *
+   * `confirm` is the safety catch, and it carries the creature's own uid
+   * rather than a boolean. A `true` would be satisfied by any stray click that
+   * reached the engine; a uid can only have come from the panel that showed
+   * you which one you were about to lose, so a mis-click on a reordered list
+   * releases nothing rather than the wrong thing.
+   */
+  | { t: "release"; from: "party" | "box"; index: number; confirm: number };
 
 export type Cheat =
   | { op: "give"; speciesId: string; level: number; variantId: string; gender: Gender }
@@ -189,7 +211,10 @@ export type Notice =
   | { t: "healed"; by: string }
   | { t: "swapped"; given: string; got: string }
   | { t: "questTaken"; id: string }
-  | { t: "questDone"; id: string };
+  | { t: "questDone"; id: string }
+  | { t: "cleared"; item: string }
+  | { t: "badge"; gym: string }
+  | { t: "released"; name: string };
 
 export interface GameState {
   tick: number;
@@ -231,6 +256,15 @@ export interface GameState {
   questsDone: string[];
   /** Items picked up off the floor, sorted. */
   taken: string[];
+  /** Obstacles taken down for good, as "route:x,y", sorted. Surf is not here:
+   * crossing water is something you are doing, not something you did. */
+  cleared: string[];
+  /** Gym badges won, sorted. */
+  badges: string[];
+  /** The move count at which each trainer was last beaten, and how many times
+   * they have been. They come back stronger. */
+  beatenAt: Record<string, number>;
+  wins: Record<string, number>;
   /** Whether a testing shortcut was ever used in this save. Once true, always
    * true: the point is that a cheated save cannot quietly become an honest one. */
   cheated: boolean;
@@ -326,6 +360,10 @@ export function initialState(world: World): GameState {
     questsTaken: [],
     questsDone: [],
     taken: [],
+    cleared: [],
+    badges: [],
+    beatenAt: {},
+    wins: {},
     cheated: false,
   };
 }
@@ -410,6 +448,12 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return npcTrade(world, state, input.index);
     case "claimQuest":
       return claimQuest(world, state, input.id);
+    case "useTool":
+      return applyTool(world, state, input.item, input.dir);
+    case "fly":
+      return fly(world, state, input.route);
+    case "release":
+      return release(state, input.from, input.index, input.confirm);
   }
 }
 
@@ -1110,6 +1154,103 @@ function sellItem(world: World, state: GameState, itemId: string, count: number)
   };
 }
 
+/**
+ * The tile as it stands *now*, which is not always the tile the world made.
+ *
+ * Cut, Strength and Rock Smash take an obstacle away for good, and a save
+ * records that rather than the world doing so — the world is a pure function
+ * of the seed and has to stay one, or two players sharing a seed would stop
+ * sharing a map the moment either of them picked up an axe.
+ */
+export function tileAt(state: GameState, route: Route, x: number, y: number): number {
+  const raw = route.tiles[y * route.width + x];
+  if (!OBSTACLES[raw]?.clears) return raw;
+  return state.cleared.includes(`${route.id}:${x},${y}`) ? TILE.PATH : raw;
+}
+
+/** Why this tool will not work here, or null if it will. */
+export function toolRefusal(
+  world: World,
+  state: GameState,
+  itemId: string,
+  dir: Direction,
+): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (!isItem(itemId)) return "no such tool";
+  if (!hasItem(state.bag, itemId)) return "you do not have that";
+
+  const spec = item(itemId);
+  if (spec.kind !== "hm") return `the ${spec.name} is not that sort of thing`;
+  if (spec.field !== "clear") return `${spec.name} is not used on anything — carrying it is enough`;
+
+  const route = world.routes.get(state.route);
+  if (!route) return "nowhere to use it";
+
+  const [dx, dy] = DELTA[dir];
+  const x = state.x + dx;
+  const y = state.y + dy;
+  if (x < 0 || y < 0 || x >= route.width || y >= route.height) return "nothing there";
+
+  const tile = tileAt(state, route, x, y);
+  if (!clearedBy(tile, itemId)) return `nothing ${spec.name} can do that way`;
+  return null;
+}
+
+function applyTool(world: World, state: GameState, itemId: string, dir: Direction): GameState {
+  const refusal = toolRefusal(world, state, itemId, dir);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const route = world.routes.get(state.route)!;
+  const [dx, dy] = DELTA[dir];
+  const key = `${state.route}:${state.x + dx},${state.y + dy}`;
+  void route;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    cleared: [...state.cleared, key].sort(),
+    notice: { t: "cleared", item: itemId },
+  };
+}
+
+/** Whether the whole of a route is visible, or only what is close. */
+export function canSee(state: GameState, route: Route): boolean {
+  return route.ring < DARK_FROM_RING || hasItem(state.bag, "hm-flash");
+}
+
+/** Rings this far out are dark without Flash. */
+export const DARK_FROM_RING = 5;
+/** How far you can see in the dark. */
+export const DARK_RADIUS = 3;
+
+/** Why you cannot fly there, or null if you can. */
+export function flyRefusal(world: World, state: GameState, id: string): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (!hasItem(state.bag, "hm-fly")) return "you have no way to fly";
+  const route = world.routes.get(id);
+  if (!route) return "no such place";
+  if (route.kind === "interior") return "you cannot fly indoors";
+  if (!state.visited.includes(id)) return "you have never been there";
+  if (id === state.route) return "you are already there";
+  return null;
+}
+
+function fly(world: World, state: GameState, id: string): GameState {
+  const refusal = flyRefusal(world, state, id);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const route = world.routes.get(id)!;
+  return {
+    ...state,
+    tick: state.tick + 1,
+    route: id,
+    x: route.entry.x,
+    y: route.entry.y,
+    talking: null,
+    notice: null,
+  };
+}
+
 /** Everyone standing on this map. */
 export function npcAt(world: World, route: string, x: number, y: number): NpcSpec | null {
   return (world.npcs.get(route) ?? []).find((who) => who.x === x && who.y === y) ?? null;
@@ -1167,6 +1308,13 @@ export function offerRefusal(world: World, state: GameState): string | null {
       return null;
     }
 
+    case "gym": {
+      if (!person.gymId) return "there is nothing to take";
+      if (state.badges.includes(person.gymId)) return "you already have that badge";
+      if (!state.party.some((one) => one.hp > 0)) return "nothing that could fight";
+      return null;
+    }
+
     case "trade":
       if (state.helped.includes(person.id)) return "they have already traded with you";
       if (!person.wants) return "there is nothing to take";
@@ -1208,6 +1356,9 @@ function npcAccept(world: World, state: GameState): GameState {
         questsTaken: [...state.questsTaken, person.questId!].sort(),
         notice: { t: "questTaken", id: person.questId! },
       };
+
+    case "gym":
+      return challengeGym(world, state, person.gymId!);
 
     default:
       throw new IllegalInput("that is not something they offer");
@@ -1279,12 +1430,175 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
   };
 }
 
+/**
+ * Why this one cannot be let go, or null if it can.
+ *
+ * Three catches, and they are all the same catch wearing different hats: a
+ * release is the one thing in this game that cannot be undone by walking back.
+ * A save is a log, so it is not even undoable by reloading — the release is in
+ * the log.
+ */
+export function releaseRefusal(
+  state: GameState,
+  from: "party" | "box",
+  index: number,
+  confirm: number,
+): string | null {
+  if (state.phase !== "field") return "not right now";
+
+  const list = from === "party" ? state.party : state.box;
+  const creature = list[index];
+  if (!creature) return "nobody there";
+
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (from === "party" && state.party.length <= 1) return "keep something that can fight";
+
+  const inDaycare = state.daycare.slots.some((slot) => slot?.uid === creature.uid);
+  if (inDaycare) return "it is at the daycare";
+
+  return null;
+}
+
+function release(
+  state: GameState,
+  from: "party" | "box",
+  index: number,
+  confirm: number,
+): GameState {
+  const refusal = releaseRefusal(state, from, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const list = from === "party" ? state.party : state.box;
+  const going = list[index];
+  const rest = list.filter((_, slot) => slot !== index);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: from === "party" ? rest : state.party,
+    box: from === "box" ? rest : state.box,
+    notice: { t: "released", name: speciesById(going.speciesId).name },
+  };
+}
+
+/** What beating a gym leader pays the first time. */
+const GYM_PURSE = 5000;
+
+/** How long a beaten trainer needs before they will go again. */
+export const REMATCH_AFTER = 1000;
+
+/** How much stronger a trainer comes back each time. */
+export const REMATCH_LEVELS = 3;
+
+/**
+ * Whether this trainer will fight you now.
+ *
+ * Somebody you have never beaten always will. Somebody you have is sore about
+ * it for a thousand moves and then wants another go — and comes back with
+ * three levels on them for every time you have won, which is what stops the
+ * first ring being worthless by the fourth badge.
+ */
+export function wantsRematch(state: GameState, id: string): boolean {
+  if (!state.beaten.includes(id)) return true;
+  return state.tick - (state.beatenAt[id] ?? 0) >= REMATCH_AFTER;
+}
+
+/** How many moves until they are ready again, or zero if they are. */
+export function rematchIn(state: GameState, id: string): number {
+  if (wantsRematch(state, id)) return 0;
+  return REMATCH_AFTER - (state.tick - (state.beatenAt[id] ?? 0));
+}
+
+/** The tag a gym battle carries, so winning one can be recognised. */
+const GYM_TAG = "gym:";
+
+/** Which gym a battle is against, or null. */
+export function gymIdOf(battle: BattleState | null): string | null {
+  return battle?.tag.startsWith(GYM_TAG) ? battle.tag.slice(GYM_TAG.length) : null;
+}
+
+/**
+ * What a gym is fielding, built when you walk in rather than when the world
+ * was made — because what it fields depends on how far you have come.
+ */
+export function gymTeam(world: World, state: GameState, id: string): Individual[] {
+  const spec = gymSpec(id);
+  const level = gymLevel(spec, state.tick, state.badges.length);
+
+  // Everything of the right type, weakest first, so a gym at level twelve is
+  // not fielding the same creature as a gym at level eighty.
+  const power = (base: StatTable) => STAT_IDS.reduce((sum, stat) => sum + base[stat], 0);
+  const pool = ALL_SPECIES.filter((entry) => entry.types.some((type) => type === spec.type)).sort(
+    (a, b) => power(a.base) - power(b.base),
+  );
+  if (!pool.length) return [];
+
+  const team: Individual[] = [];
+  let uid = state.nextUid;
+
+  for (let slot = 0; slot < spec.team; slot++) {
+    const rng = rngFor(world.seed, "gym", id, level, slot);
+
+    // The ace goes last and comes from the strong end of the pool; the rest
+    // are drawn from the whole of it, so a gym has a shape rather than five
+    // copies of its best answer.
+    const ace = slot === spec.team - 1;
+    const from = ace ? Math.floor(pool.length * 0.75) : 0;
+    const upto = ace ? pool.length - 1 : pool.length - 1;
+    const pick = pool[intBetween(rng, from, upto)];
+
+    team.push(
+      atFullHealth(
+        withMoves({
+          uid: uid++,
+          speciesId: pick.id,
+          level: ace ? level : Math.max(2, level - 2 - intBelow(rng, 3)),
+          exp: expForLevel(level),
+          ivs: { hp: 20, atk: 20, def: 20, spa: 20, spd: 20, spe: 20 },
+          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+          natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
+          variantId: "normal",
+          hp: 0,
+          status: null,
+          sleepTurns: 0,
+          moves: [],
+          nickname: null,
+          traded: false,
+          parents: null,
+          gender: rollGender(rng),
+        }),
+      ),
+    );
+  }
+
+  return team;
+}
+
+function challengeGym(world: World, state: GameState, id: string): GameState {
+  const team = gymTeam(world, state, id);
+  if (!team.length) throw new IllegalInput("that gym has nobody to field");
+
+  const lead = state.party.findIndex((one) => !isFainted(one));
+  if (lead < 0) throw new IllegalInput("nothing that could fight");
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    talking: null,
+    phase: "battle",
+    battle: startBattle(world.seed, `${GYM_TAG}${id}`, state.party, team, lead),
+    nextUid: state.nextUid + team.length,
+    notice: null,
+  };
+}
+
 /** What the quest rules are allowed to look at, from this save. */
 export function questViewOf(world: World, state: GameState): QuestView {
   return {
     party: state.party,
     box: state.box,
     beaten: state.beaten,
+    badges: state.badges,
     visited: state.visited,
     bag: state.bag,
     ringOf: (id) => world.routes.get(id)?.ring ?? 0,
@@ -1350,8 +1664,8 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   const ny = state.y + dy;
   if (nx < 0 || ny < 0 || nx >= route.width || ny >= route.height) throw new IllegalInput("off the map");
 
-  const tile = route.tiles[ny * route.width + nx];
-  if (!walkable(tile)) throw new IllegalInput("blocked");
+  const tile = tileAt(state, route, nx, ny);
+  if (!passable(tile, (item) => hasItem(state.bag, item))) throw new IllegalInput("blocked");
 
   // Furniture is a layer above the floor rather than a kind of floor, so what
   // it blocks is asked of the prop and not of the tile under it.
@@ -1401,7 +1715,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   // Somebody standing in the way. They are on the path and therefore visible,
   // so walking into one is a choice rather than an ambush.
   const trainer = trainerAt(world, state.route, nx, ny);
-  if (trainer && !state.beaten.includes(trainer.id)) {
+  if (trainer && wantsRematch(state, trainer.id)) {
     const lead = state.party.findIndex((creature) => !isFainted(creature));
     if (lead >= 0) {
       let uid = state.nextUid;
@@ -1409,7 +1723,10 @@ function move(world: World, state: GameState, dir: Direction): GameState {
         const built = withMoves({
           uid: uid++,
           speciesId: member.speciesId,
-          level: member.level,
+          // Three levels for every beating they have already taken from you,
+          // which is what stops the first ring being worthless by the fourth
+          // badge — the people on it grew up too.
+          level: Math.min(100, member.level + (state.wins[trainer.id] ?? 0) * REMATCH_LEVELS),
           exp: member.level * member.level * member.level,
           ivs: { hp: 8, atk: 8, def: 8, spa: 8, spd: 8, spe: 8 },
           evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
@@ -1532,14 +1849,36 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
       if (outcome.side === 1 || wipedOut) return whiteout(world, base);
 
       const trainerId = trainerIdOf(result.battle);
+      const gymId = gymIdOf(base.battle);
+      if (gymId) {
+        // A badge is won once. Beating the same leader again — which you can,
+        // there is nothing stopping you — pays nothing further, because what
+        // a badge does is make every *other* gym harder.
+        const already = base.badges.includes(gymId);
+        return {
+          ...base,
+          phase: "battleEnd",
+          badges: already ? base.badges : [...base.badges, gymId].sort(),
+          money: base.money + (already ? 0 : GYM_PURSE),
+          bag: already ? base.bag : addItem(base.bag, gymSpec(gymId).tool),
+          notice: already ? { t: "won" } : { t: "badge", gym: gymId },
+        };
+      }
+
       if (!trainerId) return { ...base, phase: "battleEnd", notice: { t: "won" } };
 
       const trainer = [...world.trainers.values()].flat().find((who) => who.id === trainerId);
-      const purse = trainerPurse(trainer?.team.length ?? 1, world.routes.get(base.route)?.ring ?? 1);
+      const wins = (base.wins[trainerId] ?? 0) + 1;
+      const purse = trainerPurse(trainer?.team.length ?? 1, world.routes.get(base.route)?.ring ?? 1) * wins;
+
       return {
         ...base,
         phase: "battleEnd",
-        beaten: [...base.beaten, trainerId].sort(),
+        beaten: base.beaten.includes(trainerId) ? base.beaten : [...base.beaten, trainerId].sort(),
+        // When, and how many times. Both are needed: one decides when they are
+        // willing to go again, the other decides what they bring.
+        beatenAt: { ...base.beatenAt, [trainerId]: base.tick },
+        wins: { ...base.wins, [trainerId]: wins },
         money: base.money + purse,
         notice: { t: "beatTrainer", name: trainer?.name ?? "They", money: purse },
       };

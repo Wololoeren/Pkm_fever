@@ -121,6 +121,24 @@ export function tileColor(biome: string, tile: number, x: number, y: number): st
       return "#4a3527";
     case TILE.SIGN:
       return palette.path;
+
+    // The obstacles. Each reads as a harder version of the ground it sits on,
+    // so "there is something in the way" is legible before you know which tool
+    // it wants.
+    case TILE.BUSH:
+      return "#3f7a3c";
+    case TILE.BOULDER:
+      return "#6f6a60";
+    case TILE.RUBBLE:
+      return "#8a7f70";
+    case TILE.WATERFALL:
+      return "#7fb6d8";
+    case TILE.WHIRLPOOL:
+      return "#2f5f7f";
+    case TILE.CLIFF:
+      return "#5c5148";
+    case TILE.DEEP:
+      return "#1f4a6b";
     default:
       return palette.meadow;
   }

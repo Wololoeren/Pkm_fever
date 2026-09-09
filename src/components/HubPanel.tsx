@@ -17,6 +17,7 @@ import type { World } from "@/engine/world";
 import { variant } from "@/engine/variants";
 import { hasItem, item as itemSpec } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
+import { ReleaseButton } from "./ReleaseButton";
 import { Sprite } from "./Sprite";
 import { GenderMark, VariantTag } from "./PartyStrip";
 
@@ -341,6 +342,13 @@ export function HubPanel({
                   >
                     Box
                   </button>
+                  <ReleaseButton
+                    state={state}
+                    from="party"
+                    index={index}
+                    creature={creature}
+                    onInput={onInput}
+                  />
                 </>
               }
             />
@@ -360,6 +368,7 @@ export function HubPanel({
                 disabled={state.party.length >= 6}
                 onAct={() => onInput({ t: "retrieve", index })}
                 extra={
+                  <>
                   <button
                     type="button"
                     className="ghost small"
@@ -369,6 +378,14 @@ export function HubPanel({
                   >
                     Daycare
                   </button>
+                  <ReleaseButton
+                    state={state}
+                    from="box"
+                    index={index}
+                    creature={creature}
+                    onInput={onInput}
+                  />
+                  </>
                 }
               />
             ))}

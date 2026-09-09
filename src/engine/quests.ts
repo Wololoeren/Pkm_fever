@@ -29,7 +29,8 @@ export type QuestGoal =
   | { t: "ownType"; type: string; count: number }
   | { t: "carryItem"; item: string; count: number }
   | { t: "effort"; amount: number }
-  | { t: "level"; level: number };
+  | { t: "level"; level: number }
+  | { t: "badges"; count: number };
 
 export interface QuestSpec {
   id: string;
@@ -110,6 +111,14 @@ export const QUESTS: readonly QuestSpec[] = [
     reward: { money: 7000, item: "rarecandy" },
   },
   {
+    id: "world-cup",
+    name: "The Invitation",
+    blurb:
+      "Eight badges. Not seven, not seven and a good story. Bring me eight and there is a seat with your name on it.",
+    goal: { t: "badges", count: 8 },
+    reward: { money: 100000, item: "worldcup" },
+  },
+  {
     id: "the-climb",
     name: "The Climb",
     blurb: "Get one of them to level forty. It takes longer than you think.",
@@ -135,6 +144,7 @@ export interface QuestView {
   party: readonly Individual[];
   box: readonly Individual[];
   beaten: readonly string[];
+  badges: readonly string[];
   visited: readonly string[];
   bag: Bag;
   ringOf: (routeId: string) => number;
@@ -193,6 +203,9 @@ export function progressOf(view: QuestView, goal: QuestGoal): QuestProgress {
 
     case "level":
       return done(Math.max(0, ...all.map((one) => one.level)), goal.level);
+
+    case "badges":
+      return done(view.badges.length, goal.count);
   }
 }
 
@@ -219,6 +232,8 @@ export function goalText(goal: QuestGoal): string {
       return `Train ${goal.amount} effort into one`;
     case "level":
       return `Raise one to level ${goal.level}`;
+    case "badges":
+      return `Win ${goal.count} gym badges`;
   }
 }
 

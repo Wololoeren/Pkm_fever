@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
-import { walkable } from "@/engine/terrain";
+import { passable, walkable } from "@/engine/terrain";
 import { STAT_IDS } from "@/engine/types";
 import { CENSUS_TOTAL, CHROMA_IDS, TOP_TIER, variant } from "@/engine/variants";
 import { encounterTable, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
@@ -390,11 +390,14 @@ describe("which way an arm runs", () => {
     }
   });
 
-  it("W24: every room a route carves can be reached from the way in", () => {
+  it("W24: every room a route carves can be reached, given the right tools", () => {
     // The whole point of carving a maze over a spanning tree rather than
     // scattering obstacles: connectivity is structural. If this ever fails,
     // some route has a piece of itself walled off and something on it — a
     // trainer, an item, the one shiny — is unreachable.
+    //
+    // "Reachable" means with the tools, not on foot. A bush is supposed to
+    // stop you; what would be a bug is a bush nothing can ever get past.
     for (const seed of ["A1", "B2", "C3", "D4"]) {
       const world = testWorld(seed);
       for (const route of outdoorRoutes(world)) {
@@ -412,13 +415,13 @@ describe("which way an arm runs", () => {
             const y = at.y + dy;
             if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
             const index = y * route.width + x;
-            if (seen[index] || !walkable(route.tiles[index])) continue;
+            if (seen[index] || !passable(route.tiles[index], () => true)) continue;
             seen[index] = 1;
             queue.push({ x, y });
           }
         }
 
-        const open = route.tiles.filter(walkable).length;
+        const open = route.tiles.filter((tile) => passable(tile, () => true)).length;
         // Doors are walkable but sit in a wall, so allow the handful of them.
         expect(reached, `${seed} ${route.id} strands ${open - reached} tiles`).toBeGreaterThanOrEqual(
           open - route.doors.length,

@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { itemRefusal, type GameState, type Input } from "@/engine/engine";
+import {
+  flyRefusal,
+  itemRefusal,
+  toolRefusal,
+  type GameState,
+  type Input,
+} from "@/engine/engine";
+import type { World } from "@/engine/world";
 import { bagEntries, item, type ItemKind } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 
@@ -18,12 +25,29 @@ import { displayName } from "@/lib/narrate";
 const TABS: { kind: ItemKind; label: string }[] = [
   { kind: "medicine", label: "Medicine" },
   { kind: "ball", label: "Balls" },
+  { kind: "hm", label: "Tools" },
   { kind: "rod", label: "Rods" },
   { kind: "treasure", label: "Valuables" },
   { kind: "breeding", label: "Breeding" },
+  { kind: "key", label: "Keys" },
 ];
 
-export function BagPanel({ state, onInput }: { state: GameState; onInput: (input: Input) => void }) {
+const DIRS: { dir: "n" | "e" | "s" | "w"; label: string }[] = [
+  { dir: "n", label: "↑" },
+  { dir: "w", label: "←" },
+  { dir: "e", label: "→" },
+  { dir: "s", label: "↓" },
+];
+
+export function BagPanel({
+  world,
+  state,
+  onInput,
+}: {
+  world: World;
+  state: GameState;
+  onInput: (input: Input) => void;
+}) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [tab, setTab] = useState<ItemKind | null>(null);
 
@@ -78,7 +102,7 @@ export function BagPanel({ state, onInput }: { state: GameState; onInput: (input
             // Only medicine is used on a creature; everything else is held,
             // worn or sold, and offering a target picker for a Nugget would be
             // a lie about what the button does.
-            const usable = spec.kind === "medicine";
+            const usable = spec.kind === "medicine" || spec.field === "clear" || spec.field === "travel";
 
             return (
               <button
@@ -101,7 +125,61 @@ export function BagPanel({ state, onInput }: { state: GameState; onInput: (input
         <p className="muted">Nothing here yet.</p>
       )}
 
-      {selected ? (
+      {selected && item(selected).field === "clear" ? (
+        <>
+          <h4>Use {item(selected).name} which way?</h4>
+          <div className="row">
+            {DIRS.map(({ dir, label }) => {
+              const why = toolRefusal(world, state, selected, dir);
+              return (
+                <button
+                  key={dir}
+                  type="button"
+                  className="ghost"
+                  disabled={Boolean(why)}
+                  title={why ?? `Use it ${dir === "n" ? "north" : dir === "s" ? "south" : dir === "e" ? "east" : "west"}`}
+                  onClick={() => {
+                    onInput({ t: "useTool", item: selected, dir });
+                    setChosen(null);
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : selected && item(selected).field === "travel" ? (
+        <>
+          <h4>Fly where?</h4>
+          <div className="items">
+            {state.visited
+              .flatMap((id) => {
+                const route = world.routes.get(id);
+                return route && route.kind !== "interior" ? [route] : [];
+              })
+              .map((route) => {
+                const why = flyRefusal(world, state, route.id);
+                return (
+                  <button
+                    key={route.id}
+                    type="button"
+                    className="itemCard"
+                    disabled={Boolean(why)}
+                    title={why ?? `Fly to ${route.label}`}
+                    onClick={() => {
+                      onInput({ t: "fly", route: route.id });
+                      setChosen(null);
+                    }}
+                  >
+                    <span className="itemName">{route.label}</span>
+                    <span className="muted itemBlurb">{why ?? "Fly there"}</span>
+                  </button>
+                );
+              })}
+          </div>
+        </>
+      ) : selected ? (
         <>
           <h4>Use the {item(selected).name} on…</h4>
           <div className="items">

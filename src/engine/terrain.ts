@@ -41,7 +41,44 @@ export const TILE = {
   /** A board beside a door saying what the building is. Solid, like the post
    * it stands on. */
   SIGN: 14,
+
+  // The obstacles a tool answers. Each is impassable on its own and passable
+  // with the right thing in the bag, which is the whole of what an HM is:
+  // a key shaped like a verb.
+  /** Cut. */
+  BUSH: 15,
+  /** Strength. */
+  BOULDER: 16,
+  /** Rock Smash. */
+  RUBBLE: 17,
+  /** Waterfall. */
+  WATERFALL: 18,
+  /** Whirlpool. */
+  WHIRLPOOL: 19,
+  /** Rock Climb. */
+  CLIFF: 20,
+  /** Dive. */
+  DEEP: 21,
 } as const;
+
+/**
+ * What each obstacle wants, and whether the tool clears it for good.
+ *
+ * The split matters: Cut takes a bush down and it stays down, while Surf is
+ * something you are doing rather than something you did — step off the water
+ * and it is water again. So one writes to the save and the other is a question
+ * asked of the bag every time you move.
+ */
+export const OBSTACLES: Record<number, { item: string; clears: boolean }> = {
+  [TILE.BUSH]: { item: "hm-cut", clears: true },
+  [TILE.BOULDER]: { item: "hm-strength", clears: true },
+  [TILE.RUBBLE]: { item: "hm-rocksmash", clears: true },
+  [TILE.WATER]: { item: "hm-surf", clears: false },
+  [TILE.WATERFALL]: { item: "hm-waterfall", clears: false },
+  [TILE.WHIRLPOOL]: { item: "hm-whirlpool", clears: false },
+  [TILE.CLIFF]: { item: "hm-rockclimb", clears: false },
+  [TILE.DEEP]: { item: "hm-dive", clears: false },
+};
 
 export type Tile = (typeof TILE)[keyof typeof TILE];
 
@@ -58,6 +95,25 @@ const WALKABLE = new Set<number>([
 
 export function walkable(tile: number): boolean {
   return WALKABLE.has(tile);
+}
+
+/**
+ * Whether this tile can be crossed by somebody carrying these things.
+ *
+ * Ordinary ground answers without asking the bag. Everything else is an
+ * obstacle with a tool that answers it, which is what turns the outer rings
+ * from a wall into a sequence.
+ */
+export function passable(tile: number, has: (item: string) => boolean): boolean {
+  if (walkable(tile)) return true;
+  const gate = OBSTACLES[tile];
+  return gate ? has(gate.item) : false;
+}
+
+/** Whether a tool is what takes this obstacle away for good. */
+export function clearedBy(tile: number, item: string): boolean {
+  const gate = OBSTACLES[tile];
+  return Boolean(gate?.clears && gate.item === item);
 }
 
 /** Only tall grass hides anything. */
@@ -331,6 +387,15 @@ export function carveLine(
 
 /** Every tile reachable on foot from a starting point. */
 export function reachable(grid: Grid, from: { x: number; y: number }): Uint8Array {
+  return reachableWith(grid, from, walkable);
+}
+
+/** As `reachable`, but you decide what counts as crossable. */
+export function reachableWith(
+  grid: Grid,
+  from: { x: number; y: number },
+  crossable: (tile: number) => boolean,
+): Uint8Array {
   const seen = new Uint8Array(grid.width * grid.height);
   if (!grid.inside(from.x, from.y)) return seen;
 
@@ -349,7 +414,7 @@ export function reachable(grid: Grid, from: { x: number; y: number }): Uint8Arra
       const y = at.y + dy;
       if (!grid.inside(x, y)) continue;
       const index = y * grid.width + x;
-      if (seen[index] || !walkable(grid.get(x, y))) continue;
+      if (seen[index] || !crossable(grid.get(x, y))) continue;
       seen[index] = 1;
       queue.push({ x, y });
     }
@@ -369,14 +434,22 @@ export function reachable(grid: Grid, from: { x: number; y: number }): Uint8Arra
  * from its front door: what that walk cannot get to was never really part of
  * the map, so it stops pretending to be.
  */
-export function sealUnreachable(grid: Grid, from: { x: number; y: number }, wall: number): number {
-  const seen = reachable(grid, from);
+export function sealUnreachable(
+  grid: Grid,
+  from: { x: number; y: number },
+  wall: number,
+  /** What counts as crossable. Obstacles are crossable *eventually*, so the
+   * seal has to walk as though every tool is in the bag — otherwise the first
+   * bush placed on a route deletes everything behind it. */
+  crossable: (tile: number) => boolean = walkable,
+): number {
+  const seen = reachableWith(grid, from, crossable);
   let sealed = 0;
 
   for (let y = 0; y < grid.height; y++) {
     for (let x = 0; x < grid.width; x++) {
       const index = y * grid.width + x;
-      if (seen[index] || !walkable(grid.get(x, y))) continue;
+      if (seen[index] || !crossable(grid.get(x, y))) continue;
       grid.set(x, y, wall);
       sealed++;
     }

@@ -18,7 +18,7 @@ import { variant } from "./variants";
  * somebody decided what they would say.
  */
 
-export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest";
+export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest" | "gym";
 
 /** What a trader will accept. Every field named must match. */
 export interface TradeWant {
@@ -47,6 +47,8 @@ export interface NpcSpec {
   gives?: { speciesId: string; variantId: string; gender: Gender; level: number; nickname?: string };
   /** quest: which one. */
   questId?: string;
+  /** gym: which one. */
+  gymId?: string;
 }
 
 /** Whether a creature satisfies what a trader is asking for. */
@@ -91,7 +93,8 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
   where:
     | { at: "town"; x: number; y: number }
     | { at: "interior"; role: "centre" | "mart" | "daycare" | "house"; index?: number }
-    | { at: "ring"; biome: string; ring: number };
+    | { at: "ring"; biome: string; ring: number }
+    | { at: "gym"; gymId: string };
 }
 
 export const NPCS: readonly NpcPlacement[] = [
@@ -153,6 +156,17 @@ export const NPCS: readonly NpcPlacement[] = [
     lines: [
       "Oh — you are the one who just set off, aren't you.",
       "Take this. I have a drawer full and nowhere left to walk to.",
+    ],
+  },
+  {
+    id: "quest-commissioner",
+    name: "Commissioner",
+    kind: "quest",
+    questId: "world-cup",
+    where: { at: "interior", role: "centre" },
+    lines: [
+      "I am not here for the beds. I am here because this is where everyone eventually comes through.",
+      "There is a tournament. It is not local and it is not friendly.",
     ],
   },
   {

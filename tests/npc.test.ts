@@ -13,6 +13,7 @@ import {
   type GameState,
 } from "@/engine/engine";
 import { countOf } from "@/engine/items";
+import { GYMS } from "@/engine/gyms";
 import { matchesWant, NPCS } from "@/engine/npc";
 import { PROPS } from "@/engine/props";
 import { progressOf, QUESTS, quest as questSpec } from "@/engine/quests";
@@ -57,7 +58,8 @@ describe("where people stand", () => {
     for (const seed of ["A1", "B2", "C3"]) {
       const world = testWorld(seed);
       const placed = [...world.npcs.values()].flat();
-      expect(placed.length).toBe(NPCS.length);
+      // The roster plus a leader for every gym, which the world adds itself.
+      expect(placed.length).toBe(NPCS.length + GYMS.length);
 
       for (const who of placed) {
         const route = world.routes.get(who.route)!;

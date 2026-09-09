@@ -17,6 +17,7 @@ import { PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
 import { BALLS, countOf, item } from "@/engine/items";
 import { quest as questSpec, rewardText } from "@/engine/quests";
+import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
 import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
@@ -234,6 +235,10 @@ export default function Page() {
             <dd>{BALLS.reduce((total, ball) => total + countOf(state.bag, ball.id), 0)}</dd>
           </div>
           <div>
+            <dt>Badges</dt>
+            <dd>{state.badges.length} of 8</dd>
+          </div>
+          <div>
             <dt>Variants</dt>
             <dd>{foundLabel}</dd>
           </div>
@@ -331,6 +336,18 @@ export default function Page() {
               {questSpec(state.notice.id).name} done — paid {rewardText(questSpec(state.notice.id).reward)}.
             </p>
           ) : null}
+          {state.notice?.t === "cleared" ? (
+            <p className="good">Used {item(state.notice.item).name}. The way is open.</p>
+          ) : null}
+          {state.notice?.t === "badge" ? (
+            <p className="good">
+              Beat {gymSpec(state.notice.gym).leader} — the {gymSpec(state.notice.gym).name} badge is
+              yours. Every other gym just got five levels harder.
+            </p>
+          ) : null}
+          {state.notice?.t === "released" ? (
+            <p className="muted">You let {state.notice.name} go.</p>
+          ) : null}
           {state.notice?.t === "hatched" ? (
             <p className="good">The egg hatched!{state.notice.boxed ? " Party was full, so it went to the box." : ""}</p>
           ) : null}
@@ -423,7 +440,7 @@ export default function Page() {
                 {bestRod(state.bag) ? `Fish (${bestRod(state.bag)!.name})` : "Fish"}
               </button>
             </div>
-            <BagPanel state={state} onInput={dispatch} />
+            <BagPanel world={session.world} state={state} onInput={dispatch} />
           </section>
         ) : null}
       </div>

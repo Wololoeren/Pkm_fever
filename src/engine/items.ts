@@ -13,7 +13,7 @@ import { CHROMA_IDS } from "./variants";
  * I have" had two different answers depending on what you asked about.
  */
 
-export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure";
+export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure" | "hm" | "key";
 
 export interface ItemSpec {
   id: string;
@@ -39,6 +39,8 @@ export interface ItemSpec {
   revives?: number;
   /** Rare Candy: levels granted. */
   levels?: number;
+  /** HMs: what the tool does out in the world, for the bag to describe. */
+  field?: "clear" | "cross" | "light" | "travel";
   /** Rods: how far out the water they reach — a higher number fishes deeper
    * tables, the same way a further ring holds better things. */
   reach?: number;
@@ -203,6 +205,137 @@ const ITEM_LIST: ItemSpec[] = [
   },
 ];
 
+
+/**
+ * The tools.
+ *
+ * Every one of them is a key shaped like a verb: somewhere out there is ground
+ * you cannot cross, and this is the thing that answers it. They are found and
+ * kept rather than bought, they never run out, and they are used from the bag
+ * like anything else — there is no separate move slot to spend on carrying the
+ * world's plumbing around.
+ *
+ * Three of them take an obstacle away for good and write that to the save.
+ * Five are something you are *doing* rather than something you did: step off
+ * the water and it is water again, so those are a question asked of the bag
+ * every time you move rather than a change to the map.
+ */
+const TOOLS: ItemSpec[] = [
+  {
+    id: "hm-cut",
+    name: "Cut",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Takes down a bush. It stays down.",
+    stacks: false,
+    field: "clear",
+  },
+  {
+    id: "hm-strength",
+    name: "Strength",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Shoulders a boulder out of the way, permanently.",
+    stacks: false,
+    field: "clear",
+  },
+  {
+    id: "hm-rocksmash",
+    name: "Rock Smash",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Breaks cracked rock apart. It does not come back.",
+    stacks: false,
+    field: "clear",
+  },
+  {
+    id: "hm-surf",
+    name: "Surf",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Crosses open water while you carry it.",
+    stacks: false,
+    field: "cross",
+  },
+  {
+    id: "hm-waterfall",
+    name: "Waterfall",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Climbs falling water. Bring Surf as well, or you cannot reach one.",
+    stacks: false,
+    field: "cross",
+  },
+  {
+    id: "hm-whirlpool",
+    name: "Whirlpool",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Rides through a whirlpool instead of round it.",
+    stacks: false,
+    field: "cross",
+  },
+  {
+    id: "hm-dive",
+    name: "Dive",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Goes under deep water rather than over it.",
+    stacks: false,
+    field: "cross",
+  },
+  {
+    id: "hm-rockclimb",
+    name: "Rock Climb",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Goes up a cliff face.",
+    stacks: false,
+    field: "cross",
+  },
+  {
+    id: "hm-flash",
+    name: "Flash",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Lights the outer rings. Without it you see three paces and no more.",
+    stacks: false,
+    field: "light",
+  },
+  {
+    id: "hm-fly",
+    name: "Fly",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Goes straight to anywhere you have already walked to.",
+    stacks: false,
+    field: "travel",
+  },
+];
+
+/** Things that are not for using, selling or throwing — only for having. */
+const KEYS: ItemSpec[] = [
+  {
+    id: "worldcup",
+    name: "World Cup Invitation",
+    kind: "key",
+    price: 0,
+    sell: 0,
+    blurb: "Eight badges, and somebody finally wants to see you play.",
+    stacks: false,
+  },
+];
+
 /**
  * The breeding equipment, folded into the same catalogue.
  *
@@ -230,7 +363,7 @@ const BREEDING_ITEMS: ItemSpec[] = [
   stacks: false,
 }));
 
-export const ITEMS: readonly ItemSpec[] = [...ITEM_LIST, ...BREEDING_ITEMS];
+export const ITEMS: readonly ItemSpec[] = [...ITEM_LIST, ...TOOLS, ...KEYS, ...BREEDING_ITEMS];
 
 const BY_ID = new Map(ITEMS.map((entry) => [entry.id, entry]));
 
@@ -253,6 +386,9 @@ export const MART_STOCK: readonly ItemSpec[] = ITEMS.filter((entry) => entry.pri
 export const BALLS: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "ball").sort(
   (a, b) => (a.ballMult ?? 0) - (b.ballMult ?? 0),
 );
+
+/** Every tool, in the order they are usually found. */
+export const TOOLS_LIST: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "hm");
 
 /** Every rod, shortest first. */
 export const RODS: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "rod").sort(

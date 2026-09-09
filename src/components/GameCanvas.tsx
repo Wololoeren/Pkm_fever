@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { GameState } from "@/engine/engine";
+import { canSee, DARK_RADIUS, tileAt, type GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
 import { drawProp } from "@/render/props";
 import type { World } from "@/engine/world";
@@ -41,13 +41,27 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       for (let col = 0; col < viewW; col++) {
         const x = camX + col;
         const y = camY + row;
-        const tile = route.tiles[y * route.width + x];
+        const tile = tileAt(state, route, x, y);
         const px = col * TILE_PX;
         const py = row * TILE_PX;
 
         ctx.fillStyle = tileColor(route.biome, tile, x, y);
         ctx.fillRect(px, py, TILE_PX, TILE_PX);
         decorate(ctx, tile, px, py, x, y);
+      }
+    }
+
+    // What you cannot see. The outer rings are dark without Flash, which is
+    // the whole of what that tool is for.
+    if (!canSee(state, route)) {
+      for (let row = 0; row < viewH; row++) {
+        for (let col = 0; col < viewW; col++) {
+          const far =
+            Math.abs(camX + col - state.x) + Math.abs(camY + row - state.y) > DARK_RADIUS;
+          if (!far) continue;
+          ctx.fillStyle = "#0b0e13";
+          ctx.fillRect(col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
+        }
       }
     }
 
@@ -202,6 +216,79 @@ function decorate(ctx: CanvasRenderingContext2D, tile: number, px: number, py: n
     case TILE.EXIT:
       ctx.fillStyle = "rgba(255,220,150,0.85)";
       ctx.fillRect(px + TILE_PX * 0.3, py + TILE_PX * 0.25, TILE_PX * 0.4, TILE_PX * 0.75);
+      return;
+
+    case TILE.BUSH:
+      ctx.fillStyle = "rgba(255,255,255,0.16)";
+      for (const [bx, by] of [[0.3, 0.4], [0.6, 0.35], [0.45, 0.62]]) {
+        ctx.beginPath();
+        ctx.arc(px + bx * TILE_PX, py + by * TILE_PX, TILE_PX * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+
+    case TILE.BOULDER:
+      ctx.fillStyle = "rgba(0,0,0,0.32)";
+      ctx.beginPath();
+      ctx.arc(px + TILE_PX / 2, py + TILE_PX / 2, TILE_PX * 0.36, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.beginPath();
+      ctx.arc(px + TILE_PX * 0.38, py + TILE_PX * 0.38, TILE_PX * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+
+    case TILE.RUBBLE:
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      for (const [bx, by, r] of [[0.32, 0.38, 0.15], [0.62, 0.44, 0.12], [0.46, 0.66, 0.13]]) {
+        ctx.beginPath();
+        ctx.arc(px + bx * TILE_PX, py + by * TILE_PX, TILE_PX * r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+
+    case TILE.WATERFALL:
+      ctx.strokeStyle = "rgba(255,255,255,0.55)";
+      ctx.lineWidth = 2;
+      for (const bx of [0.28, 0.5, 0.72]) {
+        ctx.beginPath();
+        ctx.moveTo(px + bx * TILE_PX, py);
+        ctx.lineTo(px + bx * TILE_PX, py + TILE_PX);
+        ctx.stroke();
+      }
+      return;
+
+    case TILE.WHIRLPOOL:
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let turn = 0; turn < 22; turn++) {
+        const angle = turn * 0.55;
+        const radius = TILE_PX * 0.04 * turn * 0.4;
+        const fx = px + TILE_PX / 2 + Math.cos(angle) * radius;
+        const fy = py + TILE_PX / 2 + Math.sin(angle) * radius;
+        if (turn === 0) ctx.moveTo(fx, fy);
+        else ctx.lineTo(fx, fy);
+      }
+      ctx.stroke();
+      return;
+
+    case TILE.CLIFF:
+      ctx.strokeStyle = "rgba(0,0,0,0.45)";
+      ctx.lineWidth = 2;
+      for (const by of [0.3, 0.55, 0.8]) {
+        ctx.beginPath();
+        ctx.moveTo(px + 2, py + by * TILE_PX);
+        ctx.lineTo(px + TILE_PX - 2, py + by * TILE_PX - 4);
+        ctx.stroke();
+      }
+      return;
+
+    case TILE.DEEP:
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.beginPath();
+      ctx.arc(px + TILE_PX / 2, py + TILE_PX / 2, TILE_PX * 0.3, 0, Math.PI * 2);
+      ctx.fill();
       return;
 
     case TILE.FENCE:
