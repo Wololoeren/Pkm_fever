@@ -2,7 +2,7 @@
 
 import {
   BREEDING_ITEMS,
-  compatible,
+  breedingRefusal,
   generationsToMax,
   ITEM_BLURBS,
   ITEM_NAMES,
@@ -15,7 +15,7 @@ import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
-import { VariantTag } from "./PartyStrip";
+import { GenderMark, VariantTag } from "./PartyStrip";
 
 /**
  * The hub: the daycare and the box.
@@ -62,7 +62,9 @@ function Slot({
       <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={56} />
       <div className="cardBody">
         <div className="cardTop">
-          <strong>{displayName(creature)}</strong>
+          <strong>
+            {displayName(creature)} <GenderMark gender={creature.gender} />
+          </strong>
           <span className="muted">Lv{creature.level}</span>
         </div>
         {ivBar(creature)}
@@ -100,7 +102,9 @@ function Row({
       <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={40} />
       <div className="cardBody">
         <div className="cardTop">
-          <strong>{displayName(creature)}</strong>
+          <strong>
+            {displayName(creature)} <GenderMark gender={creature.gender} />
+          </strong>
           <span className="muted">Lv{creature.level}</span>
         </div>
         {ivBar(creature)}
@@ -131,7 +135,8 @@ export function HubPanel({
   onInspect: (uid: number) => void;
 }) {
   const [first, second] = state.daycare.slots;
-  const pair = first && second ? compatible(first, second) : false;
+  const refusal = first && second ? breedingRefusal(first, second) : null;
+  const pair = Boolean(first && second) && refusal === null;
   const progress = pair ? state.daycare.steps / STEPS_PER_EGG : 0;
   const slotsFull = Boolean(first && second);
 
@@ -159,10 +164,10 @@ export function HubPanel({
           </p>
         ) : null}
 
-        {slotsFull && !pair ? (
+        {slotsFull && refusal ? (
           <p className="error">
-            These two share no egg group, so nothing will come of it. A Ditto pairs with almost
-            anything.
+            {refusal} — so nothing will come of it. A Ditto pairs with almost anything, and so
+            does anyone Trans.
           </p>
         ) : null}
 

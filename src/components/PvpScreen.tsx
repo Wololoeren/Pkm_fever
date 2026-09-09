@@ -10,7 +10,7 @@ import { STAT_IDS, type Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
 import { joinRoom, normaliseRoomCode, randomRoomCode, type Room, type RoomStatus } from "@/lib/room";
 import { BattleView } from "./BattleView";
-import { VariantTag } from "./PartyStrip";
+import { GenderMark, VariantTag } from "./PartyStrip";
 import { Sprite } from "./Sprite";
 
 /**
@@ -42,7 +42,9 @@ function CreatureRow({
       <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={40} />
       <div className="cardBody">
         <div className="cardTop">
-          <strong>{displayName(creature)}</strong>
+          <strong>
+            {displayName(creature)} <GenderMark gender={creature.gender} />
+          </strong>
           <span className="muted">Lv{creature.level}</span>
         </div>
         <span className="muted ivNum">

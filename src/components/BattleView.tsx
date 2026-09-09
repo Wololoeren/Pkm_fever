@@ -7,7 +7,7 @@ import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
-import { HpBar, PartyStrip, VariantTag } from "./PartyStrip";
+import { GenderMark, HpBar, PartyStrip, VariantTag } from "./PartyStrip";
 import { Sprite } from "./Sprite";
 
 /**
@@ -24,7 +24,9 @@ function Nameplate({ creature, right }: { creature: Individual; right?: boolean 
   return (
     <div className={`plate${right ? " right" : ""}`}>
       <div className="plateTop">
-        <strong>{displayName(creature)}</strong>
+        <strong>
+          {displayName(creature)} <GenderMark gender={creature.gender} />
+        </strong>
         <span className="muted">Lv{creature.level}</span>
       </div>
       <HpBar creature={creature} />

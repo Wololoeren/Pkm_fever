@@ -3,7 +3,8 @@
 import { maxHp } from "@/engine/battle";
 import { species as speciesById } from "@/engine/dex";
 import { computeStats } from "@/engine/stats";
-import type { Individual } from "@/engine/types";
+import { GENDER_NAMES, GENDER_SYMBOLS } from "@/engine/gender";
+import type { Gender, Individual } from "@/engine/types";
 import { variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
 import { Sprite } from "./Sprite";
@@ -31,6 +32,15 @@ export function VariantTag({ variantId }: { variantId: string }) {
   if (variantId === "normal") return null;
   const form = variant(variantId);
   return <span className={`tag ${form.kind}`}>{form.name}</span>;
+}
+
+/** The symbol, coloured so it reads at a glance in a list. */
+export function GenderMark({ gender }: { gender: Gender }) {
+  return (
+    <span className={`gender ${gender}`} title={GENDER_NAMES[gender]}>
+      {GENDER_SYMBOLS[gender]}
+    </span>
+  );
 }
 
 export function PartyStrip({
@@ -67,7 +77,9 @@ export function PartyStrip({
             <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={44} faint={fainted} />
             <div className="cardBody">
               <div className="cardTop">
-                <strong>{displayName(creature)}</strong>
+                <strong>
+                  {displayName(creature)} <GenderMark gender={creature.gender} />
+                </strong>
                 <span className="muted">Lv{creature.level}</span>
               </div>
               <HpBar creature={creature} />

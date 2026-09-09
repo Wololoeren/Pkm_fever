@@ -9,6 +9,7 @@ import { STAT_IDS, type Individual, type StatId } from "@/engine/types";
 import { variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
+import { GenderMark } from "./PartyStrip";
 import { Sprite } from "./Sprite";
 
 /**
@@ -104,7 +105,8 @@ export function Inspect({
             <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={72} />
             <div>
               <h2>
-                {displayName(creature)} <span className="muted">Lv{creature.level}</span>
+                {displayName(creature)} <GenderMark gender={creature.gender} />{" "}
+                <span className="muted">Lv{creature.level}</span>
               </h2>
               <div className="types">
                 {entry.types.map((type) => (

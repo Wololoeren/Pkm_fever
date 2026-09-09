@@ -1,3 +1,5 @@
+import type { Gender } from "./gender";
+
 /**
  * The vocabulary the whole engine is written in.
  *
@@ -72,6 +74,8 @@ export interface SpeciesEntry {
   spriteNum: number;
 }
 
+export type { Gender };
+
 /** The five conditions the battle system models. */
 export type StatusId = "brn" | "psn" | "par" | "slp" | "frz";
 
@@ -108,6 +112,7 @@ export interface Individual {
   nickname: string | null;
   /** Which egg produced it, or null for a wild catch. Breeding reads this. */
   parents: [number, number] | null;
+  gender: Gender;
   /**
    * Whether this arrived from another player's world.
    *

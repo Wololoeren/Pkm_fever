@@ -607,3 +607,8 @@ button.moveRow:hover:not(:disabled) { background: #29323d; }
 button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
 .moveRow.on { background: var(--accent-dim); border-color: var(--accent); }
 .moveRow .muted { position: absolute; top: 6px; right: 8px; }
+
+.gender { font-weight: 700; font-size: 0.95em; }
+.gender.male { color: #7fa8e0; }
+.gender.female { color: #e08ab0; }
+.gender.trans { color: #a98ae0; }

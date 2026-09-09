@@ -47,7 +47,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         129 tests, including the replay property everything rests on
+tests/         134 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld, wild encounters, a
@@ -200,6 +200,16 @@ disaster — half of every generation's progress was thrown away, and a line bre
 over twenty generations went precisely nowhere. Inheriting everything and
 mutating a few makes the climb monotonic and legible: about twenty-five
 generations to perfect a stat, or fewer with the items.
+
+Gender gates a pairing before egg groups do: 49% male, 49% female, 2% Trans,
+flat across every species. A Trans creature pairs with either gender, and with
+another Trans — "works with both" has no reason to stop short of itself. Ditto
+ignores gender entirely, as it ignores species.
+
+The games this resembles give each species its own ratio, with some genderless
+and some locked to one gender. That is a manifest field and a build-script
+change rather than an engine one, and a flat split is a rule that needs
+neither.
 
 Three items make it faster, and each is found by reaching further out — ring 2,
 4 and 6. They are equipment rather than stock: found once, then applied to a

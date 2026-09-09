@@ -1,4 +1,5 @@
 import { STARTER_TYPES, startersOfType } from "./dex";
+import { rollGender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { intBelow, intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
 import { clampIvs, WILD_IV_MAX } from "./stats";
@@ -436,6 +437,10 @@ export function wildAt(
   const ivs = rollWildIvs(rng);
   const natureId = pickNature(rng);
   const variantId = world.census.get(`${route}:${index}`) ?? "normal";
+  // Drawn last on purpose. Every roll above it was made before gender
+  // existed, and inserting a draw ahead of them would deal a different
+  // creature into every encounter slot in every world already saved.
+  const gender = rollGender(rng);
 
   return {
     uid,
@@ -453,6 +458,7 @@ export function wildAt(
     nickname: null,
     traded: false,
     parents: null,
+    gender,
   };
 }
 

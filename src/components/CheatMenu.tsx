@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ALL_SPECIES } from "@/engine/dex";
+import { GENDER_NAMES, GENDERS, type Gender } from "@/engine/gender";
 import type { Cheat, GameState, Input } from "@/engine/engine";
 import { VARIANTS } from "@/engine/variants";
 import type { World } from "@/engine/world";
@@ -31,6 +32,7 @@ export function CheatMenu({
   const [speciesId, setSpeciesId] = useState("bulbasaur");
   const [level, setLevel] = useState(50);
   const [variantId, setVariantId] = useState("normal");
+  const [gender, setGender] = useState<Gender>("female");
   const [route, setRoute] = useState(state.route);
 
   const send = (cheat: Cheat) => onInput({ t: "cheat", cheat });
@@ -82,7 +84,18 @@ export function CheatMenu({
               </option>
             ))}
           </select>
-          <button type="button" className="primary" onClick={() => send({ op: "give", speciesId, level, variantId })}>
+          <select value={gender} onChange={(event) => setGender(event.target.value as Gender)} aria-label="Gender">
+            {GENDERS.map((option) => (
+              <option key={option} value={option}>
+                {GENDER_NAMES[option]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => send({ op: "give", speciesId, level, variantId, gender })}
+          >
             Give
           </button>
         </div>
@@ -106,6 +119,17 @@ export function CheatMenu({
                   {VARIANTS.map((form) => (
                     <option key={form.id} value={form.id}>
                       {form.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={creature.gender}
+                  aria-label={`Gender for ${displayName(creature)}`}
+                  onChange={(event) => send({ op: "setGender", index, gender: event.target.value as Gender })}
+                >
+                  {GENDERS.map((option) => (
+                    <option key={option} value={option}>
+                      {GENDER_NAMES[option]}
                     </option>
                   ))}
                 </select>

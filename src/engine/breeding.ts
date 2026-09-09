@@ -1,4 +1,5 @@
 import { baseFormOf, movesAtLevel, species as speciesById } from "./dex";
+import { gendersPair, rollGender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
@@ -84,16 +85,35 @@ export function emptyDaycare(): DaycareState {
  * be in the group that cannot breed at all.
  */
 export function compatible(a: Individual, b: Individual): boolean {
-  if (a.uid === b.uid) return false;
+  return breedingRefusal(a, b) === null;
+}
+
+/**
+ * Why this pair will not produce an egg, or null if it will.
+ *
+ * The reason, not just the verdict, because the daycare has to say what is
+ * wrong: "these two share no egg group" is a different problem from "these two
+ * are both male", and a panel that guesses will eventually guess wrong. Same
+ * shape as depositRefusal and movesRefusal, for the same reason.
+ */
+export function breedingRefusal(a: Individual, b: Individual): string | null {
+  if (a.uid === b.uid) return "nothing breeds with itself";
 
   const groupsA = speciesById(a.speciesId).eggGroups;
   const groupsB = speciesById(b.speciesId).eggGroups;
-  if (groupsA.includes(NO_BREEDING) || groupsB.includes(NO_BREEDING)) return false;
+  if (groupsA.includes(NO_BREEDING) || groupsB.includes(NO_BREEDING)) {
+    return "one of these cannot breed at all";
+  }
 
+  // Ditto is the exception to gender as well as to species: it takes the shape
+  // of whatever it is paired with.
   const isDitto = (individual: Individual) => baseFormOf(individual.speciesId) === DITTO;
-  if (isDitto(a) || isDitto(b)) return !(isDitto(a) && isDitto(b));
+  if (isDitto(a) && isDitto(b)) return "two Dittos have nothing to work from";
+  if (isDitto(a) || isDitto(b)) return null;
 
-  return groupsA.some((group) => groupsB.includes(group));
+  if (!gendersPair(a.gender, b.gender)) return "these two genders do not pair";
+  if (!groupsA.some((group) => groupsB.includes(group))) return "these two share no egg group";
+  return null;
 }
 
 /** Where a mutation lands, with and without the catalyst. */
@@ -124,6 +144,8 @@ export function breed(
 
   const ivs = inheritIvs(rng, first, second, applied);
 
+  const gender = rollGender(rng);
+
   const natureId = applied.includes("talisman")
     ? first.natureId
     : rng() < 0.5
@@ -150,6 +172,7 @@ export function breed(
     nickname: null,
     traded: false,
     parents: [first.uid, second.uid],
+    gender,
   };
 }
 

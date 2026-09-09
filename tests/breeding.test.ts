@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   breed,
+  breedingRefusal,
   compatible,
   generationsToMax,
   STEPS_PER_EGG,
   type BreedingItem,
   type DaycareState,
 } from "@/engine/breeding";
+import { ALL_SPECIES } from "@/engine/dex";
 import { applyInput, depositRefusal, initialState } from "@/engine/engine";
+import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
 import { STAT_IDS, type Individual, type StatTable } from "@/engine/types";
+import { wildAt } from "@/engine/world";
 import { creature, testWorld } from "./helpers";
 
 /**
@@ -173,7 +177,12 @@ describe("what comes out", () => {
 
 describe("who can breed with whom", () => {
   it("BR11: shared egg groups, and Ditto with anything", () => {
-    expect(compatible(creature("bulbasaur", { uid: 1 }), creature("oddish", { uid: 2 }))).toBe(true);
+    expect(
+      compatible(
+        creature("bulbasaur", { uid: 1, gender: "male" }),
+        creature("oddish", { uid: 2, gender: "female" }),
+      ),
+    ).toBe(true);
     expect(compatible(creature("ditto", { uid: 1 }), creature("bulbasaur", { uid: 2 }))).toBe(true);
     // Two Dittos have nothing to work from.
     expect(compatible(creature("ditto", { uid: 1 }), creature("ditto", { uid: 2 }))).toBe(false);
@@ -215,7 +224,11 @@ describe("the daycare", () => {
     const pair = {
       ...base,
       party: [creature("machop", { uid: 90 }), creature("bulbasaur", { uid: 91 })],
-      daycare: pairing(creature("bulbasaur", { uid: 92 }), creature("oddish", { uid: 93 }), STEPS_PER_EGG - 1),
+      daycare: pairing(
+        creature("bulbasaur", { uid: 92, gender: "female" }),
+        creature("oddish", { uid: 93, gender: "male" }),
+        STEPS_PER_EGG - 1,
+      ),
     };
 
     expect(pair.daycare.eggReady).toBe(false);
@@ -297,5 +310,71 @@ describe("the daycare", () => {
     }
     expect(state.daycare.steps).toBe(0);
     expect(state.daycare.eggReady).toBe(false);
+  });
+});
+
+describe("gender", () => {
+  it("BR18: the split is 49 / 49 / 2", () => {
+    // Sampled rather than asserted exactly: the roll is uniform over a
+    // hundred, so a large sample should land close to the stated split.
+    const counts = { male: 0, female: 0, trans: 0 };
+    const runs = 20000;
+    for (let i = 0; i < runs; i++) counts[rollGender(rngFor("gender", i))]++;
+
+    expect(counts.male / runs).toBeCloseTo(0.49, 1);
+    expect(counts.female / runs).toBeCloseTo(0.49, 1);
+    expect(counts.trans / runs).toBeGreaterThan(0.01);
+    expect(counts.trans / runs).toBeLessThan(0.03);
+    expect(counts.male + counts.female + counts.trans).toBe(runs);
+  });
+
+  it("BR19: opposites pair, matches do not, and Trans pairs with anyone", () => {
+    expect(gendersPair("male", "female")).toBe(true);
+    expect(gendersPair("female", "male")).toBe(true);
+    expect(gendersPair("male", "male")).toBe(false);
+    expect(gendersPair("female", "female")).toBe(false);
+
+    // "Works with both genders" has no reason to stop short of itself.
+    for (const other of GENDERS) {
+      expect(gendersPair("trans", other)).toBe(true);
+      expect(gendersPair(other, "trans")).toBe(true);
+    }
+  });
+
+  it("BR20: the daycare refuses a pair that cannot, and says why", () => {
+    const male = creature("bulbasaur", { uid: 1, gender: "male" });
+    const otherMale = creature("oddish", { uid: 2, gender: "male" });
+    const female = creature("oddish", { uid: 3, gender: "female" });
+    const trans = creature("oddish", { uid: 4, gender: "trans" });
+
+    expect(breedingRefusal(male, otherMale)).toBe("these two genders do not pair");
+    expect(breedingRefusal(male, female)).toBeNull();
+    expect(breedingRefusal(male, trans)).toBeNull();
+    expect(compatible(male, otherMale)).toBe(false);
+
+    // Ditto still ignores gender, as it ignores species.
+    expect(breedingRefusal(male, creature("ditto", { uid: 5, gender: "male" }))).toBeNull();
+    // And an egg group mismatch still reads as an egg group mismatch.
+    expect(breedingRefusal(male, creature("machop", { uid: 6, gender: "female" }))).toBe(
+      "these two share no egg group",
+    );
+  });
+
+  it("BR21: everything the world deals has a gender, and the same one every time", () => {
+    const world = testWorld("PKMFEVER1");
+    for (let slot = 0; slot < 20; slot++) {
+      const wild = wildAt(world, ALL_SPECIES, "meadow-1", slot, 1);
+      expect(GENDERS).toContain(wild.gender);
+      expect(wildAt(world, ALL_SPECIES, "meadow-1", slot, 1).gender).toBe(wild.gender);
+    }
+  });
+
+  it("BR22: an egg's gender is its own roll, not a parent's", () => {
+    const mother = creature("bulbasaur", { uid: 1, gender: "female" });
+    const father = creature("bulbasaur", { uid: 2, gender: "male" });
+
+    const seen = new Set<string>();
+    for (let egg = 0; egg < 60; egg++) seen.add(breed(SEED, mother, father, egg, []).gender);
+    expect(seen.size).toBeGreaterThan(1);
   });
 });

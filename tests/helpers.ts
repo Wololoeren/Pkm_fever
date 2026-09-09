@@ -3,7 +3,7 @@ import { ALL_SPECIES, species } from "@/engine/dex";
 import { applyInput, initialState, type GameState, type Input } from "@/engine/engine";
 import { expForLevel } from "@/engine/progression";
 import { intBelow, rngFor } from "@/engine/rng";
-import { DEFAULT_WORLD, type Individual, type StatusId } from "@/engine/types";
+import { DEFAULT_WORLD, type Gender, type Individual, type StatusId } from "@/engine/types";
 import { generateWorld, HUB_ID, type World } from "@/engine/world";
 
 /** A world built the way the game builds one. */
@@ -25,6 +25,7 @@ export function creature(
     natureId?: string;
     variantId?: string;
     status?: StatusId | null;
+    gender?: Gender;
     hp?: number;
     uid?: number;
   } = {},
@@ -47,6 +48,7 @@ export function creature(
     nickname: null,
     traded: false,
     parents: null,
+    gender: options.gender ?? "female",
   };
   return { ...built, hp: options.hp ?? maxHp(built) };
 }

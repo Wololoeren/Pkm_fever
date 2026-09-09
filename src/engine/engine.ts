@@ -19,6 +19,7 @@ import {
   type DaycareState,
 } from "./breeding";
 import { ALL_SPECIES, learnableAt, movesAtLevel, species as speciesById } from "./dex";
+import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { expForLevel } from "./progression";
 import { hash32, intBetween, rngFor } from "./rng";
@@ -104,12 +105,13 @@ export type Input =
   | { t: "setMoves"; index: number; moves: string[] };
 
 export type Cheat =
-  | { op: "give"; speciesId: string; level: number; variantId: string }
+  | { op: "give"; speciesId: string; level: number; variantId: string; gender: Gender }
   | { op: "heal" }
   | { op: "balls"; count: number }
   | { op: "items" }
   | { op: "warp"; route: string }
   | { op: "setVariant"; index: number; variantId: string }
+  | { op: "setGender"; index: number; gender: Gender }
   | { op: "setLevel"; index: number; level: number };
 
 /** What just happened outside a battle, for the UI to phrase. Structured
@@ -354,6 +356,7 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
         nickname: null,
         traded: false,
         parents: null,
+        gender: op.gender,
       });
       const arrival = atFullHealth(built);
       const boxed = state.party.length >= PARTY_LIMIT;
@@ -400,6 +403,16 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
         ...next,
         party: state.party.map((creature, index) =>
           index === op.index ? atFullHealth({ ...creature, variantId }) : creature,
+        ),
+      };
+    }
+
+    case "setGender": {
+      if (op.index < 0 || op.index >= state.party.length) throw new IllegalInput("no such creature");
+      return {
+        ...next,
+        party: state.party.map((creature, index) =>
+          index === op.index ? { ...creature, gender: op.gender } : creature,
         ),
       };
     }
@@ -662,6 +675,8 @@ function pickStarter(world: World, state: GameState, index: number): GameState {
     nickname: null,
     traded: false,
     parents: null,
+    // Last, so the IVs and nature a seed already dealt do not move.
+    gender: rollGender(rng),
   });
 
   return {
@@ -753,7 +768,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     const lead = state.party.findIndex((creature) => !isFainted(creature));
     if (lead >= 0) {
       let uid = state.nextUid;
-      const team = trainer.team.map((member) => {
+      const team = trainer.team.map((member, slot) => {
         const built = withMoves({
           uid: uid++,
           speciesId: member.speciesId,
@@ -770,6 +785,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
           nickname: null,
           traded: false,
           parents: null,
+          gender: rollGender(rngFor(world.seed, "trainer-gender", trainer.id, slot)),
         });
         return atFullHealth(built);
       });
@@ -952,6 +968,7 @@ export function stateHash(state: GameState): string {
       STAT_IDS.map((stat) => creature.evs[stat]).join(","),
       creature.natureId,
       creature.variantId,
+      creature.gender,
       creature.hp,
       creature.status ?? "-",
       creature.sleepTurns,

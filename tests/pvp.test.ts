@@ -181,7 +181,7 @@ describe("the testing shortcuts", () => {
     const { world, state } = inTown();
     const cheated = applyInput(world, state, {
       t: "cheat",
-      cheat: { op: "give", speciesId: "mewtwo", level: 100, variantId: "shiny" },
+      cheat: { op: "give", speciesId: "mewtwo", level: 100, variantId: "shiny", gender: "female" },
     });
 
     const given = [...cheated.party, ...cheated.box].at(-1)!;
