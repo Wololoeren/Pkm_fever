@@ -284,43 +284,37 @@ describe("crossing a border", () => {
 
   it("W20: leaving town and coming straight back returns you to the tile you left", () => {
     // Leaving town eastward and walking back used to land you on the far side
-    // of town: every return from ring one arrived at the *western* gap,
-    // whichever arm you had come from. A step out and a step back is a round
-    // trip, not a teleport across the square.
+    // of the square: every return from ring one arrived at the *western* gap,
+    // whichever arm you had come from.
+    //
+    // Driven from the gates rather than by walking in a straight line from the
+    // middle. A straight line was fine until people were standing in the
+    // world — they are solid, so walking into one talks to them instead of
+    // moving, and the test failed on a town that was working perfectly.
     const world = testWorld("A1");
-    const start = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const town = world.routes.get("hub-0")!;
     const dirs = ["n", "s", "e", "w"] as const;
 
-    let crossings = 0;
+    expect(town.borders.length).toBeGreaterThan(1);
 
-    for (const dir of dirs) {
-      let here = start;
-      let crossed: GameState | null = null;
+    for (const gate of town.borders) {
+      // Stand just inside the gap, then step onto it.
+      const inside = {
+        x: gate.x === 0 ? 1 : gate.x === town.width - 1 ? town.width - 2 : gate.x,
+        y: gate.y === 0 ? 1 : gate.y === town.height - 1 ? town.height - 2 : gate.y,
+      };
+      const at: GameState = { ...base, route: town.id, ...inside };
 
-      for (let i = 0; i < 60; i++) {
-        const next = step(world, here, dir);
-        if (!next) break;
-        if (next.route !== here.route) {
-          crossed = next;
-          break;
-        }
-        here = next;
-      }
-      if (!crossed) continue;
-      crossings++;
+      const out = dirs.map((dir) => step(world, at, dir)).find((next) => next && next.route === gate.to);
+      expect(out, `no way out of town toward ${gate.to}`).toBeTruthy();
 
-      // Whichever way the route opens back onto town, it must open onto the
-      // tile that was stepped off. The direction differs per arm — routes are
-      // built west to east, so the way home is west whatever gap you left by —
-      // and the tile must not.
-      const ways = dirs.map((back) => step(world, crossed!, back)).filter(Boolean) as GameState[];
-      const home = ways.find((way) => way.route === here.route);
-
-      expect(home, `no way back to ${here.route} from ${crossed.route}`).toBeDefined();
-      expect([home!.x, home!.y]).toEqual([here.x, here.y]);
+      const home = dirs
+        .map((dir) => step(world, out!, dir))
+        .find((next) => next && next.route === town.id);
+      expect(home, `no way back into town from ${gate.to}`).toBeTruthy();
+      expect([home!.x, home!.y]).toEqual([inside.x, inside.y]);
     }
-
-    expect(crossings).toBeGreaterThan(1);
   });
 
   it("W21: and that holds between rings, in both directions", () => {

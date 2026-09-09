@@ -1,5 +1,7 @@
 import { STARTER_TYPES, startersOfType } from "./dex";
 import { rollGender } from "./gender";
+import { NPCS, type NpcSpec } from "./npc";
+import { furnish, PROPS, type PropPlacement } from "./props";
 import { NATURE_IDS } from "./natures";
 import {
   building,
@@ -12,6 +14,7 @@ import {
   mirror,
   rotate,
   hidesEncounters,
+  reachable,
   sealUnreachable,
   speckle,
   TILE,
@@ -117,6 +120,8 @@ export interface Route {
   borders: Door[];
   /** Boards standing beside a door, and what each one says. */
   signs: Sign[];
+  /** Furniture standing on this map. Interiors only, in practice. */
+  props: PropPlacement[];
   /** For an interior: what it is for, and which map it belongs to. */
   role?: InteriorRole;
   parent?: string;
@@ -158,6 +163,10 @@ export interface World {
    * the same census, and hunting becomes exploration.
    */
   census: Map<string, string>;
+  /** People who are not trying to fight you, by route. */
+  npcs: Map<string, NpcSpec[]>;
+  /** Things on the floor, by route. Picked up by walking onto them. */
+  pickups: Map<string, PickupSpec[]>;
 }
 
 export function routeId(biome: string, ring: number): string {
@@ -480,29 +489,8 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   speckle(grid, rng, TILE.ROCK, profile.clutter, [profile.ground]);
   speckle(grid, rng, TILE.FLOWER, profile.clutter, [profile.ground]);
 
-  const doors: Door[] = [];
-  const signs: Sign[] = [];
-  const interiors: Route[] = [];
-
-  // A cabin in one of the rooms, sometimes.
-  let cabinBack: { x: number; y: number } | null = null;
-
-  if (rng() < 0.6) {
-    const cell = plan.order[intBetween(rng, 1, plan.order.length - 1)];
-    const at = centreOf(cell.cx, cell.cy);
-    const door = building(grid, at.x - 2, at.y - 2, 5, 4, [profile.ground, TILE.GRASS, TILE.FLOWER]);
-    if (door) {
-      const cabin = `${id}:cabin`;
-      cabinBack = { x: door.x, y: door.y + 1 };
-      const inside = buildInterior(cabin, id, "house", "A cabin", cabinBack);
-      doors.push({ x: door.x, y: door.y, to: cabin, at: inside.entry });
-      if (door.sign) signs.push({ ...door.sign, text: "Cabin" });
-      interiors.push(inside);
-    }
-  }
-
-  // The two ways through, cut last so that nothing scattered above can have
-  // closed them, and joined back to the room grid so they always lead inward.
+  // The two ways through, cut before anything is built on the route so that
+  // whatever gets built can be checked against them.
   const midRow = Math.floor(rows / 2);
   const inSide = centreOf(0, midRow);
   const outSide = centreOf(cols - 1, midRow);
@@ -510,6 +498,42 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   carveLine(grid, outSide, { x: ROUTE_WIDTH - 2, y: outSide.y }, corridor, profile.ground);
   grid.set(0, inSide.y, TILE.PATH);
   grid.set(ROUTE_WIDTH - 1, outSide.y, TILE.PATH);
+
+  const doors: Door[] = [];
+  const signs: Sign[] = [];
+  const interiors: Route[] = [];
+
+  /**
+   * A cabin in one of the rooms, sometimes — and only where it leaves the way
+   * through intact.
+   *
+   * It used to simply go up. Dropped into one of pinewood's small rooms it
+   * filled the room end to end, `sealUnreachable` then filled in everything
+   * past it, and the route lost its own exit tile: from ring five outward, an
+   * arm of the world became unreachable. Putting it up and taking it down
+   * again is cheaper than reasoning about which rooms are wide enough.
+   */
+  let cabinBack: { x: number; y: number } | null = null;
+
+  if (rng() < 0.6) {
+    const cell = plan.order[intBetween(rng, 1, plan.order.length - 1)];
+    const at = centreOf(cell.cx, cell.cy);
+    const before = [...grid.tiles];
+    const door = building(grid, at.x - 2, at.y - 2, 5, 4, [profile.ground, TILE.GRASS, TILE.FLOWER]);
+    const stillOpen =
+      door !== null && reachable(grid, { x: 1, y: inSide.y })[outSide.y * ROUTE_WIDTH + (ROUTE_WIDTH - 2)] === 1;
+
+    if (!stillOpen) {
+      grid.tiles.splice(0, grid.tiles.length, ...before);
+    } else if (door) {
+      const cabin = `${id}:cabin`;
+      cabinBack = { x: door.x, y: door.y + 1 };
+      const inside = buildInterior(cabin, id, "house", "A cabin", cabinBack, rng);
+      doors.push({ x: door.x, y: door.y, to: cabin, at: inside.entry });
+      if (door.sign) signs.push({ ...door.sign, text: "Cabin" });
+      interiors.push(inside);
+    }
+  }
 
   // The last word on the route: anything the walk in cannot get to is filled
   // back in. Everything scattered above — clutter in a narrow corridor, a
@@ -561,6 +585,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
       borders: [],
       doors: doors.map((door) => ({ ...door, ...turned.map(door.x, door.y) })),
       signs: signs.map((sign) => ({ ...sign, ...turned.map(sign.x, sign.y) })),
+      props: [],
       label: `${biome[0].toUpperCase()}${biome.slice(1)} · ring ${ring}`,
     },
     interiors,
@@ -637,6 +662,273 @@ function wireBorders(routes: Map<string, Route>, config: WorldConfig): void {
   });
 }
 
+/** The furniture standing on a tile, if any. */
+export function propAt(route: Route, x: number, y: number): PropPlacement | null {
+  return route.props.find((prop) => prop.x === x && prop.y === y) ?? null;
+}
+
+/** Whether furniture is in the way here. */
+export function propBlocks(route: Route, x: number, y: number): boolean {
+  const prop = propAt(route, x, y);
+  return prop ? !PROPS[prop.kind].walkable : false;
+}
+
+/** One item lying on the ground, waiting to be walked onto. */
+export interface PickupSpec {
+  /** Stable across a whole world, so a save records what it has taken. */
+  id: string;
+  x: number;
+  y: number;
+  item: string;
+}
+
+/**
+ * Whether standing here would cut the map in two.
+ *
+ * People are solid: walking into one starts a conversation rather than a step.
+ * That is fine in the open and disastrous in a doorway, and three of the town
+ * roster landed squarely on the crossroads and walled off three of the four
+ * ways out. Rather than hand-place around it — which lasts until the next
+ * change to the town — every candidate tile is checked by walking the map
+ * without it.
+ */
+function wouldSever(route: Route, at: { x: number; y: number }, others: Set<string>): boolean {
+  const blocked = new Set(others);
+  blocked.add(`${at.x},${at.y}`);
+
+  // Furniture is solid too, and it is placed before anybody stands anywhere.
+  // Without this a villager could be walled into a corner of their own front
+  // room by a bookcase, which is exactly what happened.
+  for (const prop of route.props) {
+    if (!PROPS[prop.kind].walkable) blocked.add(`${prop.x},${prop.y}`);
+  }
+
+  // Everyone already standing here counts. Checking one body at a time was
+  // not enough: the outer pinewood corridors are two tiles across, so two
+  // people neither of whom severs anything alone stood shoulder to shoulder
+  // and sealed the way to the next ring.
+  //
+  // Only tiles that were walkable to begin with come off the count. Taking
+  // `blocked.size` off it instead made the target unreachable by construction,
+  // every candidate was rejected, and placing one person searched the entire
+  // map a flood fill at a time.
+  let want = 0;
+  for (let y = 0; y < route.height; y++) {
+    for (let x = 0; x < route.width; x++) {
+      if (!walkable(route.tiles[y * route.width + x])) continue;
+      if (blocked.has(`${x},${y}`)) continue;
+      want++;
+    }
+  }
+  const seen = new Uint8Array(route.width * route.height);
+
+  const start = blocked.has(`${route.entry.x},${route.entry.y}`)
+    ? { x: route.entry.x + 1, y: route.entry.y }
+    : route.entry;
+  if (!walkable(route.tiles[start.y * route.width + start.x])) return true;
+  if (blocked.has(`${start.x},${start.y}`)) return true;
+
+  const queue = [start];
+  seen[start.y * route.width + start.x] = 1;
+  let reached = 1;
+
+  for (let head = 0; head < queue.length; head++) {
+    const here = queue[head];
+    for (const [dx, dy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ]) {
+      const x = here.x + dx;
+      const y = here.y + dy;
+      if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
+      if (blocked.has(`${x},${y}`)) continue;
+
+      const index = y * route.width + x;
+      if (seen[index] || !walkable(route.tiles[index])) continue;
+      seen[index] = 1;
+      reached++;
+      queue.push({ x, y });
+    }
+  }
+
+  return reached < want;
+}
+
+/**
+ * The nearest tile somebody could actually stand on.
+ *
+ * Roster positions are hints: a route is carved differently on every seed, and
+ * a hard coordinate would put half the cast inside a tree. This spirals out
+ * from the spot asked for until it finds open ground that is not tall grass
+ * and not already spoken for.
+ */
+function nearestSpot(
+  route: Route,
+  wish: { x: number; y: number },
+  taken: Set<string>,
+): { x: number; y: number } | null {
+  for (let radius = 0; radius < Math.max(route.width, route.height); radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+
+        const x = wish.x + dx;
+        const y = wish.y + dy;
+        if (x < 1 || y < 1 || x >= route.width - 1 || y >= route.height - 1) continue;
+        if (taken.has(`${x},${y}`)) continue;
+
+        const tile = route.tiles[y * route.width + x];
+        if (!walkable(tile) || hidesEncounters(tile)) continue;
+        if (propBlocks(route, x, y)) continue;
+        if (route.doors.some((door) => door.x === x && door.y === y)) continue;
+        if (route.borders.some((border) => border.x === x && border.y === y)) continue;
+        if (x === route.entry.x && y === route.entry.y) continue;
+        // Cheap first: somewhere with three ways off it is somewhere you can
+        // be walked around, and rules out most of the map without a flood.
+        const ways = [
+          [0, -1],
+          [0, 1],
+          [-1, 0],
+          [1, 0],
+        ].filter(
+          ([dx, dy]) =>
+            walkable(route.tiles[(y + dy) * route.width + (x + dx)]) &&
+            !propBlocks(route, x + dx, y + dy),
+        ).length;
+        if (ways < 3) continue;
+
+        if (wouldSever(route, { x, y }, taken)) continue;
+
+        return { x, y };
+      }
+    }
+  }
+  return null;
+}
+
+/** Puts the roster on the map, each as near their spot as the ground allows. */
+function placeNpcs(routes: Map<string, Route>): Map<string, NpcSpec[]> {
+  const placed = new Map<string, NpcSpec[]>();
+  const taken = new Map<string, Set<string>>();
+  const houses = [...routes.values()].filter((route) => route.role === "house");
+
+  for (const entry of NPCS) {
+    const target = (() => {
+      switch (entry.where.at) {
+        case "town":
+          return { route: routes.get(HUB_ID), wish: { x: entry.where.x, y: entry.where.y } };
+        case "interior": {
+          const role = entry.where.role;
+          const room =
+            role === "house"
+              ? houses[(entry.where.index ?? 0) % Math.max(1, houses.length)]
+              : [...routes.values()].find((route) => route.role === role);
+          return room ? { route: room, wish: { x: Math.floor(room.width / 2), y: 3 } } : null;
+        }
+        case "ring": {
+          const route = routes.get(routeId(entry.where.biome, entry.where.ring));
+          return route ? { route, wish: route.entry } : null;
+        }
+      }
+    })();
+
+    if (!target?.route) continue;
+    const route = target.route;
+
+    const used = taken.get(route.id) ?? new Set<string>();
+    const spot = nearestSpot(route, target.wish, used);
+    if (!spot) continue;
+
+    used.add(`${spot.x},${spot.y}`);
+    taken.set(route.id, used);
+
+    // `where` was a hint for placement; what goes on the map is a position.
+    const rest = { ...entry, where: undefined };
+    delete (rest as { where?: unknown }).where;
+    placed.set(route.id, [
+      ...(placed.get(route.id) ?? []),
+      { ...rest, route: route.id, x: spot.x, y: spot.y },
+    ]);
+  }
+
+  return placed;
+}
+
+/** What is lying about out there, and roughly how good it is. */
+const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
+  { item: "pokeball", weight: 30 },
+  { item: "potion", weight: 24 },
+  { item: "greatball", weight: 12 },
+  { item: "superpotion", weight: 12 },
+  { item: "fullheal", weight: 8 },
+  { item: "pearl", weight: 6 },
+  { item: "revive", weight: 4 },
+  { item: "hyperpotion", weight: 3 },
+  { item: "ultraball", weight: 2 },
+  { item: "nugget", weight: 1 },
+];
+
+/**
+ * Items on the floor, placed once when the world is made.
+ *
+ * Placed rather than rolled, like everything else: the same seed leaves the
+ * same things in the same corners, so finding one is exploration and not luck.
+ * Deliberately biased into the dead ends — a maze whose only reward for taking
+ * the wrong turn is walking back is a maze nobody explores twice.
+ */
+function placePickups(
+  seed: string,
+  routes: Map<string, Route>,
+  npcs: Map<string, NpcSpec[]>,
+): Map<string, PickupSpec[]> {
+  const placed = new Map<string, PickupSpec[]>();
+
+  for (const route of routes.values()) {
+    if (route.kind !== "route") continue;
+
+    const rng = rngFor(seed, "pickups", route.id);
+    const busy = new Set((npcs.get(route.id) ?? []).map((who) => `${who.x},${who.y}`));
+
+    // Somewhere open, and out of the way: a tile with only one walkable
+    // neighbour is the end of a dead end, which is exactly where a reward for
+    // going the wrong way belongs.
+    const corners: { x: number; y: number }[] = [];
+    for (let y = 2; y < route.height - 2; y++) {
+      for (let x = 2; x < route.width - 2; x++) {
+        const tile = route.tiles[y * route.width + x];
+        if (!walkable(tile) || hidesEncounters(tile)) continue;
+        if (busy.has(`${x},${y}`)) continue;
+
+        const open = [
+          [0, -1],
+          [0, 1],
+          [-1, 0],
+          [1, 0],
+        ].filter(([dx, dy]) => walkable(route.tiles[(y + dy) * route.width + (x + dx)])).length;
+        if (open <= 2) corners.push({ x, y });
+      }
+    }
+    if (!corners.length) continue;
+
+    const count = 3 + intBelow(rng, 3);
+    const chosen = shuffle(rng, corners).slice(0, count);
+
+    placed.set(
+      route.id,
+      chosen.map((at, index) => ({
+        id: `${route.id}:${index}`,
+        x: at.x,
+        y: at.y,
+        item: weighted(rng, PICKUP_TABLE, (row) => row.weight).item,
+      })),
+    );
+  }
+
+  return placed;
+}
+
 /** The walkable tile just inside a border gate. */
 function insideOf(
   gate: { x: number; y: number },
@@ -656,6 +948,7 @@ function buildInterior(
   role: InteriorRole,
   label: string,
   back: { x: number; y: number },
+  rng?: Rng,
 ): Route {
   const grid = new Grid(ROOM_WIDTH, ROOM_HEIGHT, TILE.FLOOR);
   grid.rect(0, 0, ROOM_WIDTH, 1, TILE.WALL);
@@ -665,6 +958,16 @@ function buildInterior(
 
   const exitX = Math.floor(ROOM_WIDTH / 2);
   grid.set(exitX, ROOM_HEIGHT - 1, TILE.EXIT);
+
+  // The way out, and the tile in front of it, stay clear: a bookcase across
+  // the door would be a room you can enter and not leave.
+  const props = rng
+    ? furnish(rng, ROOM_WIDTH, ROOM_HEIGHT, role, [
+        { x: exitX, y: ROOM_HEIGHT - 1 },
+        { x: exitX, y: ROOM_HEIGHT - 2 },
+        { x: exitX, y: ROOM_HEIGHT - 3 },
+      ])
+    : [];
 
   return {
     id,
@@ -676,6 +979,7 @@ function buildInterior(
     tiles: grid.tiles,
     entry: { x: exitX, y: ROOM_HEIGHT - 2 },
     doors: [{ x: exitX, y: ROOM_HEIGHT - 1, to: parent, at: back }],
+    props,
     borders: [],
     // Nothing to sign-post indoors: you are already in the building.
     signs: [],
@@ -861,7 +1165,7 @@ function buildTown(): { town: Route; interiors: Route[] } {
 
     const id = `${HUB_ID}:${plot.role}${plot.x}`;
     const back = { x: door.x, y: door.y + 1 };
-    const inside = buildInterior(id, HUB_ID, plot.role, plot.label, back);
+    const inside = buildInterior(id, HUB_ID, plot.role, plot.label, back, rngFor("furnish", id));
     doors.push({ x: door.x, y: door.y, to: id, at: inside.entry });
     // What the sign says is the building's job, not its name: "Daycare" is
     // useful from across the square, "A house" is at least honest.
@@ -898,6 +1202,7 @@ function buildTown(): { town: Route; interiors: Route[] } {
       entry: { x: midX, y: midY },
       doors,
       signs,
+      props: [],
       borders: [],
       label: "Hearth",
     },
@@ -967,6 +1272,9 @@ export function generateWorld(
   const crown = appearanceId(TOP_TIER, CHROMA_IDS[intBetween(crownRng, 0, CHROMA_IDS.length - 1)]);
   place(crown, crownRng, depthRing(3));
 
+  const npcs = placeNpcs(routes);
+  const pickups = placePickups(seed, routes, npcs);
+
   const trainers = new Map<string, TrainerSpec[]>();
   for (const route of routes.values()) {
     if (route.kind !== "route") continue;
@@ -974,7 +1282,7 @@ export function generateWorld(
     if (here.length) trainers.set(route.id, here);
   }
 
-  return { config, seed, starters, routes, census, trainers };
+  return { config, seed, starters, routes, census, trainers, npcs, pickups };
 }
 
 /**

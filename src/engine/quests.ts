@@ -1,0 +1,231 @@
+import { effortSpent } from "./effort";
+import { item as itemSpec } from "./items";
+import { species as speciesById } from "./dex";
+import type { Bag } from "./items";
+import type { Individual } from "./types";
+import { variant } from "./variants";
+
+/**
+ * Quests, and the reason they need almost no state.
+ *
+ * Progress is *derived* rather than counted. Nothing increments when you catch
+ * something; `progressOf` looks at the save and works out where you are. That
+ * falls straight out of the rest of the design — the whole state is a pure
+ * function of the input log — and it means a quest can be added, retuned or
+ * removed without invalidating a single save, because there is no counter
+ * stored anywhere that could disagree with the world it was counting.
+ *
+ * Only two things are recorded: which quests you have taken, and which you
+ * have been paid for. Everything else is a question asked of the save.
+ */
+
+export type QuestGoal =
+  | { t: "own"; count: number }
+  | { t: "beatTrainers"; count: number }
+  | { t: "reachRing"; ring: number }
+  | { t: "ownChroma"; count: number }
+  | { t: "ownTier"; tier: number }
+  | { t: "ownSpecies"; speciesId: string }
+  | { t: "ownType"; type: string; count: number }
+  | { t: "carryItem"; item: string; count: number }
+  | { t: "effort"; amount: number }
+  | { t: "level"; level: number };
+
+export interface QuestSpec {
+  id: string;
+  name: string;
+  /** What the giver says when you take it. */
+  blurb: string;
+  /** What to do. */
+  goal: QuestGoal;
+  reward: { money?: number; item?: string };
+}
+
+export const QUESTS: readonly QuestSpec[] = [
+  {
+    id: "first-steps",
+    name: "Something to Walk With",
+    blurb:
+      "You cannot go far out there on one. Bring me word that you have three of them and I will pay for the trouble.",
+    goal: { t: "own", count: 3 },
+    reward: { money: 1200, item: "potion" },
+  },
+  {
+    id: "the-rounds",
+    name: "The Rounds",
+    blurb: "Five people out on the routes reckon they are better than you. Prove otherwise.",
+    goal: { t: "beatTrainers", count: 5 },
+    reward: { money: 3000, item: "superpotion" },
+  },
+  {
+    id: "far-enough",
+    name: "Far Enough Out",
+    blurb: "Nobody local has seen the fourth ring in years. Go and stand on it.",
+    goal: { t: "reachRing", ring: 4 },
+    reward: { money: 5000, item: "hyperpotion" },
+  },
+  {
+    id: "colour-theory",
+    name: "Colour Theory",
+    blurb:
+      "There are creatures out there wearing colours they were not born with. Find two and I will make it worth your while.",
+    goal: { t: "ownChroma", count: 2 },
+    reward: { money: 8000, item: "greatball" },
+  },
+  {
+    id: "the-shine",
+    name: "The Shine",
+    blurb:
+      "Somewhere in this world there is exactly one true shiny. One. Bring it to me and I will not ask how.",
+    goal: { t: "ownTier", tier: 5 },
+    reward: { money: 25000, item: "superrod" },
+  },
+  {
+    id: "a-ditto",
+    name: "Shapeless",
+    blurb: "I have never seen a Ditto up close. Get one and come back.",
+    goal: { t: "ownSpecies", speciesId: "ditto" },
+    reward: { money: 4000, item: "prism" },
+  },
+  {
+    id: "the-drenched",
+    name: "The Drenched",
+    blurb: "Four things out of the water, and I will teach you what a rod is really for.",
+    goal: { t: "ownType", type: "water", count: 4 },
+    reward: { money: 3500, item: "goodrod" },
+  },
+  {
+    id: "deep-pockets",
+    name: "Deep Pockets",
+    blurb: "Bring me three Nuggets. Do not ask what for.",
+    goal: { t: "carryItem", item: "nugget", count: 3 },
+    reward: { money: 12000 },
+  },
+  {
+    id: "the-work",
+    name: "The Work",
+    blurb:
+      "Anyone can catch a thing. Train one — properly, two hundred points of effort into it — and I will know you are serious.",
+    goal: { t: "effort", amount: 200 },
+    reward: { money: 7000, item: "rarecandy" },
+  },
+  {
+    id: "the-climb",
+    name: "The Climb",
+    blurb: "Get one of them to level forty. It takes longer than you think.",
+    goal: { t: "level", level: 40 },
+    reward: { money: 6000, item: "ultraball" },
+  },
+];
+
+const BY_ID = new Map(QUESTS.map((quest) => [quest.id, quest]));
+
+export function quest(id: string): QuestSpec {
+  const found = BY_ID.get(id);
+  if (!found) throw new Error(`unknown quest: ${id}`);
+  return found;
+}
+
+export function isQuest(id: string): boolean {
+  return BY_ID.has(id);
+}
+
+/** Everything the questing rules are allowed to look at. */
+export interface QuestView {
+  party: readonly Individual[];
+  box: readonly Individual[];
+  beaten: readonly string[];
+  visited: readonly string[];
+  bag: Bag;
+  ringOf: (routeId: string) => number;
+}
+
+export interface QuestProgress {
+  have: number;
+  need: number;
+  done: boolean;
+}
+
+/**
+ * How far along a quest is, asked of the save rather than remembered.
+ *
+ * Every branch counts something already there, which is the point: no quest
+ * can drift out of step with the world, because the world is the only record.
+ */
+export function progressOf(view: QuestView, goal: QuestGoal): QuestProgress {
+  const all = [...view.party, ...view.box];
+  const done = (have: number, need: number): QuestProgress => ({
+    have: Math.min(have, need),
+    need,
+    done: have >= need,
+  });
+
+  switch (goal.t) {
+    case "own":
+      return done(all.length, goal.count);
+
+    case "beatTrainers":
+      return done(view.beaten.length, goal.count);
+
+    case "reachRing":
+      return done(Math.max(0, ...view.visited.map(view.ringOf)), goal.ring);
+
+    case "ownChroma":
+      return done(all.filter((one) => variant(one.variantId).chromaId !== null).length, goal.count);
+
+    case "ownTier":
+      return done(Math.max(0, ...all.map((one) => variant(one.variantId).tier)), goal.tier);
+
+    case "ownSpecies":
+      return done(all.filter((one) => one.speciesId === goal.speciesId).length, 1);
+
+    case "ownType":
+      return done(
+        all.filter((one) => speciesById(one.speciesId).types.some((type) => type === goal.type)).length,
+        goal.count,
+      );
+
+    case "carryItem":
+      return done(view.bag[goal.item] ?? 0, goal.count);
+
+    case "effort":
+      return done(Math.max(0, ...all.map((one) => effortSpent(one.evs))), goal.amount);
+
+    case "level":
+      return done(Math.max(0, ...all.map((one) => one.level)), goal.level);
+  }
+}
+
+/** What a quest asks for, in a sentence, for the panel. */
+export function goalText(goal: QuestGoal): string {
+  switch (goal.t) {
+    case "own":
+      return `Have ${goal.count} creatures`;
+    case "beatTrainers":
+      return `Beat ${goal.count} trainers`;
+    case "reachRing":
+      return `Stand on ring ${goal.ring}`;
+    case "ownChroma":
+      return `Hold ${goal.count} wearing a colour`;
+    case "ownTier":
+      return `Hold a true shiny`;
+    case "ownSpecies":
+      return `Hold a ${speciesById(goal.speciesId).name}`;
+    case "ownType":
+      return `Hold ${goal.count} ${goal.type} types`;
+    case "carryItem":
+      return `Carry ${goal.count} x ${itemSpec(goal.item).name}`;
+    case "effort":
+      return `Train ${goal.amount} effort into one`;
+    case "level":
+      return `Raise one to level ${goal.level}`;
+  }
+}
+
+/** What a quest pays, in a sentence. */
+export function rewardText(reward: QuestSpec["reward"]): string {
+  const parts: string[] = [];
+  if (reward.money) parts.push(`¤${reward.money.toLocaleString()}`);
+  if (reward.item) parts.push(itemSpec(reward.item).name);
+  return parts.join(" and ") || "nothing at all";
+}

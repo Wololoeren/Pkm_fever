@@ -8,12 +8,15 @@ import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { BagPanel } from "@/components/BagPanel";
+import { QuestPanel } from "@/components/QuestPanel";
+import { TalkPanel } from "@/components/TalkPanel";
 import { HubPanel } from "@/components/HubPanel";
 import { MartPanel } from "@/components/MartPanel";
 import { MainMenu } from "@/components/MainMenu";
 import { PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
 import { BALLS, countOf, item } from "@/engine/items";
+import { quest as questSpec, rewardText } from "@/engine/quests";
 import { ALL_SPECIES } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
 import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
@@ -304,11 +307,39 @@ export default function Page() {
               Sold {state.notice.count} x {item(state.notice.item).name}.
             </p>
           ) : null}
+          {state.notice?.t === "picked" ? (
+            <p className="good">Picked up a {item(state.notice.item).name}.</p>
+          ) : null}
+          {state.notice?.t === "gift" ? (
+            <p className="good">
+              {state.notice.from} gave you a {item(state.notice.item).name}.
+            </p>
+          ) : null}
+          {state.notice?.t === "healed" ? (
+            <p className="good">{state.notice.by} patched everyone up.</p>
+          ) : null}
+          {state.notice?.t === "swapped" ? (
+            <p className="good">
+              Traded your {state.notice.given} for their {state.notice.got}.
+            </p>
+          ) : null}
+          {state.notice?.t === "questTaken" ? (
+            <p className="good">Took on {questSpec(state.notice.id).name}.</p>
+          ) : null}
+          {state.notice?.t === "questDone" ? (
+            <p className="good">
+              {questSpec(state.notice.id).name} done — paid {rewardText(questSpec(state.notice.id).reward)}.
+            </p>
+          ) : null}
           {state.notice?.t === "hatched" ? (
             <p className="good">The egg hatched!{state.notice.boxed ? " Party was full, so it went to the box." : ""}</p>
           ) : null}
         </section>
       )}
+
+      {state.talking ? (
+        <TalkPanel world={session.world} state={state} onInput={dispatch} />
+      ) : null}
 
       {inHub ? (
         <HubPanel
@@ -368,6 +399,13 @@ export default function Page() {
             />
           </section>
         )}
+
+        {state.phase === "field" ? (
+          <section className="panel">
+            <h3>Quests</h3>
+            <QuestPanel world={session.world} state={state} onInput={dispatch} />
+          </section>
+        ) : null}
 
         {state.phase === "field" ? (
           <section className="panel">

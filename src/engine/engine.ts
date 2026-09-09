@@ -21,6 +21,13 @@ import { ALL_SPECIES, learnableAt, movesAtLevel, species as speciesById } from "
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { expForLevel, MAX_LEVEL } from "./progression";
+import { matchesWant, wantText, type NpcSpec } from "./npc";
+import {
+  isQuest,
+  progressOf,
+  quest as questSpec,
+  type QuestView,
+} from "./quests";
 import { hash32, intBetween, rngFor } from "./rng";
 import { clampIvs, computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatTable } from "./types";
@@ -28,6 +35,7 @@ import { variant } from "./variants";
 import {
   encounterTriggers,
   fishAt,
+  propBlocks,
   HUB_ID,
   starterAppearance,
   trainerAt,
@@ -137,7 +145,16 @@ export type Input =
   | { t: "buyItem"; item: string; count: number }
   | { t: "sellItem"; item: string; count: number }
   /** Casting a line at water you are standing beside. */
-  | { t: "fish" };
+  | { t: "fish" }
+  /** Talking to somebody. Walking into them does this for you. */
+  | { t: "talk"; id: string }
+  | { t: "endTalk" }
+  /** Taking whatever the person you are talking to is offering. */
+  | { t: "npcAccept" }
+  /** Giving one of yours to a trader, by party slot. */
+  | { t: "npcTrade"; index: number }
+  /** Claiming a finished quest. */
+  | { t: "claimQuest"; id: string };
 
 export type Cheat =
   | { op: "give"; speciesId: string; level: number; variantId: string; gender: Gender }
@@ -166,7 +183,13 @@ export type Notice =
   | { t: "traded"; given: string; received: string }
   | { t: "used"; item: string; on: string }
   | { t: "bought"; item: string; count: number }
-  | { t: "sold"; item: string; count: number };
+  | { t: "sold"; item: string; count: number }
+  | { t: "picked"; item: string }
+  | { t: "gift"; from: string; item: string }
+  | { t: "healed"; by: string }
+  | { t: "swapped"; given: string; got: string }
+  | { t: "questTaken"; id: string }
+  | { t: "questDone"; id: string };
 
 export interface GameState {
   tick: number;
@@ -197,6 +220,17 @@ export interface GameState {
   visited: string[];
   /** Trainers already beaten, sorted. They stay beaten. */
   beaten: string[];
+  /** Who you are mid-conversation with, if anyone. */
+  talking: string | null;
+  /** People whose one-off offer has been taken, sorted. */
+  helped: string[];
+  /** Quests accepted, and quests already paid out. Progress itself is never
+   * stored — it is asked of the save, so a quest can be retuned without
+   * invalidating a single log. */
+  questsTaken: string[];
+  questsDone: string[];
+  /** Items picked up off the floor, sorted. */
+  taken: string[];
   /** Whether a testing shortcut was ever used in this save. Once true, always
    * true: the point is that a cheated save cannot quietly become an honest one. */
   cheated: boolean;
@@ -287,6 +321,11 @@ export function initialState(world: World): GameState {
     daycare: emptyDaycare(),
     visited: [HUB_ID],
     beaten: [],
+    talking: null,
+    helped: [],
+    questsTaken: [],
+    questsDone: [],
+    taken: [],
     cheated: false,
   };
 }
@@ -361,6 +400,16 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return sellItem(world, state, input.item, input.count);
     case "fish":
       return fish(world, state);
+    case "talk":
+      return talk(world, state, input.id);
+    case "endTalk":
+      return { ...state, tick: state.tick + 1, talking: null, notice: null };
+    case "npcAccept":
+      return npcAccept(world, state);
+    case "npcTrade":
+      return npcTrade(world, state, input.index);
+    case "claimQuest":
+      return claimQuest(world, state, input.id);
   }
 }
 
@@ -1061,6 +1110,211 @@ function sellItem(world: World, state: GameState, itemId: string, count: number)
   };
 }
 
+/** Everyone standing on this map. */
+export function npcAt(world: World, route: string, x: number, y: number): NpcSpec | null {
+  return (world.npcs.get(route) ?? []).find((who) => who.x === x && who.y === y) ?? null;
+}
+
+/** The person a save is mid-conversation with, if any. */
+export function speakingTo(world: World, state: GameState): NpcSpec | null {
+  if (!state.talking) return null;
+  for (const here of world.npcs.values()) {
+    const found = here.find((who) => who.id === state.talking);
+    if (found) return found;
+  }
+  return null;
+}
+
+function talk(world: World, state: GameState, id: string): GameState {
+  if (state.phase !== "field") throw new IllegalInput("not right now");
+
+  const person = (world.npcs.get(state.route) ?? []).find((who) => who.id === id);
+  if (!person) throw new IllegalInput("nobody there");
+
+  const near = Math.abs(person.x - state.x) + Math.abs(person.y - state.y);
+  if (near > 1) throw new IllegalInput("too far away to talk");
+
+  return { ...state, tick: state.tick + 1, talking: id, notice: null };
+}
+
+/**
+ * Why the person you are talking to cannot help you, or null if they can.
+ *
+ * One predicate, two callers, as everywhere else: a button is greyed out for
+ * exactly the reason the engine would have refused, in the same words.
+ */
+export function offerRefusal(world: World, state: GameState): string | null {
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+
+  switch (person.kind) {
+    case "hint":
+      return "there is nothing to take";
+
+    case "gift":
+      if (state.helped.includes(person.id)) return "they have already given you one";
+      return null;
+
+    case "heal":
+      if (!state.party.length) return "you have nothing to heal";
+      if (state.party.every((one) => one.hp >= maxHp(one) && !one.status)) return "everyone is well";
+      return null;
+
+    case "quest": {
+      if (!person.questId) return "there is nothing to take";
+      if (state.questsDone.includes(person.questId)) return "that one is finished";
+      if (state.questsTaken.includes(person.questId)) return "you already took that";
+      return null;
+    }
+
+    case "trade":
+      if (state.helped.includes(person.id)) return "they have already traded with you";
+      if (!person.wants) return "there is nothing to take";
+      if (!state.party.some((one) => matchesWant(one, person.wants!))) {
+        return "you have nothing they want - " + wantText(person.wants);
+      }
+      return null;
+  }
+}
+
+function npcAccept(world: World, state: GameState): GameState {
+  const refusal = offerRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const person = speakingTo(world, state)!;
+
+  switch (person.kind) {
+    case "gift":
+      return {
+        ...state,
+        tick: state.tick + 1,
+        bag: addItem(state.bag, person.item!),
+        helped: [...state.helped, person.id].sort(),
+        notice: { t: "gift", from: person.name, item: person.item! },
+      };
+
+    case "heal":
+      return {
+        ...state,
+        tick: state.tick + 1,
+        party: state.party.map((one) => ({ ...atFullHealth(one), status: null, sleepTurns: 0 })),
+        notice: { t: "healed", by: person.name },
+      };
+
+    case "quest":
+      return {
+        ...state,
+        tick: state.tick + 1,
+        questsTaken: [...state.questsTaken, person.questId!].sort(),
+        notice: { t: "questTaken", id: person.questId! },
+      };
+
+    default:
+      throw new IllegalInput("that is not something they offer");
+  }
+}
+
+/** Why this creature will not do for the trader in front of you. */
+export function tradeRefusal(world: World, state: GameState, index: number): string | null {
+  const standing = offerRefusal(world, state);
+  if (standing) return standing;
+
+  const person = speakingTo(world, state)!;
+  if (person.kind !== "trade") return "they are not trading";
+
+  const giving = state.party[index];
+  if (!giving) return "nobody there";
+  if (!matchesWant(giving, person.wants!)) return "they want " + wantText(person.wants!);
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+function npcTrade(world: World, state: GameState, index: number): GameState {
+  const refusal = tradeRefusal(world, state, index);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const person = speakingTo(world, state)!;
+  const given = state.party[index];
+  const offer = person.gives!;
+
+  const got = atFullHealth(
+    withMoves({
+      uid: state.nextUid,
+      speciesId: offer.speciesId,
+      level: offer.level,
+      exp: expForLevel(offer.level),
+      // A traded creature came out of somebody else's story, so the offer
+      // fixes its stats rather than a roll here. Marked `traded`, like every
+      // arrival a save cannot derive from its own seed.
+      ivs: { hp: 20, atk: 20, def: 20, spa: 20, spd: 20, spe: 20 },
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      natureId: NATURE_IDS[offer.level % NATURE_IDS.length],
+      variantId: variant(offer.variantId).id,
+      hp: 0,
+      status: null,
+      sleepTurns: 0,
+      moves: [],
+      nickname: offer.nickname ?? null,
+      traded: true,
+      parents: null,
+      gender: offer.gender,
+    }),
+  );
+
+  const party = [...state.party];
+  party[index] = got;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party,
+    nextUid: state.nextUid + 1,
+    helped: [...state.helped, person.id].sort(),
+    found: state.found.includes(got.variantId) ? state.found : [...state.found, got.variantId].sort(),
+    notice: {
+      t: "swapped",
+      given: speciesById(given.speciesId).name,
+      got: speciesById(got.speciesId).name,
+    },
+  };
+}
+
+/** What the quest rules are allowed to look at, from this save. */
+export function questViewOf(world: World, state: GameState): QuestView {
+  return {
+    party: state.party,
+    box: state.box,
+    beaten: state.beaten,
+    visited: state.visited,
+    bag: state.bag,
+    ringOf: (id) => world.routes.get(id)?.ring ?? 0,
+  };
+}
+
+/** Why a quest cannot be claimed yet, or null if it can. */
+export function claimRefusal(world: World, state: GameState, id: string): string | null {
+  if (!isQuest(id)) return "no such quest";
+  if (!state.questsTaken.includes(id)) return "you never took that on";
+  if (state.questsDone.includes(id)) return "already paid";
+  if (!progressOf(questViewOf(world, state), questSpec(id).goal).done) return "not done yet";
+  return null;
+}
+
+function claimQuest(world: World, state: GameState, id: string): GameState {
+  const refusal = claimRefusal(world, state, id);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const { reward } = questSpec(id);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money + (reward.money ?? 0),
+    bag: reward.item ? addItem(state.bag, reward.item) : state.bag,
+    questsDone: [...state.questsDone, id].sort(),
+    notice: { t: "questDone", id },
+  };
+}
+
 /** Which ball an action names, defaulting to the ordinary one. */
 function ballIdOf(action: BattleAction): string {
   return action.t === "ball" ? (action.item ?? "pokeball") : "pokeball";
@@ -1099,6 +1353,10 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   const tile = route.tiles[ny * route.width + nx];
   if (!walkable(tile)) throw new IllegalInput("blocked");
 
+  // Furniture is a layer above the floor rather than a kind of floor, so what
+  // it blocks is asked of the prop and not of the tile under it.
+  if (propBlocks(route, nx, ny)) throw new IllegalInput("blocked");
+
   // A door is a transition rather than a step: stepping onto one puts you on
   // the other side of it.
   const door = route.doors.find((entry) => entry.x === nx && entry.y === ny);
@@ -1117,7 +1375,28 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     throw new IllegalInput("blocked");
   }
 
+  // Somebody who wants to talk rather than fight. They stand on open ground
+  // like a trainer does, so walking into one is a choice and not an ambush,
+  // and they do not step aside: the conversation happens where they stand.
+  const person = npcAt(world, state.route, nx, ny);
+  if (person) {
+    return { ...state, tick: state.tick + 1, talking: person.id, notice: null };
+  }
+
   const moved: GameState = walked({ ...state, tick: state.tick + 1, x: nx, y: ny, notice: null });
+
+  // Something on the floor. Picked up by standing on it, once ever.
+  const lying = (world.pickups.get(state.route) ?? []).find(
+    (drop) => drop.x === nx && drop.y === ny && !state.taken.includes(drop.id),
+  );
+  if (lying) {
+    return {
+      ...moved,
+      bag: addItem(moved.bag, lying.item),
+      taken: [...moved.taken, lying.id].sort(),
+      notice: { t: "picked", item: lying.item },
+    };
+  }
 
   // Somebody standing in the way. They are on the path and therefore visible,
   // so walking into one is a choice rather than an ambush.

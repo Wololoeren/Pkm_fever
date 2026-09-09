@@ -723,6 +723,35 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   overflow-y: auto;
 }
 
+/* ------------------------------------------------------------ talk, quests */
+
+.talk { border-color: var(--accent); }
+.talkHead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.talk p { margin: 6px 0; max-width: 70ch; }
+
+.quests { display: flex; flex-direction: column; gap: 8px; }
+.questCard {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.questCard.ready { border-color: var(--accent); }
+.questTop { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.questGoal { font-size: 0.78rem; }
+.questTrack {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.questFill { height: 100%; background: var(--accent); }
+.questCard button { align-self: flex-start; }
+
 /* --------------------------------------------------------------- inspect */
 
 .scrollX { overflow-x: auto; }

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
+import { drawProp } from "@/render/props";
 import type { World } from "@/engine/world";
 import { TILE_PX, tileColor, VIEW_TILES_X, VIEW_TILES_Y } from "@/render/tiles";
 
@@ -50,6 +51,20 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       }
     }
 
+    // Furniture, over the floor and under everything that moves.
+    for (const prop of route.props) {
+      if (!inView(prop.x, prop.y, camX, camY, viewW, viewH)) continue;
+      drawProp(ctx, prop.kind, (prop.x - camX) * TILE_PX, (prop.y - camY) * TILE_PX, TILE_PX);
+    }
+
+    // Things on the floor. Drawn as a ball whatever they are: what it is, is
+    // the reward for walking over to it.
+    for (const drop of world.pickups.get(route.id) ?? []) {
+      if (state.taken.includes(drop.id)) continue;
+      if (!inView(drop.x, drop.y, camX, camY, viewW, viewH)) continue;
+      ball(ctx, (drop.x - camX) * TILE_PX + TILE_PX / 2, (drop.y - camY) * TILE_PX + TILE_PX / 2);
+    }
+
     // Signs, over the tiles and under the people: a board says what a
     // building is for, which is the difference between a town you can read
     // and four identical red roofs.
@@ -68,6 +83,22 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
         state.beaten.includes(trainer.id) ? "#6b7280" : "#4a6fb5",
         state.beaten.includes(trainer.id) ? 0.35 : 1,
       );
+    }
+
+    // People who talk rather than fight, in their own colour so you can tell
+    // at a glance which sort of person is standing in your way.
+    for (const who of world.npcs.get(route.id) ?? []) {
+      if (!inView(who.x, who.y, camX, camY, viewW, viewH)) continue;
+      person(
+        ctx,
+        (who.x - camX) * TILE_PX + TILE_PX / 2,
+        (who.y - camY) * TILE_PX + TILE_PX / 2,
+        NPC_COLOURS[who.kind],
+        1,
+      );
+      if (who.kind === "quest" && !state.questsTaken.includes(who.questId ?? "")) {
+        mark(ctx, (who.x - camX) * TILE_PX + TILE_PX / 2, (who.y - camY) * TILE_PX);
+      }
     }
 
     person(
@@ -230,6 +261,67 @@ function signpost(ctx: CanvasRenderingContext2D, px: number, py: number, text: s
   ctx.fillStyle = "#f2e4c9";
   ctx.fillText(text, cx, plateY + 7);
 
+  ctx.restore();
+}
+
+/** What sort of person this is, in one colour. */
+const NPC_COLOURS: Record<string, string> = {
+  hint: "#8a7fc4",
+  gift: "#4f9e7a",
+  heal: "#4a9ec9",
+  trade: "#c98a4a",
+  quest: "#c9a83a",
+};
+
+/** An item on the floor. A ball whatever it holds — finding out is the point
+ * of walking over to it. */
+function ball(ctx: CanvasRenderingContext2D, px: number, py: number): void {
+  const r = TILE_PX * 0.28;
+
+  ctx.beginPath();
+  ctx.ellipse(px, py + r * 0.9, r * 0.9, r * 0.32, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px, py, r, Math.PI, 0);
+  ctx.fillStyle = "#d8524a";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px, py, r, 0, Math.PI);
+  ctx.fillStyle = "#f0ece4";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px, py, r, 0, Math.PI * 2);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "#1b2330";
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(px - r, py);
+  ctx.lineTo(px + r, py);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(px, py, r * 0.32, 0, Math.PI * 2);
+  ctx.fillStyle = "#f0ece4";
+  ctx.fill();
+  ctx.stroke();
+}
+
+/** The mark over somebody with work going spare. */
+function mark(ctx: CanvasRenderingContext2D, px: number, py: number): void {
+  ctx.save();
+  ctx.font = "700 15px ui-sans-serif, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(20,24,32,0.9)";
+  ctx.strokeText("!", px, py - 4);
+  ctx.fillStyle = "#f2d14a";
+  ctx.fillText("!", px, py - 4);
   ctx.restore();
 }
 
