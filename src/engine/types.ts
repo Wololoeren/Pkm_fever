@@ -12,7 +12,7 @@ import type { Gender } from "./gender";
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 9;
+export const ENGINE_VERSION = 10;
 
 // ------------------------------------------------------------------ stats
 
@@ -108,6 +108,13 @@ export interface Individual {
   /** Turns of sleep left to serve. Meaningless unless status is "slp". */
   sleepTurns: number;
   moves: string[];
+  /**
+   * Uses left in each move slot, in step with `moves`.
+   *
+   * Spent by attacking and restored only by a full restore of the party. See
+   * pp.ts for why there is no bottle that refills it.
+   */
+  pp: number[];
   /** Nickname, or null to display the species name. */
   nickname: string | null;
   /** Which egg produced it, or null for a wild catch. Breeding reads this. */

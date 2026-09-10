@@ -28,6 +28,7 @@ import {
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { awardExp, expForLevel, MAX_LEVEL, MOVE_SLOTS } from "./progression";
+import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
   isQuest,
@@ -95,6 +96,8 @@ export type Input =
   | { t: "pickStarter"; index: number }
   | { t: "move"; dir: Direction }
   | { t: "fight"; moveIndex: number }
+  /** Nothing left to fight with. Legal only when that is actually true. */
+  | { t: "struggle" }
   | { t: "switch"; partyIndex: number }
   /** Which ball. Omitted means an ordinary one, so a log written before there
    * was a choice still replays. */
@@ -443,11 +446,25 @@ export function isWildBattle(battle: BattleState | null): boolean {
 }
 
 function withMoves(individual: Individual): Individual {
-  return { ...individual, moves: movesAtLevel(individual.speciesId, individual.level) };
+  const moves = movesAtLevel(individual.speciesId, individual.level);
+  return { ...individual, moves, pp: fullPp(moves) };
 }
 
 function atFullHealth(individual: Individual): Individual {
   return { ...individual, hp: maxHp(individual) };
+}
+
+/**
+ * Everything back: health, status and uses.
+ *
+ * The one place the three are restored together, because they are restored
+ * together in exactly two situations — the centre patching up the whole party,
+ * and being beaten, which does the same thing on the way home. Anything that
+ * heals one creature heals one creature; this is what "you are fine now"
+ * means, and power points come back only here.
+ */
+function restored(individual: Individual): Individual {
+  return { ...restorePp(atFullHealth(individual)), status: null, sleepTurns: 0 };
 }
 
 export function applyInput(world: World, state: GameState, input: Input): GameState {
@@ -458,6 +475,8 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return move(world, state, input.dir);
     case "fight":
       return battleTurn(world, state, { t: "fight", moveIndex: input.moveIndex });
+    case "struggle":
+      return battleTurn(world, state, { t: "struggle" });
     case "switch":
       return battleTurn(world, state, { t: "switch", partyIndex: input.partyIndex });
     case "ball":
@@ -572,6 +591,7 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
     case "give": {
       const level = Math.max(1, Math.min(100, Math.floor(op.level)));
       const built = withMoves({
+        pp: [],
         uid: state.nextUid,
         speciesId: speciesById(op.speciesId).id,
         level,
@@ -602,11 +622,7 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
     case "heal":
       return {
         ...next,
-        party: state.party.map((creature) => ({
-          ...atFullHealth(creature),
-          status: null,
-          sleepTurns: 0,
-        })),
+        party: state.party.map(restored),
       };
 
     case "balls":
@@ -941,6 +957,7 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
 
   return atFullHealth(
     withMoves({
+      pp: [],
       uid,
       speciesId: world.starters[index],
       level: 5,
@@ -1118,7 +1135,9 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
   // there is only ever one place that decides what gets forgotten.
   if (spec.teaches) {
     const room = target.moves.length < MAX_MOVES;
-    party[index] = room ? { ...target, moves: [...target.moves, spec.teaches] } : target;
+    party[index] = room
+      ? alignPp({ ...target, moves: [...target.moves, spec.teaches] }, target)
+      : target;
 
     return {
       ...state,
@@ -1555,7 +1574,7 @@ function npcAccept(world: World, state: GameState): GameState {
       return {
         ...state,
         tick: state.tick + 1,
-        party: state.party.map((one) => ({ ...atFullHealth(one), status: null, sleepTurns: 0 })),
+        party: state.party.map(restored),
         notice: { t: "healed", by: person.name },
       };
 
@@ -1716,7 +1735,7 @@ function learnMove(
 
   const swap = (one: Individual) =>
     one.uid === uid
-      ? { ...one, moves: one.moves.map((held) => (held === forget ? moveId : held)) }
+      ? alignPp({ ...one, moves: one.moves.map((held) => (held === forget ? moveId : held)) }, one)
       : one;
 
   const creature =
@@ -1783,6 +1802,7 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
 
   const got = atFullHealth(
     withMoves({
+      pp: [],
       uid: state.nextUid,
       speciesId: offer.speciesId,
       level: offer.level,
@@ -1943,6 +1963,7 @@ export function gymTeam(world: World, state: GameState, id: string): Individual[
     team.push(
       atFullHealth(
         withMoves({
+          pp: [],
           uid: uid++,
           speciesId: pick.id,
           level: ace ? level : Math.max(2, level - 2 - intBelow(rng, 3)),
@@ -2124,6 +2145,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
       let uid = state.nextUid;
       const team = trainer.team.map((member, slot) => {
         const built = withMoves({
+          pp: [],
           uid: uid++,
           speciesId: member.speciesId,
           // Three levels for every beating they have already taken from you,
@@ -2314,11 +2336,9 @@ function whiteout(world: World, state: GameState): GameState {
     route: HUB_ID,
     x: hub.entry.x,
     y: hub.entry.y,
-    party: state.party.map((creature) => ({
-      ...atFullHealth(creature),
-      status: null,
-      sleepTurns: 0,
-    })),
+    // Beaten, carried home, and put right — uses included. Losing is the one
+    // thing in this game that costs you nothing but the walk back.
+    party: state.party.map(restored),
     notice: { t: "whiteout" },
   };
 }
@@ -2361,6 +2381,9 @@ export function stateHash(state: GameState): string {
       creature.status ?? "-",
       creature.sleepTurns,
       creature.moves.join("/"),
+      // Uses left is state a player can lose a battle over, so a save that
+      // has spent its Surf cannot hash the same as one that has not.
+      creature.moves.map((_, at) => ppLeft(creature, at)).join("/"),
     ].join(":");
 
   const counters = (table: Record<string, number>) =>

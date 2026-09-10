@@ -285,6 +285,8 @@ export function fishAt(
     status: null,
     sleepTurns: 0,
     moves: [],
+    // Both filled by the caller, which runs them through `withMoves`.
+    pp: [],
     nickname: null,
     traded: false,
     parents: null,
@@ -1758,6 +1760,8 @@ export function wildAt(
     status: null,
     sleepTurns: 0,
     moves: [],
+    // Both filled by the caller, which runs them through `withMoves`.
+    pp: [],
     nickname: null,
     traded: false,
     parents: null,

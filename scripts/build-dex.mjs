@@ -311,6 +311,12 @@ for (const list of Object.values(machinesBySpecies)) {
   for (const moveId of list) usedMoves.add(moveId);
 }
 
+// Struggle, which nothing learns and everything can do. Every move a creature
+// carries is spent by using it, so a creature with nothing left has to have
+// *something* — otherwise a battle it cannot win and cannot leave is a battle
+// it cannot end. It is named here because no learnset will ever mention it.
+usedMoves.add("struggle");
+
 // The shared table every species' bitset is read against. Sorted, so a rebuild
 // on the same data produces byte-identical output.
 const machineMoves = [...new Set(Object.values(machinesBySpecies).flat())]

@@ -3,6 +3,7 @@ import { ALL_SPECIES, species } from "@/engine/dex";
 import { applyInput, initialState, type GameState, type Input } from "@/engine/engine";
 import { expForLevel } from "@/engine/progression";
 import { intBelow, rngFor } from "@/engine/rng";
+import { fullPp } from "@/engine/pp";
 import { TILE, walkable } from "@/engine/terrain";
 import { DEFAULT_WORLD, type Gender, type Individual, type StatusId } from "@/engine/types";
 import { generateWorld, type World } from "@/engine/world";
@@ -52,6 +53,8 @@ export function creature(
     gender?: Gender;
     hp?: number;
     uid?: number;
+    /** Uses left, slot by slot. Full unless a test is about running out. */
+    pp?: number[];
   } = {},
 ): Individual {
   const level = options.level ?? 50;
@@ -69,6 +72,7 @@ export function creature(
     status: options.status ?? null,
     sleepTurns: options.status === "slp" ? 3 : 0,
     moves: options.moves ?? ["tackle"],
+    pp: options.pp ?? fullPp(options.moves ?? ["tackle"]),
     nickname: null,
     traded: false,
     parents: null,

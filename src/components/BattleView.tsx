@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { activeOf, type BattleAction, type BattleState, type SideIndex } from "@/engine/battle";
 import { move as moveById, species as speciesById } from "@/engine/dex";
+import { anyPp, ppLeft, maxPp } from "@/engine/pp";
 import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
@@ -171,17 +172,25 @@ export function BattleView({
           <div className="moves">
             {player.moves.map((moveId, index) => {
               const entry = moveById(moveId);
+              const left = ppLeft(player, index);
               return (
                 <button
                   key={moveId}
                   type="button"
-                  className="moveBtn"
+                  className={`moveBtn${left === 0 ? " spent" : ""}`}
                   style={{ borderLeftColor: typeColor(entry.type) }}
+                  disabled={left === 0}
+                  title={left === 0 ? `${entry.name} has no uses left` : undefined}
                   onClick={() => onAction({ t: "fight", moveIndex: index })}
                 >
                   <span className="moveName">{entry.name}</span>
                   <span className="moveMeta">
                     {entry.type} · {entry.category === "status" ? "status" : `${entry.power} pow`}
+                  </span>
+                  {/* Uses left, on the button rather than in the tooltip: it
+                      is the number that decides whether you can press it. */}
+                  <span className={`movePp${left <= Math.ceil(maxPp(moveId) / 4) ? " low" : ""}`}>
+                    {left}/{maxPp(moveId)}
                   </span>
                   {/* The rest of it, including how it lands on whatever is
                       actually standing there. */}
@@ -190,6 +199,20 @@ export function BattleView({
               );
             })}
           </div>
+
+          {/* Only when it is the only thing left. A creature with anything in
+              the tank is refused it by the engine, so offering it would be a
+              button that throws. */}
+          {!anyPp(player) ? (
+            <button
+              type="button"
+              className="moveBtn spentAll"
+              onClick={() => onAction({ t: "struggle" })}
+            >
+              <span className="moveName">Struggle</span>
+              <span className="moveMeta">nothing left · hurts you too</span>
+            </button>
+          ) : null}
           <div className="row">
             {wildBattle ? (
               <button type="button" onClick={() => onAction({ t: "ball" })} disabled={balls <= 0}>

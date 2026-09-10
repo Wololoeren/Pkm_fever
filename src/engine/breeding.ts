@@ -2,6 +2,7 @@ import { baseFormOf, movesAtLevel, species as speciesById } from "./dex";
 import { gendersPair, rollGender } from "./gender";
 import { isItem, item as itemSpec } from "./items";
 import { NATURE_IDS } from "./natures";
+import { fullPp } from "./pp";
 import { intBelow, intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
 import { expForLevel } from "./progression";
@@ -196,6 +197,7 @@ export function breed(
     status: null,
     sleepTurns: 0,
     moves: movesAtLevel(speciesId, 1),
+    pp: fullPp(movesAtLevel(speciesId, 1)),
     nickname: null,
     traded: false,
     parents: [first.uid, second.uid],

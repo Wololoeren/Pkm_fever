@@ -11,10 +11,12 @@ import {
   MAX_TURNS,
   TRAINER_RULES,
   WILD_RULES,
+  type BattleAction,
   type BattleEvent,
   type BattleState,
   type SideIndex,
 } from "@/engine/battle";
+import { anyPp } from "@/engine/pp";
 import { effectiveness, move } from "@/engine/dex";
 import { awardExp, evolutionAt, expForLevel, levelFromExp } from "@/engine/progression";
 import type { Individual } from "@/engine/types";
@@ -209,12 +211,16 @@ describe("winning and losing", () => {
 });
 
 describe("battles that cannot end on their own", () => {
-  it("B14b: a matchup where neither side can land a scratch still terminates", () => {
+  it("B14b: two creatures that cannot scratch each other run dry and settle it", () => {
     // The real case, found by the deadlock probe: Rowlet is Grass/Flying, so
     // Wooper-Paldea's Mud Shot is a zero-times no-op, and Growl and Tail Whip
     // deal no damage either. Neither creature can reduce the other's HP by a
-    // single point. A wild battle could be run from; a trainer battle could
-    // not, and the game simply stopped.
+    // single point.
+    //
+    // Power points are what actually resolve this, which is what the games
+    // they resemble have always used them for: both sides spend everything
+    // they have, and Struggle does the rest. The turn limit is still there
+    // underneath as a floor, but this no longer needs it.
     let battle = startBattle(
       SEED,
       "wild:ashflats-1:2",
@@ -222,27 +228,56 @@ describe("battles that cannot end on their own", () => {
       [creature("wooperpaldea", { level: 10, moves: ["mudshot", "tailwhip"] })],
     );
 
-    for (let i = 0; i < MAX_TURNS + 5 && !battle.outcome; i++) {
-      battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, aiAction(battle)], TRAINER_RULES).battle;
+    for (let turn = 0; turn < MAX_TURNS + 5 && !battle.outcome; turn++) {
+      const ours = activeOf(battle, 0);
+      const mine: BattleAction = anyPp(ours) ? { t: "fight", moveIndex: 0 } : { t: "struggle" };
+      battle = resolveTurn(battle, [mine, aiAction(battle)], TRAINER_RULES).battle;
     }
 
-    expect(battle.turn).toBe(MAX_TURNS);
     expect(battle.outcome).not.toBeNull();
-    expect(battle.events.some((event) => event.t === "timeout")).toBe(true);
-    // Untouched on both sides, so it is a genuine draw rather than a coin toss.
-    expect(battle.outcome).toEqual({ t: "draw" });
+    // It ended because somebody was reduced to Struggle, not because a clock
+    // ran out on it.
+    expect(battle.turn).toBeLessThan(MAX_TURNS);
+    expect(battle.events.some((event) => event.t === "struggling")).toBe(true);
   });
 
-  it("B14c: a timeout goes to whoever has more health left", () => {
+  it("B14c: three hundred turns of nothing at all still ends, on health", () => {
+    // Both sides passing spends nothing, which is the cleanest way to ask the
+    // one question this is about: does the limit hold on its own?
     const healthy = creature("machop", { uid: 1, level: 40, moves: ["growl"] });
     const hurt = { ...creature("machop", { uid: 2, level: 40, moves: ["growl"] }), hp: 3 };
 
     let battle = startBattle(SEED, "duel", [healthy], [hurt]);
-    for (let i = 0; i < MAX_TURNS + 5 && !battle.outcome; i++) {
-      battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], DUEL_RULES).battle;
+    for (let turn = 0; turn < MAX_TURNS + 5 && !battle.outcome; turn++) {
+      battle = resolveTurn(battle, [{ t: "pass" }, { t: "pass" }], DUEL_RULES).battle;
     }
 
+    expect(battle.turn).toBe(MAX_TURNS);
+    expect(battle.events.some((event) => event.t === "timeout")).toBe(true);
     expect(battle.outcome).toEqual({ t: "win", side: 0 });
+  });
+
+  it("B14d: the limit holds on every way out of a turn, not just the usual one", () => {
+    // It used to be checked at the end of the ordinary move-resolution path,
+    // which the six early returns never reach — a switch, a ball, a flee that
+    // failed. A battle that only ever saw those could pass three hundred turns
+    // and keep going, and the probe found exactly that: out of moves, out of
+    // balls, and throwing a ball it did not have a thousand times over.
+    let battle = startBattle(
+      SEED,
+      "wild:limit",
+      [creature("machop", { uid: 1, level: 40, moves: ["growl"] })],
+      [creature("chansey", { uid: 2, level: 40, moves: ["growl"] })],
+    );
+
+    for (let turn = 0; turn < MAX_TURNS + 5 && !battle.outcome; turn++) {
+      // No balls in the bag, so every throw is a fumble that costs a turn and
+      // does nothing — the exact shape of the stall.
+      battle = resolveTurn(battle, [{ t: "ball" }, { t: "pass" }], WILD_RULES, 0).battle;
+    }
+
+    expect(battle.turn).toBe(MAX_TURNS);
+    expect(battle.outcome).not.toBeNull();
   });
 });
 

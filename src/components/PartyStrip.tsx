@@ -1,6 +1,7 @@
 "use client";
 
 import { maxHp } from "@/engine/battle";
+import { maxPp, ppLeft } from "@/engine/pp";
 import { expForLevel, MAX_LEVEL } from "@/engine/progression";
 import { species as speciesById } from "@/engine/dex";
 import { computeStats } from "@/engine/stats";
@@ -74,6 +75,28 @@ export function TeamBalls({ team, active }: { team: readonly Individual[]; activ
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * How much fight it has left, as one number.
+ *
+ * Four separate counts is four things to read; the sum is the question a
+ * player is actually asking before they walk into more grass. The breakdown
+ * is on the battle buttons and in the stat screen, where there is room for it.
+ */
+export function PpTotal({ creature }: { creature: Individual }) {
+  const left = creature.moves.reduce((sum, _, at) => sum + ppLeft(creature, at), 0);
+  const full = creature.moves.reduce((sum, moveId) => sum + maxPp(moveId), 0);
+  if (!full) return null;
+
+  return (
+    <span
+      className={`ppTotal${left === 0 ? " out" : left * 4 <= full ? " low" : ""}`}
+      title={`${left} of ${full} move uses left — restored at the centre, or by losing`}
+    >
+      {left}/{full} PP
+    </span>
   );
 }
 
@@ -180,6 +203,7 @@ export function PartyStrip({
                 <span className="muted">
                   {creature.hp}/{stats.hp}
                 </span>
+                <PpTotal creature={creature} />
                 {creature.status ? <span className={`tag st-${creature.status}`}>{creature.status.toUpperCase()}</span> : null}
                 <VariantTag variantId={creature.variantId} />
               </div>

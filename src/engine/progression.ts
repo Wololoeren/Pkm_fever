@@ -1,4 +1,5 @@
 import { learnset, species as speciesById } from "./dex";
+import { alignPp } from "./pp";
 import { computeStats } from "./stats";
 import type { Individual } from "./types";
 
@@ -95,7 +96,7 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
       if (!movesOffered.includes(moveId)) movesOffered.push(moveId);
       continue;
     }
-    grown = { ...grown, moves: [...grown.moves, moveId] };
+    grown = alignPp({ ...grown, moves: [...grown.moves, moveId] }, grown);
     movesLearned.push(moveId);
   }
 

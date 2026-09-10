@@ -266,6 +266,28 @@ button.ghost { background: transparent; }
   background: var(--panel-2);
 }
 
+/* Uses left. On the button, because it is the number that decides whether the
+   button can be pressed at all; there is no bottle in this game that refills
+   it, so it is a budget rather than a status light. */
+.movePp {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+.movePp.low { color: var(--warn); }
+.moveBtn.spent { opacity: 0.4; }
+.moveBtn.spent .movePp { color: var(--danger); }
+.moveBtn.spentAll { border-left-color: var(--danger); }
+
+.ppTotal {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.ppTotal.low { color: var(--warn); }
+.ppTotal.out { color: var(--danger); }
+
 /* An option that will not be undone asks twice, and says so in red while it
    waits. */
 .talkOption.armed {

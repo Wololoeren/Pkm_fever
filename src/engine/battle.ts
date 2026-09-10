@@ -8,6 +8,7 @@ import {
 } from "./dex";
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
+import { anyPp, hasPp, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
 import { intBelow, rngFor } from "./rng";
 import { computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatId, type StatusId } from "./types";
@@ -44,6 +45,14 @@ export type BattleOutcome =
 
 export type BattleAction =
   | { t: "fight"; moveIndex: number }
+  /**
+   * Everything spent, and still standing.
+   *
+   * Its own action rather than a magic move index, because it is a different
+   * decision: `fight` names a slot, and a creature reduced to Struggle has no
+   * slots left to name. Legal only when nothing else is.
+   */
+  | { t: "struggle" }
   | { t: "switch"; partyIndex: number }
   /** Wild battles only. */
   /** Which ball. Omitted means an ordinary one. */
@@ -54,6 +63,8 @@ export type BattleAction =
 
 export type BattleEvent =
   | { t: "use"; side: SideIndex; moveId: string }
+  /** Nothing left to use it with. */
+  | { t: "struggling"; side: SideIndex }
   | { t: "miss"; side: SideIndex }
   | { t: "immune"; side: SideIndex }
   | { t: "damage"; side: SideIndex; amount: number; quarters: number; crit: boolean }
@@ -289,7 +300,17 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts): void {
 function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: number; quarters: number; crit: boolean } {
   const attacker = active(turn, side);
   const defender = active(turn, other(side));
-  const quarters = effectiveness(move.type, speciesById(defender.speciesId).types);
+
+  // Struggle is outside the type chart entirely — neither resisted, nor
+  // doubled, nor blocked. Exempting it only from the early "immune" return was
+  // not enough: the multiplier is applied again at the end, so a ghost still
+  // took nothing and a creature with no moves left had no way to end the
+  // fight. Four quarters is neutral, which is what "types do not apply" means
+  // in this arithmetic.
+  const struggling = move.id === STRUGGLE;
+  const quarters = struggling
+    ? 4
+    : effectiveness(move.type, speciesById(defender.speciesId).types);
   if (move.category === "status" || move.power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
   }
@@ -315,7 +336,10 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
   value = Math.floor((value * spread) / 100);
 
   const attackerTypes: readonly string[] = speciesById(attacker.speciesId).types;
-  if (attackerTypes.includes(move.type)) value = Math.floor((value * 3) / 2);
+  // No same-type bonus on Struggle: it is the absence of an attack rather than
+  // a Normal one, and a Normal type should not be rewarded for having nothing
+  // left.
+  if (!struggling && attackerTypes.includes(move.type)) value = Math.floor((value * 3) / 2);
   value = Math.floor((value * quarters) / 4);
   if (attacker.status === "brn" && physical) value = Math.floor(value / 2);
 
@@ -362,10 +386,24 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   if (!canAct(turn, side)) return;
 
   const move = moveById(moveId);
-  turn.events.push({ t: "use", side, moveId });
+  const struggling = moveId === STRUGGLE;
+
+  // Spent here rather than when the move was chosen: a creature that is
+  // asleep, frozen or fully paralysed never got the move off, and charging it
+  // for a turn it did not have is how a battle quietly becomes unwinnable.
+  // Struggle costs nothing, because it is what having nothing costs you.
+  if (!struggling) {
+    const slot = attacker.moves.indexOf(moveId);
+    if (slot >= 0) setActive(turn, side, spendPp(attacker, slot));
+  }
+
+  turn.events.push(struggling ? { t: "struggling", side } : { t: "use", side, moveId });
 
   const quarters = effectiveness(move.type, speciesById(active(turn, other(side)).speciesId).types);
-  if (move.category !== "status" && quarters === 0) {
+  // Struggle is the exception to the type chart. It has to be: a creature out
+  // of moves facing something its last resort cannot touch would be stuck in
+  // a battle with no way to act and no way to lose.
+  if (!struggling && move.category !== "status" && quarters === 0) {
     turn.events.push({ t: "immune", side: other(side) });
     return;
   }
@@ -395,6 +433,16 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
 
   if (move.recoil && dealt > 0) {
     const taken = applyDamage(turn, side, Math.max(1, Math.floor((dealt * move.recoil[0]) / move.recoil[1])));
+    if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
+  }
+
+  // Struggle's own cost, which is a share of the user's own health rather
+  // than of the damage it dealt. The manifest cannot say so — Showdown
+  // computes it in a script — so it is named here, the way moves.ts names the
+  // other formulas the data cannot hold.
+  if (struggling) {
+    const share = Math.max(1, Math.floor((maxHp(attacker) * STRUGGLE_RECOIL[0]) / STRUGGLE_RECOIL[1]));
+    const taken = applyDamage(turn, side, share);
     if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
   }
 
@@ -438,9 +486,14 @@ export function aiAction(state: BattleState, side: SideIndex = 1): BattleAction 
 
   const active = activeOf(state, side);
   if (!active.moves.length) return { t: "pass" };
+  // Out of everything, like anybody else would be.
+  if (!anyPp(active)) return { t: "struggle" };
 
-  const index = intBelow(rngFor(state.seed, state.tag, state.turn + 1, `ai${side}`), active.moves.length);
-  return { t: "fight", moveIndex: index };
+  // Only from what it can actually still use. Picking blind and then being
+  // refused would leave the other side taking a free turn every time.
+  const usable = active.moves.map((_, at) => at).filter((at) => hasPp(active, at));
+  const roll = intBelow(rngFor(state.seed, state.tag, state.turn + 1, `ai${side}`), usable.length);
+  return { t: "fight", moveIndex: usable[roll] };
 }
 
 /** Who moves first: priority, then speed, then a seeded coin. */
@@ -559,7 +612,8 @@ export function resolveTurn(
 
     // The opponent gets its move in regardless.
     const reply = actions[1];
-    if (reply.t === "fight") executeMove(turn, 1, moveIdFor(turn, 1, reply.moveIndex));
+    const replyMove = chosenMove(turn, 1, reply);
+    if (replyMove) executeMove(turn, 1, replyMove);
     settle(turn, rules);
     return finish(turn, caught, ballsUsed);
   }
@@ -570,8 +624,8 @@ export function resolveTurn(
     if (action.t === "switch") switchTo(turn, side, action.partyIndex);
   }
 
-  const moveA = actions[0].t === "fight" ? moveIdFor(turn, 0, actions[0].moveIndex) : null;
-  const moveB = actions[1].t === "fight" ? moveIdFor(turn, 1, actions[1].moveIndex) : null;
+  const moveA = chosenMove(turn, 0, actions[0]);
+  const moveB = chosenMove(turn, 1, actions[1]);
 
   const first = firstMover(turn, moveA, moveB);
   const second = other(first);
@@ -585,8 +639,21 @@ export function resolveTurn(
   }
 
   settle(turn, rules);
-  if (!turn.battle.outcome && turn.battle.turn >= MAX_TURNS) decideOnHealth(turn);
   return finish(turn, caught, ballsUsed);
+}
+
+/**
+ * The move an action comes down to, or null if it is not a move at all.
+ *
+ * Struggle is resolved here rather than at the menu so that both peers in a
+ * duel reach it from the same rule instead of trusting each other's word for
+ * what was left in the tank.
+ */
+function chosenMove(turn: Turn, side: SideIndex, action: BattleAction): string | null {
+  if (action.t === "fight") return moveIdFor(turn, side, action.moveIndex);
+  if (action.t !== "struggle") return null;
+  if (anyPp(active(turn, side))) throw new IllegalAction("it still has moves to use");
+  return STRUGGLE;
 }
 
 function cloneSide(side: Combatant): Combatant {
@@ -596,7 +663,24 @@ function cloneSide(side: Combatant): Combatant {
 function moveIdFor(turn: Turn, side: SideIndex, index: number): string {
   const creature = active(turn, side);
   if (index < 0 || index >= creature.moves.length) throw new IllegalAction("no such move");
+  if (!hasPp(creature, index)) throw new IllegalAction("no uses left in that one");
   return creature.moves[index];
+}
+
+/** Why this action would be refused, or null. One predicate, two callers: the
+ * battle menu greys a button for exactly what resolveTurn would throw on. */
+export function actionRefusal(state: BattleState, side: SideIndex, action: BattleAction): string | null {
+  if (state.outcome) return "the battle is over";
+  const creature = activeOf(state, side);
+
+  if (action.t === "fight") {
+    if (action.moveIndex < 0 || action.moveIndex >= creature.moves.length) return "no such move";
+    return hasPp(creature, action.moveIndex) ? null : "no uses left in that one";
+  }
+  if (action.t === "struggle") {
+    return anyPp(creature) ? "it still has moves to use" : null;
+  }
+  return null;
 }
 
 function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
@@ -703,6 +787,16 @@ function decideOnHealth(turn: Turn): void {
 }
 
 function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnResult {
+  // The turn limit belongs on the way out, not on one path through.
+  //
+  // It used to sit at the end of the ordinary move-resolution path, which six
+  // `return finish(...)` statements never reach: a switch, a ball, a flee that
+  // failed. So a battle that only ever saw those could pass three hundred
+  // turns and keep going. The deadlock probe walked straight into it the
+  // moment power points existed — out of moves, out of balls, and throwing a
+  // ball it did not have a thousand times over. A guarantee that only holds
+  // on the common path is not a guarantee.
+  if (!turn.battle.outcome && turn.battle.turn >= MAX_TURNS) decideOnHealth(turn);
   return { battle: { ...turn.battle, events: turn.events }, caught, ballsUsed };
 }
 

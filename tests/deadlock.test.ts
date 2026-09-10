@@ -32,6 +32,12 @@ function uiCandidates(world: World, state: GameState, rng: () => number): Input[
     }
     const active = b.sides[0].team[b.sides[0].active];
     for (let i = 0; i < Math.max(4, active.moves.length); i++) out.push({ t: "fight", moveIndex: i });
+    // What the battle menu offers a creature with nothing left. Without this
+    // the probe found four states with no legal input at all: a trainer
+    // battle, everything else fainted, and every slot spent — no ball, no
+    // running, no switch and no move. Struggle is what stops that being a
+    // save you can neither win nor leave.
+    out.push({ t: "struggle" });
     for (let i = 0; i < b.sides[0].team.length; i++) out.push({ t: "switch", partyIndex: i });
     out.push({ t: "ball" });
     out.push({ t: "flee" });

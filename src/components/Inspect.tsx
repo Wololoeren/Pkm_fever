@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
 import { natureVector } from "@/engine/natures";
+import { maxPp, ppLeft } from "@/engine/pp";
 import {
   baseAtLevel,
   computeStats,
@@ -46,11 +47,14 @@ function MoveRow({
   moveId,
   chosen,
   disabled,
+  left,
   onToggle,
 }: {
   moveId: string;
   chosen: boolean;
   disabled: boolean;
+  /** Uses left, when this row is one the creature actually carries. */
+  left?: number;
   onToggle?: () => void;
 }) {
   const entry = moveById(moveId);
@@ -70,6 +74,11 @@ function MoveRow({
         {entry.category === "status" ? "" : ` · ${entry.power || "—"} pow`}
         {entry.accuracy ? ` · ${entry.accuracy}%` : " · never misses"}
       </span>
+      {left === undefined ? null : (
+        <span className={`movePp${left === 0 ? " low" : ""}`}>
+          {left}/{maxPp(moveId)}
+        </span>
+      )}
       {chosen ? <span className="muted">✓</span> : null}
       <MoveNote moveId={entry.id} />
     </Tag>
@@ -281,12 +290,16 @@ export function Inspect({
 
         <div className="moveList">
           {pool.map((moveId) => {
-            const chosen = creature.moves.includes(moveId);
+            const slot = creature.moves.indexOf(moveId);
+            const chosen = slot >= 0;
             return (
               <MoveRow
                 key={moveId}
                 moveId={moveId}
                 chosen={chosen}
+                // Only what it is carrying has a tank to report. A move in the
+                // pool it has not taken has no uses spent or left.
+                left={chosen ? ppLeft(creature, slot) : undefined}
                 disabled={!chosen && creature.moves.length >= MAX_MOVES}
                 onToggle={editable ? () => toggle(moveId) : undefined}
               />
