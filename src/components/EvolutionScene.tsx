@@ -121,7 +121,7 @@ export function EvolutionScene({
 
       <div className="evolveStage">
         <div className={`evolveSprite${silhouette ? " dark" : ""}`}>
-          <Sprite speciesId={shown.id} variantId="normal" size={168} />
+          <Sprite speciesId={shown.id} variantId="normal" size={192} />
         </div>
       </div>
 

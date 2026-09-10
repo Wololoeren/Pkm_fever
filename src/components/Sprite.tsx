@@ -47,12 +47,45 @@ function VariantMark({ variantId, size }: { variantId: string; size: number }) {
 }
 
 /**
+ * The only sizes at which pixel art stays pixel art.
+ *
+ * The sprites are 96 pixels square. Drawn into a box that is not a whole
+ * multiple or a whole fraction of that, nearest-neighbour scaling has to make
+ * some source pixels wider than others — at the battle's old 148, forty-four
+ * columns came out one pixel wide and fifty-two came out two. That is what
+ * "distorted" looks like on pixel art: outlines that wobble, a one-pixel line
+ * that is sometimes two, a creature that reads as very slightly stretched in
+ * places and nowhere in particular.
+ *
+ * It cannot be fixed by turning smoothing on — that trades a lumpy sprite for
+ * a blurry one — and it cannot be fixed by `image-rendering: pixelated`, which
+ * only moves the same uneven division into the browser. The only cure is for
+ * the box to be a whole multiple of the art.
+ */
+const CRISP_SIZES: readonly number[] = [24, 48, 96, 192, 384];
+
+/**
+ * The nearest size at which every source pixel is the same size.
+ *
+ * Snapped here rather than left to the caller, so a layout that wants "about
+ * 150 across" gets 192 and cannot quietly reintroduce this. Ties go to the
+ * smaller, because growing a sprite is what breaks a layout.
+ */
+export function crispSize(wanted: number): number {
+  return CRISP_SIZES.reduce((best, size) =>
+    Math.abs(size - wanted) < Math.abs(best - wanted) ? size : best,
+  );
+}
+
+/**
  * Draws a creature at a given size.
  *
  * Real art when it has arrived, and the generated placeholder until then — so
  * a slow connection shows a creature-shaped thing rather than a hole, and the
  * game still runs with no network at all. Both go through the same variant
  * pipeline, so a tint is a tint either way.
+ *
+ * The size asked for is snapped to one the art divides into. See CRISP_SIZES.
  */
 export function Sprite({
   speciesId,
@@ -69,6 +102,7 @@ export function Sprite({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [, setLoaded] = useState(0);
+  const drawn = crispSize(size);
 
   // Kick off the download once per species-and-variant; the cache makes every
   // later mount free.
@@ -105,9 +139,9 @@ export function Sprite({
   });
 
   return (
-    <span className="spriteWrap" style={{ width: size, height: size }} title={variantSummary(variantId)}>
-      <canvas ref={ref} width={size} height={size} style={{ width: size, height: size }} />
-      <VariantMark variantId={variantId} size={size} />
+    <span className="spriteWrap" style={{ width: drawn, height: drawn }} title={variantSummary(variantId)}>
+      <canvas ref={ref} width={drawn} height={drawn} style={{ width: drawn, height: drawn }} />
+      <VariantMark variantId={variantId} size={drawn} />
     </span>
   );
 }

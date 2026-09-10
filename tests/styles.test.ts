@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { crispSize } from "@/components/Sprite";
 
 /**
  * The one thing about the stylesheet that can break silently.
@@ -98,5 +99,44 @@ describe("hover panels", () => {
         ).toBe(seen.length);
       }
     }
+  });
+});
+
+describe("pixel art", () => {
+  it("Y3: every sprite is asked for at a size the art divides into", () => {
+    // The sprites are 96 pixels square. At the battle's old 148 the
+    // nearest-neighbour scale was 1.54, so forty-four source columns came out
+    // one pixel wide and fifty-two came out two — outlines that wobble and a
+    // creature that reads as slightly stretched in places.
+    //
+    // Sprite snaps whatever it is handed, so a wrong number here is corrected
+    // rather than broken. This is about the *other* half: a call site asking
+    // for 148 and silently getting 192 is a layout nobody can reason about
+    // from reading it.
+    const wanted: { file: string; size: number }[] = [];
+
+    for (const file of readdirSync(join(process.cwd(), "src", "components"))) {
+      if (!file.endsWith(".tsx")) continue;
+      const source = readFileSync(join(process.cwd(), "src", "components", file), "utf8");
+      for (const match of source.matchAll(/<Sprite[^>]*?size=\{(\d+)\}/g)) {
+        wanted.push({ file, size: Number(match[1]) });
+      }
+    }
+
+    expect(wanted.length).toBeGreaterThan(5);
+    for (const { file, size } of wanted) {
+      expect(crispSize(size), `${file} asks for ${size}, which snaps to ${crispSize(size)}`).toBe(
+        size,
+      );
+    }
+  });
+
+  it("Y4: nothing scales a sprite by a fraction once it has settled", () => {
+    // A transform mid-animation is fine — it is moving and nobody can see the
+    // edges. One that a sprite comes to rest at is the same uneven division
+    // by another road.
+    const settled = CSS.match(/\.evolve-reveal \.evolveSprite \{([^}]*)\}/);
+    expect(settled, "the reveal rule moved or was renamed").not.toBeNull();
+    expect(settled![1]).not.toMatch(/scale\(\s*[01]?\.\d/);
   });
 });

@@ -1025,8 +1025,14 @@ kbd {
 .evolveSprite { position: relative; transition: filter 200ms ease, transform 600ms ease; }
 /* A shape rather than a creature, until the last moment. */
 .evolveSprite.dark { filter: brightness(0) saturate(0) drop-shadow(0 0 14px rgba(255, 255, 255, 0.75)); }
+/* The peak is a white-hot flash and a moving one, so a fractional scale on it
+   costs nothing anybody can see. The reveal settles back to 1:1 on purpose:
+   it is the one frame the whole twenty seconds is building to, and a sprite
+   held at 1.1x is 96-pixel art displayed at 211, which is the same uneven
+   division that made the battle sprites look distorted. The drama lives in
+   the glow behind it, which can scale by any amount it likes. */
 .evolve-peak .evolveSprite { filter: brightness(4) saturate(0); transform: scale(1.15); }
-.evolve-reveal .evolveSprite { transform: scale(1.1); }
+.evolve-reveal .evolveSprite { transform: none; }
 
 .evolveWord { position: relative; font-size: 1.05rem; text-align: center; max-width: 32ch; }
 

@@ -52,7 +52,7 @@ export function StarterPick({ world, onPick }: { world: World; onPick: (index: n
 
           return (
             <button key={id} type="button" className="starterCard" onClick={() => onPick(index)}>
-              <Sprite speciesId={id} variantId={creature.variantId} size={128} />
+              <Sprite speciesId={id} variantId={creature.variantId} size={192} />
               <h3>
                 {entry.name} <GenderMark gender={creature.gender} />
               </h3>

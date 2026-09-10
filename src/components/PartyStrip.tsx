@@ -213,7 +213,7 @@ export function PartyStrip({
             type={activate ? "button" : undefined}
             title={onInspect && !onSelect ? "Look at it" : undefined}
           >
-            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={44} faint={fainted} />
+            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={48} faint={fainted} />
             <div className="cardBody">
               <div className="cardTop">
                 <strong>

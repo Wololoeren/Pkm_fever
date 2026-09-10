@@ -138,11 +138,11 @@ export function BattleView({
             so reading the opponent cannot be used to cheat. */}
         <div className="slot wild hoverable" tabIndex={0}>
           <Nameplate creature={foe} team={theirTeam} active={battle.sides[them].active} />
-          <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={148} faint={foe.hp <= 0} />
+          <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={192} faint={foe.hp <= 0} />
           <StatHover creature={foe} />
         </div>
         <div className="slot mine hoverable" tabIndex={0}>
-          <Sprite speciesId={player.speciesId} variantId={player.variantId} size={148} flip faint={player.hp <= 0} />
+          <Sprite speciesId={player.speciesId} variantId={player.variantId} size={192} flip faint={player.hp <= 0} />
           <Nameplate creature={player} team={ourTeam} active={battle.sides[role].active} right />
           <StatHover creature={player} />
         </div>

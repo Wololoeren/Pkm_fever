@@ -154,7 +154,7 @@ export function Inspect({
       <section className="cheatPanel">
         <header className="cheatHead">
           <div className="row">
-            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={72} />
+            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={96} />
             <div>
               <h2>
                 {displayName(creature)} <GenderMark gender={creature.gender} />{" "}

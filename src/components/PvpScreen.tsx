@@ -39,7 +39,7 @@ function CreatureRow({
   const stats = computeStats(speciesById(creature.speciesId), creature);
   const body = (
     <>
-      <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={40} />
+      <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={48} />
       <div className="cardBody">
         <div className="cardTop">
           <strong>
