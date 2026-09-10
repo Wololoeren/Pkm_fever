@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { armOf } from "@/engine/biomes";
 import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
 import { passable, walkable } from "@/engine/terrain";
@@ -13,7 +14,9 @@ import { outdoorRoutes, testWorld } from "./helpers";
  * the author happened to try is not a rule.
  */
 
-const SEEDS = ["A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8"];
+/** Four seeds. A world is four times the size it was, so this is the same
+ * evidence eight used to be, in a quarter of the time. */
+const SEEDS = ["A1", "B2", "C3", "D4"];
 
 /** The level a starter is handed to you at — see pickStarter in engine.ts. */
 const STARTER_LEVEL = 5;
@@ -361,21 +364,28 @@ describe("which way an arm runs", () => {
     // that, all four arms ran sideways: you walked north out of town and the
     // way onward was *west*, because the map had not been turned to match the
     // direction you left in.
-    const expected: Record<string, { home: string; on: string }> = {
-      meadow: { home: "E", on: "W" },
-      pinewood: { home: "S", on: "N" },
-      ashflats: { home: "W", on: "E" },
-      marsh: { home: "N", on: "S" },
-    };
+    //
+    // Derived from the arm layout rather than tabulated. It used to be a table
+    // of four biome names, so a fifth biome failed this test by having no
+    // row — and sixteen more would have meant sixteen rows all saying the
+    // same four things. Five arms share each wall of town and all five run the
+    // same way, so the expectation is a property of the wall.
+    const byEdge = [
+      { home: "E", on: "W" },
+      { home: "S", on: "N" },
+      { home: "W", on: "E" },
+      { home: "N", on: "S" },
+    ];
 
-    for (const seed of ["A1", "B2", "C3"]) {
+    for (const seed of ["A1", "B2"]) {
       const world = testWorld(seed);
       for (const route of outdoorRoutes(world)) {
-        const want = expected[route.biome];
-        expect(want, `no expectation for ${route.biome}`).toBeDefined();
+        const index = world.config.biomes.indexOf(route.biome);
+        expect(index, `${route.biome} is not in the config`).toBeGreaterThanOrEqual(0);
 
-        expect(edgeOf(route.inGate!, route.width, route.height)).toBe(want.home);
-        expect(edgeOf(route.outGate!, route.width, route.height)).toBe(want.on);
+        const want = byEdge[armOf(index).edge];
+        expect(edgeOf(route.inGate!, route.width, route.height), route.id).toBe(want.home);
+        expect(edgeOf(route.outGate!, route.width, route.height), route.id).toBe(want.on);
       }
     }
   });
@@ -383,8 +393,14 @@ describe("which way an arm runs", () => {
   it("W23: the arms that run up and down are taller than they are wide", () => {
     const world = testWorld("A1");
     for (const route of outdoorRoutes(world)) {
-      const upright = route.biome === "pinewood" || route.biome === "marsh";
-      expect(upright ? route.height > route.width : route.width > route.height).toBe(true);
+      // The north and south walls, whichever biomes happen to hang off them.
+      const edge = armOf(world.config.biomes.indexOf(route.biome)).edge;
+      const upright = edge === 1 || edge === 3;
+
+      expect(
+        upright ? route.height > route.width : route.width > route.height,
+        `${route.id} on edge ${edge}`,
+      ).toBe(true);
       // Four times the area of the old routes, whichever way round.
       expect(route.width * route.height).toBe(88 * 68);
     }

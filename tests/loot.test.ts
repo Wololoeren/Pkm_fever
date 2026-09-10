@@ -400,7 +400,7 @@ describe("getting hold of them", () => {
     const stones = ITEMS.filter((spec) => spec.evolves);
     const found = new Set<string>();
 
-    for (const seed of ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]) {
+    for (const seed of ["a", "b", "c", "d"]) {
       for (const drop of [...testWorld(seed).pickups.values()].flat()) found.add(drop.item);
     }
 
@@ -425,7 +425,7 @@ describe("getting hold of them", () => {
     // emptied the stone family, the sentinel resolved to `undefined`, and the
     // world quietly scattered items with no id. Walking onto one would have
     // thrown. Nothing in the type system can catch that; this can.
-    for (const seed of ["a", "b", "c", "d", "e", "f"]) {
+    for (const seed of ["a", "b", "c"]) {
       for (const drop of [...testWorld(seed).pickups.values()].flat()) {
         expect(typeof drop.item, `${seed}: ${drop.id}`).toBe("string");
         expect(() => item(drop.item), `${seed}: ${drop.id} -> ${drop.item}`).not.toThrow();

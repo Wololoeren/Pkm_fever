@@ -1,5 +1,7 @@
 import type { Gender } from "./gender";
 
+import { BIOME_IDS } from "./biomes";
+
 /**
  * The vocabulary the whole engine is written in.
  *
@@ -12,7 +14,7 @@ import type { Gender } from "./gender";
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 15;
+export const ENGINE_VERSION = 16;
 
 // ------------------------------------------------------------------ stats
 
@@ -159,6 +161,7 @@ export interface Individual {
 
 // ------------------------------------------------------------------ world
 
+
 export interface WorldConfig {
   engineVersion: number;
   /** How many rings out from the hub the world extends. */
@@ -170,5 +173,15 @@ export interface WorldConfig {
 export const DEFAULT_WORLD: WorldConfig = {
   engineVersion: ENGINE_VERSION,
   rings: 6,
-  biomes: ["meadow", "pinewood", "ashflats", "marsh"],
+  /**
+   * Twenty of them, five to each wall of town, and the list lives in
+   * biomes.ts so that a place is one row rather than three.
+   *
+   * The first four are the settled world: every gym, every person, the Cup
+   * and every one-off breeding item is placed on those, and every balance
+   * number in the game was measured against them. The other sixteen are
+   * wilderness — creatures, trainers, things on the floor and the census,
+   * but nobody to talk to.
+   */
+  biomes: [...BIOME_IDS],
 };

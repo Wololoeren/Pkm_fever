@@ -8,9 +8,29 @@ import { TILE, walkable } from "@/engine/terrain";
 import { DEFAULT_WORLD, type Gender, type Individual, type StatusId } from "@/engine/types";
 import { generateWorld, type World } from "@/engine/world";
 
-/** A world built the way the game builds one. */
+/**
+ * A world built the way the game builds one, and built once per seed.
+ *
+ * Memoised, because a world is a pure function of (config, seed) and nothing
+ * in this suite mutates one — every test reads. That was a nicety at four
+ * biomes and is now the difference between a suite that runs and one that does
+ * not: twenty biomes is a hundred and seventy routes and about a second and a
+ * half to generate, and the suite asks for a world roughly two hundred times.
+ * Five minutes of the same arithmetic, for a value that cannot differ.
+ *
+ * If a test ever needs to change a world, it must build its own with
+ * `generateWorld` rather than editing this one — the cache hands every caller
+ * the same object.
+ */
+const worlds = new Map<string, World>();
+
 export function testWorld(seed: string): World {
-  return generateWorld(DEFAULT_WORLD, seed, ALL_SPECIES);
+  const built = worlds.get(seed);
+  if (built) return built;
+
+  const made = generateWorld(DEFAULT_WORLD, seed, ALL_SPECIES);
+  worlds.set(seed, made);
+  return made;
 }
 
 /** Every outdoor route. Interiors are maps too, and almost nothing that is

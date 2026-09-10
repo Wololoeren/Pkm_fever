@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
+import { armOf } from "@/engine/biomes";
 import { HUB_ID, routeId, type World } from "@/engine/world";
 import { paletteFor, tileColor } from "@/render/tiles";
 
@@ -15,13 +16,23 @@ import { paletteFor, tileColor } from "@/render/tiles";
  * region.
  *
  * The corridor diagram is not a shrunken map either. The world is a town with
- * four arms running outward and difficulty is one-dimensional along each arm,
- * so the useful question is "which arm, how far out" rather than "which
- * pixel". The four arms are drawn where they actually lie: west, north, east
- * and south, in the order the town's exits open onto them.
+ * twenty arms running outward and difficulty is one-dimensional along each
+ * arm, so the useful question is "which arm, how far out" rather than "which
+ * pixel".
+ *
+ * The arms are drawn where they actually lie. Five hang off each wall of town,
+ * so each wall's arms fan out around that wall's direction rather than all
+ * twenty spreading evenly round the circle — the picture is a diagram of the
+ * town's geometry, and a town with five roads out of its north wall should
+ * look like one.
  */
 
-const ARM_ANGLES = [180, 270, 0, 90];
+/** Which way each wall of town faces, in degrees, screen coordinates. */
+const EDGE_ANGLES = [180, 270, 0, 90];
+
+/** How far an arm leans off its wall's direction, per step from the middle. */
+const FAN_DEGREES = 26;
+
 const MINI_WIDTH = 176;
 
 export function MiniMap({ world, state }: { world: World; state: GameState }) {
@@ -120,7 +131,10 @@ function RegionMap({ world, state, outer }: { world: World; state: GameState; ou
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Map of the region">
       {biomes.map((biome, arm) => {
-        const angle = (ARM_ANGLES[arm % ARM_ANGLES.length] * Math.PI) / 180;
+        // The same layout the town wall uses, so the diagram and the world
+        // agree about which road is which.
+        const { edge, offset } = armOf(arm);
+        const angle = ((EDGE_ANGLES[edge] + offset * FAN_DEGREES) * Math.PI) / 180;
         const dx = Math.cos(angle);
         const dy = Math.sin(angle);
         const palette = paletteFor(biome);

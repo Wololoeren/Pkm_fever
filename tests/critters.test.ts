@@ -49,7 +49,14 @@ import { testWorld } from "./helpers";
  *   loop is worth testing.
  */
 
-const SEEDS = ["a", "b", "c", "d", "e", "f", "g", "h"];
+/**
+ * Four seeds, not eight.
+ *
+ * A world is four times what it was — twenty biomes, a hundred and seventy
+ * routes — so four of them is more ground than eight used to cover, and
+ * eight would be a quarter of a minute of world generation for one test.
+ */
+const SEEDS = ["a", "b", "c", "d"];
 
 function started(seed: string) {
   const world = testWorld(seed);
@@ -125,9 +132,15 @@ describe("where they stand", () => {
         // is how the first cut of this test failed against code that was
         // perfectly correct.
         const bare = reachedWith(route, new Set());
+
+        // Only the ones that were reachable to begin with. A creature standing
+        // on a tile the walk could never have got to costs nothing @@D@@ and
+        // counting it anyway is how this test failed by exactly one on one
+        // route out of a hundred and seventy.
         const standing = [...blocked].filter((at) => {
-          const [x, y] = at.split(",").map(Number);
-          return reachedWith(route, new Set()) > 0 && walkable(route.tiles[y * route.width + x]);
+          const one = new Set(blocked);
+          one.delete(at);
+          return reachedWith(route, one) > reachedWith(route, blocked);
         }).length;
 
         expect(

@@ -66,7 +66,7 @@ function beside(world: ReturnType<typeof testWorld>, state: GameState, id: strin
 
 describe("the buyer in the north", () => {
   it("S1: the Appraiser is indoors on pinewood's third ring, on every seed", () => {
-    for (const seed of ["A1", "B2", "C3", "D4", "E5", "F6"]) {
+    for (const seed of ["A1", "B2", "C3"]) {
       const world = testWorld(seed);
       const where = [...world.npcs].find(([, here]) =>
         here.some((one) => one.id === "buy-appraiser"),

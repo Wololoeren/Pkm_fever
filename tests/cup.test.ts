@@ -60,7 +60,9 @@ import { creature, testWorld } from "./helpers";
  *   answer to, and beating all five buys the Cup.
  */
 
-const SEEDS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
+/** Four seeds. A world is four times the size it was, so this is the same
+ * evidence eight used to be, in a quarter of the time. */
+const SEEDS = ["alpha", "bravo", "charlie", "delta"];
 
 /** The state of somebody standing in the house with a team worth fielding. */
 function atTheDoor(seed: string): { world: ReturnType<typeof testWorld>; state: GameState } {

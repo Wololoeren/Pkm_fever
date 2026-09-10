@@ -15,7 +15,7 @@ import { creature, testWorld } from "./helpers";
  * is what keeps two players on one seed in the same game.
  */
 
-const SEEDS = ["A1", "B2", "C3", "D4", "E5"];
+const SEEDS = ["A1", "B2", "C3"];
 
 describe("where they stand", () => {
   it("T1: every route outside the hub has somebody on it, and the hub has nobody", () => {

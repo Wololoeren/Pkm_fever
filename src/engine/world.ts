@@ -2,6 +2,13 @@ import { rollAbilities } from "./abilities";
 import { ALL_SPECIES, STARTER_TYPES, startersOfType } from "./dex";
 import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
+import {
+  armOf,
+  BIOME_IDS,
+  EDGES,
+  profileFor,
+  typesFor,
+} from "./biomes";
 import { CRITTERS, idlersFor, type CritterSpec } from "./critters";
 import { CUP_BIOME, CUP_IDS, CUP_RING } from "./cup";
 import { GYMS, gym } from "./gyms";
@@ -197,13 +204,6 @@ function ringBand(ring: number, rings: number): { min: number; max: number } {
   return { min: Math.round(190 + span * (ring - 1) * 0.75), max: Math.round(190 + span * ring) };
 }
 
-const BIOME_TYPES: Record<string, string[]> = {
-  meadow: ["normal", "grass", "bug", "flying", "fairy"],
-  pinewood: ["grass", "bug", "poison", "ghost", "dark"],
-  ashflats: ["fire", "rock", "ground", "steel"],
-  marsh: ["water", "poison", "ground", "bug"],
-};
-
 function bst(base: StatTable): number {
   return STAT_IDS.reduce((total, stat) => total + base[stat], 0);
 }
@@ -317,7 +317,7 @@ export function encounterTable(
   rings: number,
 ): { speciesId: string; weight: number }[] {
   const band = ringBand(ring, rings);
-  const affinity = BIOME_TYPES[biome] ?? [];
+  const affinity = typesFor(biome);
 
   const table = allSpecies
     .filter((species) => {
@@ -358,72 +358,32 @@ export function encounterTable(
  * walls are made of, how wide the ways between them run, how many loops there
  * are to take a wrong turn around, and how much of the open ground bites.
  */
-interface BiomeProfile {
-  /** What fills everything not carved out. */
-  wall: number;
-  /** The floor of a carved room. */
-  ground: number;
-  /** Tiles across a corridor. Narrow is claustrophobic; wide is a field. */
-  corridor: number;
-  /** How far a room is shrunk inside its cell. Bigger is tighter. */
-  roomInset: [number, number];
-  /** Extra joins beyond the spanning tree — loops rather than dead ends. */
-  loops: number;
-  /**
-   * Share of the open ground given over to tall grass, per mille.
-   *
-   * A share rather than a number of blobs: the old figure was "how many
-   * clumps to drop", which meant the actual coverage depended on how much of
-   * the route the maze happened to carve and nobody could say what any of the
-   * numbers meant. Measured, the four biomes were coming out at five to
-   * thirteen percent — nothing like enough for a route whose whole business
-   * is what lives in the grass.
-   */
-  grass: number;
-  /** Pools of water dropped into rooms. */
-  pools: number;
-  /** Loose rock and flowers scattered over the open ground. */
-  clutter: number;
-}
-
-const BIOME_PROFILES: Record<string, BiomeProfile> = {
-  // Open and forgiving: wide ways, plenty of loops, grass everywhere. This is
-  // the one you meet first and it should not feel like a trap.
-  meadow: {
-    wall: TILE.TREE, ground: TILE.MEADOW, corridor: 5, roomInset: [0, 1],
-    loops: 14, grass: 650, pools: 2, clutter: 40,
-  },
-  // The maze proper. Narrow, few loops, mostly dead ends — a pine wood is the
-  // biome you get lost in.
-  pinewood: {
-    wall: TILE.TREE, ground: TILE.MEADOW, corridor: 3, roomInset: [1, 2],
-    loops: 4, grass: 550, pools: 0, clutter: 18,
-  },
-  // Broken rather than dense: wide open rooms with rock between them, little
-  // cover, and nothing to drink.
-  ashflats: {
-    wall: TILE.ROCK, ground: TILE.SAND, corridor: 6, roomInset: [0, 0],
-    loops: 10, grass: 250, pools: 0, clutter: 55,
-  },
-  // Water does the walling. The ways through are the dry ground between pools,
-  // so it reads as picking your way rather than following a path.
-  marsh: {
-    wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [0, 2],
-    loops: 8, grass: 600, pools: 7, clutter: 25,
-  },
-};
-
-function profileFor(biome: string): BiomeProfile {
-  return BIOME_PROFILES[biome] ?? BIOME_PROFILES.meadow;
-}
+/**
+ * The terrain knobs, and the type lists, moved to biomes.ts.
+ *
+ * They were two tables here and a third in render/tiles.ts, which is workable
+ * for four biomes and hopeless for twenty: adding one meant three edits in two
+ * layers, and forgetting the third gave you a place that generated correctly,
+ * held the right creatures, and was painted meadow green. One row per biome
+ * now, with a test holding the engine's half and the renderer's together.
+ *
+ * The `grass` share is worth repeating here because it is the one number that
+ * is not obvious: it is a share of the open ground rather than a number of
+ * clumps. The old figure was "how many clumps to drop", which meant coverage
+ * depended on how much of the route the maze happened to carve, and nobody
+ * could say what any of the numbers meant. Measured, the four original biomes
+ * were coming out at five to thirteen percent — nothing like enough for a
+ * route whose whole business is what lives in the grass.
+ */
 
 /**
- * The order the four arms hang off town: west, north, east, south.
+ * The order the arms hang off town.
  *
  * The world config lists the biomes and the town cuts its gaps in the same
  * order, so this is that order named once rather than assumed in three places.
+ * Which wall each one lands on, and where along it, is `armOf` in biomes.ts.
  */
-export const ARM_ORDER: readonly string[] = ["meadow", "pinewood", "ashflats", "marsh"];
+export const ARM_ORDER: readonly string[] = BIOME_IDS;
 
 /**
  * Routes that must have a cabin, because the roster puts somebody inside one.
@@ -776,7 +736,10 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
  * keeps going up.
  */
 function orientationOf(biome: string): { quarters: number; mirror: boolean } {
-  const side = ARM_ORDER.indexOf(biome);
+  // Which *wall* it hangs off, not which position in the list. Five arms
+  // share each wall and all five run the same way, so the turn is a property
+  // of the edge — which is the whole reason `armOf` exists.
+  const side = armOf(Math.max(0, ARM_ORDER.indexOf(biome))).edge;
   switch (side) {
     case 0:
       return { quarters: 0, mirror: true };
@@ -803,7 +766,7 @@ function wireBorders(routes: Map<string, Route>, config: WorldConfig): void {
   const town = routes.get(HUB_ID);
   if (!town) return;
 
-  const gaps = townExits(town.width, town.height);
+  const gaps = townExits(town.width, town.height, config.biomes.length);
 
   config.biomes.forEach((biome, side) => {
     const gap = gaps[side];
@@ -1589,20 +1552,42 @@ export function pickStarters(seed: string, allSpecies: readonly SpeciesEntry[]):
  * at the western gap, whichever arm you had come from, so leaving east and
  * coming back put you on the far side of town.
  */
-export function townExits(width: number, height: number): { x: number; y: number }[] {
+export function townExits(
+  width: number,
+  height: number,
+  count = EDGES,
+): { x: number; y: number }[] {
   const midX = Math.floor(width / 2);
   const midY = Math.floor(height / 2);
-  return [
-    { x: 0, y: midY },
-    { x: midX, y: 0 },
-    { x: width - 1, y: midY },
-    { x: midX, y: height - 1 },
-  ];
+
+  // How far apart the gaps sit on a wall. Enough that two roads out are not
+  // one wide road, and tight enough that five fit on the short walls.
+  const alongX = 7;
+  const alongY = 5;
+
+  return Array.from({ length: count }, (_, index) => {
+    const { edge, offset } = armOf(index);
+
+    switch (edge) {
+      case 0:
+        return { x: 0, y: clamp(midY + offset * alongY, 1, height - 2) };
+      case 1:
+        return { x: clamp(midX + offset * alongX, 1, width - 2), y: 0 };
+      case 2:
+        return { x: width - 1, y: clamp(midY + offset * alongY, 1, height - 2) };
+      default:
+        return { x: clamp(midX + offset * alongX, 1, width - 2), y: height - 1 };
+    }
+  });
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value));
 }
 
 /** The tile just inside one of those gaps — where you stand on arrival. */
 export function townArrival(width: number, height: number, side: number): { x: number; y: number } {
-  const exit = townExits(width, height)[side];
+  const exit = townExits(width, height, side + 1)[side];
   return {
     x: exit.x === 0 ? 1 : exit.x === width - 1 ? width - 2 : exit.x,
     y: exit.y === 0 ? 1 : exit.y === height - 1 ? height - 2 : exit.y,
@@ -1660,9 +1645,31 @@ function buildTown(): { town: Route; interiors: Route[] } {
     grid.rect(gardenX, gardenY, 5, 1, TILE.FENCE);
   }
 
-  // Four ways out, from the one table that also decides where walking back in
-  // puts you.
-  for (const exit of townExits(TOWN_WIDTH, TOWN_HEIGHT)) grid.set(exit.x, exit.y, TILE.PATH);
+  // Every way out, from the one table that also decides where walking back in
+  // puts you — and a road inward from each, so a gap in the wall reads as
+  // somewhere a road goes rather than a hole.
+  //
+  // Twenty arms means sixteen gaps that the old crossroads never reached. The
+  // road is only painted over bare ground and stops the moment it meets
+  // anything else, which is what keeps decoration from eating architecture:
+  // it will not pave a doorstep, a roof or the garden. It is not needed for
+  // *passage* — the town is open grass, so every gap was already walkable to
+  // — so stopping early costs nothing but a shorter road.
+  for (const exit of townExits(TOWN_WIDTH, TOWN_HEIGHT, BIOME_IDS.length)) {
+    grid.set(exit.x, exit.y, TILE.PATH);
+
+    const inward =
+      exit.x === 0 ? [1, 0] : exit.x === TOWN_WIDTH - 1 ? [-1, 0] : exit.y === 0 ? [0, 1] : [0, -1];
+
+    let x = exit.x + inward[0];
+    let y = exit.y + inward[1];
+    for (let step = 0; step < Math.max(TOWN_WIDTH, TOWN_HEIGHT); step++) {
+      if (!grid.inside(x, y) || grid.get(x, y) !== TILE.MEADOW) break;
+      grid.set(x, y, TILE.PATH);
+      x += inward[0];
+      y += inward[1];
+    }
+  }
 
   return {
     town: {
