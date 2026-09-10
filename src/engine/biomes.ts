@@ -66,6 +66,21 @@ export interface BiomeSpec {
   /** One line, for a reader deciding whether to walk there. */
   blurb: string;
   /**
+   * How ordinary it is, 0 to 3, and therefore how many of it there are.
+   *
+   * Tier 0 is the countryside you would walk through without remarking on it,
+   * and there are four of each; tier 3 is somewhere you would tell somebody
+   * about, and there is one of each. Fifty places out of twenty kinds, and the
+   * shape of that is the point — you should meet a meadow four times over and
+   * a Crystal Vault once ever.
+   *
+   * It also decides roughly *where* each one goes: `dealBiomes` ranks nodes by
+   * distance from town and slots by tier, so the ordinary places cluster near
+   * home and the strange ones sit out past them. A tendency rather than a
+   * rule, with jitter, so the world is not a set of concentric bands.
+   */
+  tier: 0 | 1 | 2 | 3;
+  /**
    * The types that live here.
    *
    * This is what actually makes a biome a different place to hunt: the
@@ -88,6 +103,7 @@ export interface BiomeSpec {
 const SETTLED: BiomeSpec[] = [
   {
     id: "meadow",
+    tier: 0,
     name: "Meadow",
     blurb: "Open and forgiving. Wide ways, plenty of loops, grass everywhere.",
     types: ["normal", "grass", "bug", "flying", "fairy"],
@@ -98,6 +114,7 @@ const SETTLED: BiomeSpec[] = [
   },
   {
     id: "pinewood",
+    tier: 0,
     name: "Pinewood",
     blurb: "The maze proper. Narrow, few loops, mostly dead ends.",
     types: ["grass", "bug", "poison", "ghost", "dark"],
@@ -108,6 +125,7 @@ const SETTLED: BiomeSpec[] = [
   },
   {
     id: "ashflats",
+    tier: 1,
     name: "Ashflats",
     blurb: "Broken rather than dense. Wide rooms, little cover, nothing to drink.",
     types: ["fire", "rock", "ground", "steel"],
@@ -118,6 +136,7 @@ const SETTLED: BiomeSpec[] = [
   },
   {
     id: "marsh",
+    tier: 0,
     name: "Marsh",
     blurb: "Water does the walling. The way through is the dry ground between pools.",
     types: ["water", "poison", "ground", "bug"],
@@ -139,6 +158,7 @@ const SETTLED: BiomeSpec[] = [
 const WILD: BiomeSpec[] = [
   {
     id: "glacier",
+    tier: 2,
     name: "Glacier",
     blurb: "The coldest. Ice walls, almost nothing growing, and three still pools.",
     types: ["ice", "water", "dragon"],
@@ -149,6 +169,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "stormcoast",
+    tier: 1,
     name: "Stormcoast",
     blurb: "An archipelago. Walk the spits or bring Surf and cross the whole thing.",
     types: ["electric", "water", "flying"],
@@ -161,6 +182,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "dunes",
+    tier: 1,
     name: "Dunes",
     blurb: "The widest. You can see across it, and there is nothing to see.",
     types: ["ground", "rock", "dragon"],
@@ -171,6 +193,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "boneyard",
+    tier: 3,
     name: "Boneyard",
     blurb: "The most desolate. Narrow, nearly no loops, and strewn with what is left.",
     types: ["ghost", "rock", "fighting"],
@@ -181,6 +204,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "mycelia",
+    tier: 2,
     name: "Mycelia",
     blurb: "The most overgrown. Nine tenths of the floor is something you push through.",
     types: ["grass", "poison", "bug"],
@@ -191,6 +215,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "thunderplain",
+    tier: 0,
     name: "Thunderplain",
     blurb: "The most open. Twenty ways round everything and nowhere to hide.",
     types: ["electric", "normal", "flying"],
@@ -201,6 +226,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "crystalvault",
+    tier: 3,
     name: "Crystal Vault",
     blurb: "The most barren. Almost nothing lives here, and what does is strange.",
     types: ["psychic", "steel", "fairy"],
@@ -211,6 +237,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "emberfields",
+    tier: 2,
     name: "Emberfields",
     blurb: "Burnt ground and standing heat. Everything here is already scarred.",
     types: ["fire", "fighting", "dark"],
@@ -221,6 +248,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "cloudreach",
+    tier: 3,
     name: "Cloudreach",
     blurb: "Peaks above the weather. Thin ways, thin air, and very little of either.",
     types: ["flying", "dragon", "psychic"],
@@ -231,6 +259,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "sunkenreach",
+    tier: 3,
     name: "Sunken Reach",
     blurb: "The other archipelago, and the drowned one. Twelve pools and rising.",
     types: ["water", "steel", "dark"],
@@ -241,6 +270,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "bramblewood",
+    tier: 0,
     name: "Bramblewood",
     blurb: "The most tangled. Two tiles wide, no loops at all, and thorns.",
     types: ["grass", "dark", "bug"],
@@ -251,6 +281,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "saltpan",
+    tier: 1,
     name: "Saltpan",
     blurb: "Cracked flat and white. The most cluttered ground in the world.",
     types: ["ground", "water", "steel"],
@@ -261,6 +292,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "fellgarden",
+    tier: 2,
     name: "Fellgarden",
     blurb: "Cultivated by somebody, a long time ago, and still growing to plan.",
     types: ["fairy", "psychic", "grass"],
@@ -271,6 +303,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "slagheap",
+    tier: 3,
     name: "Slagheap",
     blurb: "Somebody built this and left. Paved floors, rust, and standing water.",
     types: ["steel", "fire", "poison"],
@@ -283,6 +316,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "frostmire",
+    tier: 1,
     name: "Frostmire",
     blurb: "A bog that froze and thawed and froze. Nine pools of it, none inviting.",
     types: ["ice", "poison", "water"],
@@ -293,6 +327,7 @@ const WILD: BiomeSpec[] = [
   },
   {
     id: "duskhollow",
+    tier: 2,
     name: "Duskhollow",
     blurb: "The darkest. Narrow, unlit, and the things in it were waiting.",
     types: ["dark", "ghost", "fighting"],
@@ -336,41 +371,38 @@ export function typesFor(id: string): readonly string[] {
   return BY_ID.get(id)?.types ?? [];
 }
 
-// ------------------------------------------------------------- the geometry
+/**
+ * The biomes by tier, tier 0 first.
+ *
+ * Read rather than written down, so the counts in `dealBiomes` and the tiers
+ * on the rows above cannot come apart.
+ */
+export function tiersOf(): string[][] {
+  const out: string[][] = [[], [], [], []];
+  for (const spec of BIOMES) out[spec.tier].push(spec.id);
+  return out;
+}
 
 /**
- * Where an arm hangs off town, given its place in the list.
+ * How many copies of a biome of this tier the world holds.
  *
- * Twenty arms and four walls, so five to a wall. The layout is *interleaved*
- * rather than blocked — arm 0 west, arm 1 north, arm 2 east, arm 3 south, arm
- * 4 west again — for one reason worth the arithmetic: it keeps the first four
- * biomes at the middle of their own wall, exactly where the four of them were
- * when there were only four. Every gym, every person and every one-off item
- * is placed on those four, and the town's crossroads runs to those four gaps.
- *
- * `rank` is how far along the wall from the middle, alternating either side:
- * 0 is the midpoint, 1 is before it, 2 is after, 3 is further before, and so
- * on. So a wall fills outward from its middle and stays symmetrical however
- * many arms it ends up carrying.
+ * Four of each of the five most ordinary, three of the next five, two, then
+ * one. Twenty kinds, fifty places.
  */
-export interface ArmPlace {
-  /** 0 west, 1 north, 2 east, 3 south. */
-  edge: number;
-  /** How many steps from the middle of that wall, signed. */
-  offset: number;
+export function copiesOf(tier: number): number {
+  return Math.max(1, 4 - tier);
 }
 
-export const EDGES = 4;
-
-export function armOf(index: number): ArmPlace {
-  const edge = index % EDGES;
-  const rank = Math.floor(index / EDGES);
-  // 0, -1, +1, -2, +2, -3, +3 …
-  const offset = rank === 0 ? 0 : (rank % 2 === 1 ? -1 : 1) * Math.ceil(rank / 2);
-  return { edge, offset };
+/** How many places a world holds: 5x4 + 5x3 + 5x2 + 5x1. */
+export function placesWanted(): number {
+  return tiersOf().reduce((total, ids, tier) => total + ids.length * copiesOf(tier), 0);
 }
 
-/** How many arms a wall carries, for a world of this many biomes. */
-export function armsPerEdge(count: number): number {
-  return Math.ceil(count / EDGES);
+/**
+ * The name to show a player, or a capitalised id for somewhere that is not a
+ * biome — the town and the interiors both carry a `biome` string that is not
+ * in this table.
+ */
+export function nameOf(id: string): string {
+  return BY_ID.get(id)?.name ?? `${id[0].toUpperCase()}${id.slice(1)}`;
 }

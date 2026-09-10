@@ -1,19 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
-  armOf,
-  armsPerEdge,
   BIOMES,
   BIOME_IDS,
   biome,
-  EDGES,
+  copiesOf,
   isBiome,
+  placesWanted,
   profileFor,
+  tiersOf,
   typesFor,
 } from "@/engine/biomes";
 import { ALL_SPECIES, TYPE_NAMES } from "@/engine/dex";
 import { TILE, walkable } from "@/engine/terrain";
 import { DEFAULT_WORLD } from "@/engine/types";
-import { encounterTable, routeId, TOWN_HEIGHT, TOWN_WIDTH, townExits } from "@/engine/world";
+import { BEARINGS } from "@/engine/layout";
+import {
+  encounterTable,
+  routeId,
+  TOWN_HEIGHT,
+  TOWN_WIDTH,
+  townArrival,
+  townExits,
+} from "@/engine/world";
 import { paletteFor } from "@/render/tiles";
 import { outdoorRoutes, testWorld } from "./helpers";
 
@@ -21,10 +29,11 @@ import { outdoorRoutes, testWorld } from "./helpers";
  * Twenty places, and the three tables that have to agree about them.
  *
  * A biome is a row in `biomes.ts` (what it is made of, what lives in it), a
- * palette in `render/tiles.ts` (what it looks like), and a gap in the town
- * wall (how you get there). Adding one means touching two files in two
- * layers, and the failure when you forget the second is *silent*: a place that
- * generates correctly, holds the right creatures, and is painted meadow green.
+ * palette in `render/tiles.ts` (what it looks like), and a tier (how many of
+ * it there are, and roughly how far out). Adding one means touching two files
+ * in two layers, and the failure when you forget the second is *silent*: a
+ * place that generates correctly, holds the right creatures, and is painted
+ * meadow green.
  *
  * `paletteFor` falls back to the meadow by design, so nothing throws and
  * nothing looks obviously wrong — you just have two biomes the same colour and
@@ -76,45 +85,61 @@ describe("the tables agree", () => {
     expect(typesFor("indoors")).toEqual([]);
   });
 
-  it("X3: every biome has somewhere to hang off, and no two share a gap", () => {
-    const gaps = townExits(TOWN_WIDTH, TOWN_HEIGHT, BIOMES.length);
-    expect(gaps.length).toBe(BIOMES.length);
+  it("X3: the town has one way out per wall, and none of them is a corner", () => {
+    // Twenty gaps, five to a wall, because twenty arms hung off the town. The
+    // town is one cell of a lattice now: four neighbours at most, each in a
+    // compass direction, so a gap is the middle of a wall.
+    const gaps = townExits(TOWN_WIDTH, TOWN_HEIGHT);
+    const all = BEARINGS.map((bearing) => gaps[bearing]);
+    expect(all.length).toBe(4);
 
-    const keys = new Set(gaps.map((gap) => `${gap.x},${gap.y}`));
-    expect(keys.size, "two arms share one gap in the town wall").toBe(gaps.length);
+    const keys = new Set(all.map((gap) => `${gap.x},${gap.y}`));
+    expect(keys.size, "two ways out share one gap in the town wall").toBe(4);
 
-    for (const gap of gaps) {
+    for (const bearing of BEARINGS) {
+      const gap = gaps[bearing];
       const onEdge =
         gap.x === 0 || gap.y === 0 || gap.x === TOWN_WIDTH - 1 || gap.y === TOWN_HEIGHT - 1;
-      expect(onEdge, `${gap.x},${gap.y} is not on the wall`).toBe(true);
+      expect(onEdge, `${bearing} gap ${gap.x},${gap.y} is not on the wall`).toBe(true);
 
       // Never a corner: a corner gap has no tile inside it to arrive on.
       const corner =
         (gap.x === 0 || gap.x === TOWN_WIDTH - 1) && (gap.y === 0 || gap.y === TOWN_HEIGHT - 1);
-      expect(corner, `${gap.x},${gap.y} is a corner`).toBe(false);
+      expect(corner, `${bearing} gap is a corner`).toBe(false);
+
+      // And the wall it is on is the one that bearing names, or walking north
+      // out of town comes back in from the west.
+      const wall =
+        gap.y === 0 ? "n" : gap.y === TOWN_HEIGHT - 1 ? "s" : gap.x === 0 ? "w" : "e";
+      expect(wall, `the ${bearing} gap is on the ${wall} wall`).toBe(bearing);
+
+      // Somewhere to stand when you walk back in, and it is inside.
+      const landing = townArrival(TOWN_WIDTH, TOWN_HEIGHT, bearing);
+      expect(landing.x).toBeGreaterThan(0);
+      expect(landing.y).toBeGreaterThan(0);
+      expect(landing.x).toBeLessThan(TOWN_WIDTH - 1);
+      expect(landing.y).toBeLessThan(TOWN_HEIGHT - 1);
     }
   });
 
-  it("X4: the arms fill each wall outward from its middle, and stay balanced", () => {
-    expect(armsPerEdge(BIOMES.length)).toBe(5);
+  it("X4: the tiers deal fifty places out of twenty kinds", () => {
+    const tiers = tiersOf();
+    expect(tiers.length).toBe(4);
 
-    // The first four sit at the middle of their own wall — which is where the
-    // four of them were when there were only four, and is why every gym, every
-    // person and the town's own crossroads still line up.
-    for (let index = 0; index < EDGES; index++) {
-      expect(armOf(index)).toEqual({ edge: index, offset: 0 });
-    }
+    // Five of each tier, and four copies of the most ordinary down to one of
+    // the strangest. The shape of that is the design: you should meet a meadow
+    // four times over and a Crystal Vault once ever.
+    expect(tiers.map((ids) => ids.length)).toEqual([5, 5, 5, 5]);
+    expect([0, 1, 2, 3].map(copiesOf)).toEqual([4, 3, 2, 1]);
+    expect(placesWanted()).toBe(50);
 
-    const perEdge = new Map<number, number[]>();
-    for (let index = 0; index < BIOMES.length; index++) {
-      const { edge, offset } = armOf(index);
-      perEdge.set(edge, [...(perEdge.get(edge) ?? []), offset]);
-    }
-
-    for (const [edge, offsets] of perEdge) {
-      expect(offsets.length, `wall ${edge}`).toBe(5);
-      expect([...offsets].sort((a, b) => a - b), `wall ${edge}`).toEqual([-2, -1, 0, 1, 2]);
-    }
+    // Every biome in exactly one tier, and the tier on the row is the tier it
+    // is filed under — the two are read from the same field, and this is the
+    // guard that says so.
+    const filed = new Map<string, number>();
+    tiers.forEach((ids, tier) => ids.forEach((id) => filed.set(id, tier)));
+    expect(filed.size).toBe(BIOMES.length);
+    for (const spec of BIOMES) expect(filed.get(spec.id), spec.id).toBe(spec.tier);
   });
 });
 
@@ -195,23 +220,45 @@ describe("they are actually different places", () => {
 });
 
 describe("in a real world", () => {
-  it("X9: every biome generates every ring, on every seed", () => {
+  it("X9: every biome gets its whole allowance of copies, on every seed", () => {
     for (const seed of SEEDS) {
       const world = testWorld(seed);
 
-      for (const id of BIOME_IDS) {
-        for (let ring = 1; ring <= DEFAULT_WORLD.rings; ring++) {
-          const route = world.routes.get(routeId(id, ring));
-          expect(route, `${seed}: ${id} ring ${ring} was never built`).toBeTruthy();
-          expect(route!.biome).toBe(id);
-          expect(route!.ring).toBe(ring);
-          // A way in and a way onward, or the arm is a dead end.
-          expect(route!.inGate, `${seed}: ${route!.id} has no way in`).toBeTruthy();
-          expect(route!.outGate, `${seed}: ${route!.id} has no way on`).toBeTruthy();
+      for (const spec of BIOMES) {
+        const copies = copiesOf(spec.tier);
+
+        for (let nth = 1; nth <= copies; nth++) {
+          const route = world.routes.get(routeId(spec.id, nth));
+          expect(route, `${seed}: ${spec.id} copy ${nth} was never built`).toBeTruthy();
+          expect(route!.biome).toBe(spec.id);
+          expect(route!.nth).toBe(nth);
+
+          // At least one gap in the wall, or it is somewhere you cannot reach.
+          expect(route!.gates.length, `${seed}: ${route!.id} has no gate`).toBeGreaterThan(0);
+          expect(route!.gates.length).toBeLessThanOrEqual(4);
+          expect(new Set(route!.gates.map((gate) => gate.bearing)).size).toBe(
+            route!.gates.length,
+          );
         }
+
+        // And no more than its allowance: an extra meadow is a biome that has
+        // quietly borrowed somebody else's place in the world.
+        expect(
+          world.routes.has(routeId(spec.id, copies + 1)),
+          `${seed}: ${spec.id} has more copies than its tier allows`,
+        ).toBe(false);
+
+        // The copies are numbered outward. This is what every hand-placed
+        // thing in the game relies on — "the nearest marsh" has to be the
+        // nearest marsh, or a gym is somewhere nobody meant to put it.
+        const depths = Array.from(
+          { length: copies },
+          (_, index) => world.routes.get(routeId(spec.id, index + 1))!.depth,
+        );
+        expect([...depths].sort((a, b) => a - b), `${seed}: ${spec.id}`).toEqual(depths);
       }
 
-      expect(outdoorRoutes(world).length).toBe(BIOMES.length * DEFAULT_WORLD.rings);
+      expect(outdoorRoutes(world).length).toBe(placesWanted());
     }
   });
 
@@ -246,17 +293,17 @@ describe("in a real world", () => {
     expect(waterWalled.length, "nothing walls with water any more").toBe(2);
 
     for (const spec of waterWalled) {
-      const route = world.routes.get(routeId(spec.id, 3))!;
+      const route = world.routes.get(routeId(spec.id, 1))!;
       const water = route.tiles.filter((tile) => tile === TILE.WATER).length;
       // Most of the map, not a pond.
       expect(water / route.tiles.length, spec.id).toBeGreaterThan(0.2);
 
-      // And the carved skeleton is walkable without Surf at every ring, or the
-      // arm would be shut until the second gym.
-      for (let ring = 1; ring <= DEFAULT_WORLD.rings; ring++) {
-        const at = world.routes.get(routeId(spec.id, ring))!;
+      // And the carved skeleton is walkable without Surf on every copy of it,
+      // or somewhere in the world is shut until the second gym.
+      for (let nth = 1; nth <= copiesOf(spec.tier); nth++) {
+        const at = world.routes.get(routeId(spec.id, nth))!;
         const open = at.tiles.filter(walkable).length;
-        expect(open, `${spec.id} ring ${ring} has nowhere to stand`).toBeGreaterThan(400);
+        expect(open, `${spec.id} copy ${nth} has nowhere to stand`).toBeGreaterThan(400);
       }
     }
   });

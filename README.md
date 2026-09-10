@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         191 tests, including the replay property everything rests on
+tests/         446 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -165,10 +165,40 @@ memorised the original to notice.
 
 ### The world
 
-A town at the centre, four biomes running outward from it, and further out
-means higher levels and rarer things. Hearth is 40x28; the routes beyond it are
+**Fifty places** on an irregular lattice around one town, and further out means
+higher levels and rarer things. Hearth is 40x28; the routes beyond it are
 **88x68**, four times the area they were and far past what fits on a screen, so
 the camera follows you and stops at the edges.
+
+It was a star: a hub with arms running outward, difficulty read straight off an
+arm's ring index. That is easy to reason about and it is not a *place* — you
+never choose a direction, only an arm, and having chosen it there is exactly one
+way on. So the world is a graph. The cells are grown from the seed one at a
+time, each beside a cell that already exists, which is what makes the outline
+lumpy rather than a disc and makes "avoid symmetry" a property of how the shape
+was chosen rather than something arranged afterwards. Then extra joins are
+opened between cells already beside each other until only **a few blind ends**
+are left — that pass is what turns a tree into somewhere you can walk *round*.
+
+The fifty are dealt out of **twenty kinds** by tier: four of each of the five
+most ordinary places, three of the next five, two, then one. You should meet a
+meadow four times over and a Crystal Vault once ever.
+
+Three numbers a route carries, which used to be one number doing three jobs:
+
+- **depth** — hops from town along the shortest way there. What the region map
+  draws, and the only honest answer to "how far out is this".
+- **ring** — how hard it is: depth stretched onto eight bands, so the first hop
+  is always the first band and the furthest place in any world is always the
+  last one. Worlds come out seven to ten hops across, and reading the level
+  curve straight off hops would make the same curve reach further on some seeds
+  than others.
+- **nth** — which copy of its biome it is, counted outward. This is the half of
+  a route's identity that anything hand-placed addresses: `{ biome: "marsh",
+  nth: 1 }` is *the nearest marsh*, an address that resolves in every world,
+  which a ring stopped being the moment rings stopped being names. Every gym,
+  all twenty-one people out on the map, the Cup's house and all fourteen
+  one-off breeding items are written down that way.
 
 Routes are **carved, not drawn**. The map starts solid and a maze over a coarse
 grid of rooms decides what opens: a depth-first spanning tree, which is what
@@ -182,8 +212,9 @@ palette. Meadow is wide and looped and forgiving, because it is the one you
 meet first. Pinewood is the maze proper: narrow, few loops, mostly dead ends.
 Ashflats is broken rather than dense, open rooms with rock between them and
 little cover. Marsh lets water do the walling, so the way through is the dry
-ground between pools. Corridors narrow as the rings go out, so the outer rings
-close in without needing profiles of their own.
+ground between pools; two of the twenty wall with water entirely. Corridors
+narrow as the bands go out, so the outer world closes in without needing
+profiles of its own.
 
 The last word on a route is a walk from its front door: anything that walk
 cannot reach is filled back in. Everything scattered after the maze runs can
@@ -191,19 +222,30 @@ sever a branch the maze guaranteed, and something did: a cabin dropped into one
 of the small pinewood rooms filled it end to end and sealed off two thousand
 tiles, carved, decorated and unreachable. `W24` is what noticed.
 
-Every route is generated in one canonical form, in at the west and out at the
-east, and **turned** to face the way its arm runs. Before that the arms all ran
-sideways: you walked north out of town and the way onward was *west*. The two
-vertical arms are 68x88 now, and going up keeps going up. Generating four
-orientations instead would have meant four chances for a rule to hold in one of
-them and not the others; a rotation cannot change what is connected to what.
+A route has **a gap in its wall on every side that has a neighbour**, up to one
+a side, and each gap knows its bearing. There used to be exactly two, in at the
+west and out at the east, and the whole map was **turned** afterwards to face
+the way its arm ran — which is a transform and a whole class of bug with it, a
+cabin's doorstep written down before the turn and read after it. Gates are cut
+on the real walls now, so there is nothing left to turn and every route is the
+same 88x68 whichever way you leave it.
+
+The gaps are joined to the *middle* of the map rather than to each other, so a
+place with three neighbours is a junction instead of three corridors that
+happen to share a map. Every check that anything on a route might close — a
+pond, a cabin, a gym hall, a boulder — is a walk from that middle to every
+gate, and whatever fails it is put straight back. It used to be a walk between
+one pair of rooms, which was a complete question when there were only ever two
+ways out and would have let a pool seal the third of three.
 
 Where a border leads is a **lookup, not a derivation**. Both ends of every
 crossing are written from the same pair of gates when the world is built, so
 stepping out and stepping back is a round trip as a property of the map. It
 used to be two separate pieces of arithmetic, and they disagreed: every walk
 back from ring one arrived at the same gap in town whichever arm you had left
-by.
+by. A gate is paired with the gate on the wall *facing* it, which is why a
+bearing is stored rather than inferred — a crossing between walls that do not
+face each other is a teleport.
 
 The buildings are real. Stepping on a door tile puts you in the room behind it,
 and the daycare, the Poke Center and the Mart are rooms rather than panels that
@@ -217,18 +259,23 @@ door would be a very good joke and a very bad building.
 
 Two maps, because there are two questions. A scaled-down view of the map you
 are standing on, with doors, unbeaten trainers and you marked on it, answers
-"where am I here", and on a carved maze it is worth looking at. Under it, a
-node diagram — a town with four arms, rings along each — answers "which arm,
-how far out", which is the only thing difficulty depends on and the thing a
-minified tile view hides.
+"where am I here", and on a carved maze it is worth looking at. Under it, **the
+graph**: a dot for each of the fifty places at the cell it actually occupies,
+and a line wherever you can walk from one to the other.
 
-Neither carries a word any more. The arms are told apart by the colour of what
-you have walked and the rings by whether they are filled, which is what the
-diagram is actually for; four names pointing outward from a 176px square were
-more ink than answer, and the header already says where you are standing.
-Unvisited rings are drawn but empty: the shape of the world is not a secret,
-only what is in it. Standing indoors lights up the town you are indoors in,
-because a door is not a journey.
+It was a fan of twenty arms, which was the honest picture of a world whose only
+questions were which arm and how far out. There are no arms now — there are
+loops, junctions and a few blind ends — and the useful question became "what
+have I not walked yet". So the dots sit where the places are and the lines are
+the crossings that exist, which makes it a drawing of the world rather than a
+diagram of it.
+
+Neither carries a word. Fifty names in a 176px square would be ink rather than
+answer: the places are told apart by the colour of the ones you have walked,
+the crossings you have taken are drawn brighter than the ones you have not, and
+hovering a dot names it. Unwalked places are drawn but empty — the shape of
+the world is not a secret, only what is in it. Standing indoors lights up the
+town you are indoors in, because a door is not a journey.
 
 ### Testing shortcuts
 
@@ -358,9 +405,9 @@ change rather than an engine one, and a flat split is a rule that needs
 neither.
 
 Twelve items make it faster. Three shape the stats and drop from any route at
-ring 2, 4 and 6, so nobody can miss them; the other nine shape appearance and
-are keyed to a *biome* as well as a ring, so each asks you to have been
-somewhere specific rather than merely far. All of them are equipment rather
+bands 2, 5 and 8, so nobody can miss them; the other fourteen shape appearance
+and are keyed to a *particular place* rather than a distance, so each asks you
+to have been somewhere specific rather than merely far. All of them are equipment rather
 than stock: found once, then applied to a pairing for as long as you want.
 
 ### Inheriting an appearance

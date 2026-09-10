@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armOf } from "@/engine/biomes";
+import { opposite, type Bearing } from "@/engine/layout";
 import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
 import { passable, walkable } from "@/engine/terrain";
@@ -160,10 +160,26 @@ describe("routes", () => {
   });
 
   it("W9: difficulty rises with distance from the hub", () => {
+    // Read off the world rather than off three route names. It used to walk
+    // meadow-1, meadow-3 and meadow-6, which was the same thing when the
+    // number in the name was the ring — it is which copy now, and the copies
+    // of one biome are scattered rather than in a line.
     const world = testWorld("A1");
-    const levelAt = (ring: number) => wildAt(world, ALL_SPECIES, `meadow-${ring}`, 3, 1).level;
-    expect(levelAt(1)).toBeLessThan(levelAt(3));
-    expect(levelAt(3)).toBeLessThan(levelAt(6));
+    const byBand = new Map<number, string>();
+    for (const route of outdoorRoutes(world)) if (!byBand.has(route.ring)) byBand.set(route.ring, route.id);
+
+    const bands = [...byBand.keys()].sort((a, b) => a - b);
+    expect(bands.length, "the world is graded into one band").toBeGreaterThan(3);
+
+    const levelAt = (band: number) => wildAt(world, ALL_SPECIES, byBand.get(band)!, 3, 1).level;
+
+    // Every step out is a step up, band by band, all the way to the far edge.
+    for (let index = 1; index < bands.length; index++) {
+      expect(
+        levelAt(bands[index]),
+        `band ${bands[index]} is no harder than band ${bands[index - 1]}`,
+      ).toBeGreaterThan(levelAt(bands[index - 1]));
+    }
   });
 
   it("W12: the first ring is winnable with the starter you are given", () => {
@@ -320,89 +336,116 @@ describe("crossing a border", () => {
     }
   });
 
-  it("W21: and that holds between rings, in both directions", () => {
+  it("W21: and that holds at every crossing in the world, both ways", () => {
+    // Every gap in every wall, walked out of and back into.
+    //
+    // This used to step east off each route and shrug if nothing happened,
+    // because the world was a star and east was the way on. On a graph "east"
+    // is a way on for some places and a wall for others, so a test that
+    // shrugged was a test that passed by declining to look — and a crossing
+    // whose two halves disagree is a door that puts you somewhere you cannot
+    // walk back from. There are about a hundred and forty of them.
     const world = testWorld("B2");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    let crossings = 0;
 
     for (const route of outdoorRoutes(world)) {
-      const exitRow = route.tiles.findIndex((_, index) => {
-        const x = index % route.width;
-        return x === route.width - 1 && walkable(route.tiles[index]);
-      });
-      if (exitRow < 0) continue;
+      for (const border of route.borders) {
+        const dir =
+          border.x === 0
+            ? "w"
+            : border.x === route.width - 1
+              ? "e"
+              : border.y === 0
+                ? "n"
+                : "s";
 
-      const y = Math.floor(exitRow / route.width);
-      const at: GameState = {
-        ...applyInput(world, initialState(world), { t: "pickStarter", index: 0 }),
-        route: route.id,
-        x: route.width - 2,
-        y,
-      };
+        const inside = {
+          x: border.x === 0 ? 1 : border.x === route.width - 1 ? route.width - 2 : border.x,
+          y: border.y === 0 ? 1 : border.y === route.height - 1 ? route.height - 2 : border.y,
+        };
 
-      const out = step(world, at, "e");
-      if (!out || out.route === route.id) continue;
+        const at: GameState = { ...base, route: route.id, ...inside };
+        const out = step(world, at, dir);
+        expect(out, `${route.id}: cannot step ${dir} onto its own border`).not.toBeNull();
+        expect(out!.route, `${route.id} -> ${border.to}`).toBe(border.to);
+        expect([out!.x, out!.y], `${route.id} -> ${border.to} landing`).toEqual([
+          border.at.x,
+          border.at.y,
+        ]);
 
-      const back = step(world, out, "w");
-      expect(back, `no way back from ${out.route} to ${route.id}`).not.toBeNull();
-      expect(back!.route).toBe(route.id);
-      expect([back!.x, back!.y]).toEqual([at.x, at.y]);
+        const back = step(world, out!, opposite(dir as Bearing));
+        expect(back, `no way back from ${border.to} to ${route.id}`).not.toBeNull();
+        expect(back!.route).toBe(route.id);
+        expect([back!.x, back!.y]).toEqual([inside.x, inside.y]);
+
+        crossings++;
+      }
     }
+
+    // A world whose routes had no borders at all would satisfy every
+    // expectation above by never running one.
+    expect(crossings).toBeGreaterThan(60);
   });
 });
 
-describe("which way an arm runs", () => {
+describe("which way the gates face", () => {
   /** Which edge of a map a border tile sits on. */
   function edgeOf(gate: { x: number; y: number }, width: number, height: number): string {
-    if (gate.x === 0) return "W";
-    if (gate.x === width - 1) return "E";
-    if (gate.y === 0) return "N";
-    if (gate.y === height - 1) return "S";
+    if (gate.x === 0) return "w";
+    if (gate.x === width - 1) return "e";
+    if (gate.y === 0) return "n";
+    if (gate.y === height - 1) return "s";
     return "?";
   }
 
-  it("W22: going up keeps going up, and every arm points away from town", () => {
-    // Routes are generated running west to east and turned afterwards. Before
-    // that, all four arms ran sideways: you walked north out of town and the
-    // way onward was *west*, because the map had not been turned to match the
-    // direction you left in.
+  it("W22: a gate is on the wall its bearing names, and its neighbour's is opposite", () => {
+    // The invariant that replaced the rotation.
     //
-    // Derived from the arm layout rather than tabulated. It used to be a table
-    // of four biome names, so a fifth biome failed this test by having no
-    // row — and sixteen more would have meant sixteen rows all saying the
-    // same four things. Five arms share each wall of town and all five run the
-    // same way, so the expectation is a property of the wall.
-    const byEdge = [
-      { home: "E", on: "W" },
-      { home: "S", on: "N" },
-      { home: "W", on: "E" },
-      { home: "N", on: "S" },
-    ];
-
+    // Routes used to be generated running west to east and turned afterwards
+    // to face the way their arm ran, and the bug that guarded was walking
+    // north out of town and finding the way onward pointing *west*. There is
+    // no turn now: a gate is cut on the real wall, and its bearing is how
+    // wireBorders knows which of its neighbour's gates to pair it with. If a
+    // bearing and a wall ever disagree, two places are joined through walls
+    // that do not face each other and the crossing is a teleport.
     for (const seed of ["A1", "B2"]) {
       const world = testWorld(seed);
-      for (const route of outdoorRoutes(world)) {
-        const index = world.config.biomes.indexOf(route.biome);
-        expect(index, `${route.biome} is not in the config`).toBeGreaterThanOrEqual(0);
 
-        const want = byEdge[armOf(index).edge];
-        expect(edgeOf(route.inGate!, route.width, route.height), route.id).toBe(want.home);
-        expect(edgeOf(route.outGate!, route.width, route.height), route.id).toBe(want.on);
+      for (const route of outdoorRoutes(world)) {
+        for (const gate of route.gates) {
+          expect(edgeOf(gate, route.width, route.height), `${route.id} ${gate.bearing}`).toBe(
+            gate.bearing,
+          );
+        }
+
+        // No two gates on one wall, and never more than four.
+        expect(new Set(route.gates.map((gate) => gate.bearing)).size).toBe(route.gates.length);
+        expect(route.gates.length).toBeGreaterThan(0);
+        expect(route.gates.length).toBeLessThanOrEqual(4);
+
+        // And every crossing pairs a wall with the wall facing it.
+        for (const border of route.borders) {
+          const here = edgeOf(border, route.width, route.height) as Bearing;
+          const there = world.routes.get(border.to)!;
+          const back = there.borders.find((each) => each.to === route.id);
+          expect(back, `${route.id} -> ${there.id} is one-way`).toBeTruthy();
+          expect(edgeOf(back!, there.width, there.height), `${route.id} -> ${there.id}`).toBe(
+            opposite(here),
+          );
+        }
       }
     }
   });
 
-  it("W23: the arms that run up and down are taller than they are wide", () => {
+  it("W23: every route is the same size, because none of them is turned", () => {
     const world = testWorld("A1");
     for (const route of outdoorRoutes(world)) {
-      // The north and south walls, whichever biomes happen to hang off them.
-      const edge = armOf(world.config.biomes.indexOf(route.biome)).edge;
-      const upright = edge === 1 || edge === 3;
-
-      expect(
-        upright ? route.height > route.width : route.width > route.height,
-        `${route.id} on edge ${edge}`,
-      ).toBe(true);
-      // Four times the area of the old routes, whichever way round.
-      expect(route.width * route.height).toBe(88 * 68);
+      // Half the routes came out 68x88 when there was a rotation, and every
+      // coordinate written down before the turn had to be mapped through it.
+      // One shape means there is nothing to map.
+      expect([route.width, route.height], route.id).toEqual([88, 68]);
     }
   });
 

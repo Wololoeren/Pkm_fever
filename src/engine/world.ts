@@ -2,16 +2,21 @@ import { rollAbilities } from "./abilities";
 import { ALL_SPECIES, STARTER_TYPES, startersOfType } from "./dex";
 import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
-import {
-  armOf,
-  BIOME_IDS,
-  EDGES,
-  profileFor,
-  typesFor,
-} from "./biomes";
+import { nameOf, placesWanted, profileFor, typesFor } from "./biomes";
 import { CRITTERS, idlersFor, type CritterSpec } from "./critters";
-import { CUP_BIOME, CUP_IDS, CUP_RING } from "./cup";
-import { GYMS, gym } from "./gyms";
+import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
+import { GYMS, gym, type GymSpec } from "./gyms";
+import {
+  bandOf,
+  BEARINGS,
+  HUB,
+  opposite,
+  copyOf,
+  planWorld,
+  type Bearing,
+  type PlanNode,
+  type WorldPlan,
+} from "./layout";
 import { NPCS, type NpcPlacement, type NpcSpec } from "./npc";
 import { furnish, PROPS, type PropPlacement } from "./props";
 import { NATURE_IDS } from "./natures";
@@ -23,8 +28,6 @@ import {
   Grid,
   joined,
   maze,
-  mirror,
-  rotate,
   hidesEncounters,
   passable,
   reachable,
@@ -44,10 +47,17 @@ import { appearanceId, CENSUS_PLAN, CHROMA_IDS, TOP_TIER } from "./variants";
  * save file; a save carries the seed and the player's inputs, and the world
  * is rebuilt identically on every load and on every other player's machine.
  *
- * The shape is a hub with biome corridors running outward, and difficulty is
- * one-dimensional: everything is a function of ring index. That is not a
- * simplification, it is the point — a designer tunes one curve instead of
- * three hundred routes.
+ * The shape is a graph: fifty places on an irregular lattice around one town,
+ * joined with loops and a few blind ends. See layout.ts for how it is grown.
+ *
+ * Difficulty is still one-dimensional, and that is still the point — a
+ * designer tunes one curve rather than fifty routes. What changed is what the
+ * one dimension *is*: it used to be an arm's ring index, which was also the
+ * route's name and also its direction, three facts wearing one number. It is
+ * now distance from town in hops, normalised onto `config.rings` bands, so a
+ * route carries three separate numbers that mean three separate things:
+ * `depth` (how far you walked), `ring` (how hard it is) and `nth` (which copy
+ * of its biome it is, which is how anything hand-placed addresses it).
  */
 
 /**
@@ -119,7 +129,27 @@ export interface Route {
   id: string;
   kind: RouteKind;
   biome: string;
+  /**
+   * How hard it is: one of `config.rings` bands, 0 for the town and interiors.
+   *
+   * Not the same as `depth` on purpose. See `bandOf` in layout.ts — worlds
+   * come out different sizes, and reading the level curve straight off hops
+   * would make the same curve reach further on some seeds than others.
+   */
   ring: number;
+  /** Hops from town. What the region map draws, and what `ring` is made of. */
+  depth: number;
+  /**
+   * Which copy of its biome this is, counted outward from town: 1 is the
+   * nearest. Zero for the town and for interiors.
+   *
+   * This is the half of a route's identity that hand-placed things address.
+   * `{ biome: "marsh", nth: 1 }` resolves in every world; `{ biome: "marsh",
+   * ring: 1 }` did not once rings stopped being names.
+   */
+  nth: number;
+  /** Where it sits on the lattice, so the region map can draw the truth. */
+  cell: { x: number; y: number };
   width: number;
   height: number;
   /** Row-major, one of the TILE values. */
@@ -128,10 +158,20 @@ export interface Route {
   entry: { x: number; y: number };
   /** Doors on this map, keyed by the tile you step on. */
   doors: Door[];
-  /** The border tile leading back toward town, and the one leading away.
-   * Which edge each sits on depends on which way this arm runs. */
-  inGate?: { x: number; y: number };
-  outGate?: { x: number; y: number };
+  /**
+   * A gap in the wall per neighbour, and which way that neighbour lies.
+   *
+   * There used to be exactly two — `inGate` west, `outGate` east — because
+   * the world was a star and a route had a way in and a way on and nothing
+   * else. A graph node has as many neighbours as it has, up to one a side.
+   *
+   * This also retired the rotation. Routes were generated running west to east
+   * and turned afterwards to face the way their arm ran, which is a transform
+   * and a whole class of bug with it (a cabin's doorstep written down before
+   * the turn and read after it). Gates are cut on the real edges now, so there
+   * is nothing left to turn.
+   */
+  gates: { bearing: Bearing; x: number; y: number }[];
   /** Border crossings, wired once every route exists. */
   borders: Door[];
   /** Boards standing beside a door, and what each one says. */
@@ -193,15 +233,38 @@ export interface World {
   critters: Map<string, CritterSpec[]>;
 }
 
-export function routeId(biome: string, ring: number): string {
-  return `${biome}-${ring}`;
+/**
+ * A place's name: its biome, and which copy of it this is.
+ *
+ * `meadow-1` through `meadow-4`, because there are four meadows. The second
+ * number used to be the ring, which was also the difficulty and also the
+ * direction; it is a plain counter now, and how far out a place is lives on
+ * the route as `depth`.
+ */
+export function routeId(biome: string, copy: number): string {
+  return `${biome}-${copy}`;
 }
 
-/** Which species may appear at this ring. A band over base stat total, rising
- * and widening as the player walks outward. */
+/**
+ * Which species may appear at this ring. A band over base stat total, rising
+ * and widening as the player walks outward.
+ *
+ * The bands **overlap**, and by half a band rather than a little. That is the
+ * one number here worth explaining: a band's job is to hold enough different
+ * creatures to be worth walking into, and how many difficulty grades the world
+ * is cut into is a *difficulty* decision that should not quietly also decide
+ * how thin the bestiary is. Going from six grades to eight narrowed every band
+ * by a quarter and left the ash flats with three species to offer at the first
+ * grade — two of which were the same line. Reaching half a band further up
+ * restores that without moving the floor, so what changed is how much a place
+ * *may* hold, not how strong the weakest thing in it is.
+ */
 function ringBand(ring: number, rings: number): { min: number; max: number } {
   const span = (620 - 190) / rings;
-  return { min: Math.round(190 + span * (ring - 1) * 0.75), max: Math.round(190 + span * ring) };
+  return {
+    min: Math.round(190 + span * (ring - 1) * 0.75),
+    max: Math.min(620, Math.round(190 + span * (ring + 0.5))),
+  };
 }
 
 function bst(base: StatTable): number {
@@ -377,15 +440,6 @@ export function encounterTable(
  */
 
 /**
- * The order the arms hang off town.
- *
- * The world config lists the biomes and the town cuts its gaps in the same
- * order, so this is that order named once rather than assumed in three places.
- * Which wall each one lands on, and where along it, is `armOf` in biomes.ts.
- */
-export const ARM_ORDER: readonly string[] = BIOME_IDS;
-
-/**
  * Routes that must have a cabin, because the roster puts somebody inside one.
  *
  * Read off the roster rather than listed here, so moving a person moves their
@@ -393,8 +447,27 @@ export const ARM_ORDER: readonly string[] = BIOME_IDS;
  * scenery, and it does not get to depend on a die.
  */
 const CABIN_ROUTES = new Set(
-  NPCS.flatMap((who) => (who.where.at === "cabin" ? [`${who.where.biome}:${who.where.ring}`] : [])),
+  NPCS.flatMap((who) => (who.where.at === "cabin" ? [`${who.where.biome}:${who.where.nth}`] : [])),
 );
+
+/**
+ * What a particular place has to hold, worked out before it is built.
+ *
+ * `buildRoute` used to look these up itself, by biome and ring. It cannot any
+ * more: a route's address is its biome and *which copy* it is, and only the
+ * plan knows that. So the answers are gathered in `generateWorld` and handed
+ * down — which is better anyway, because a route is now told what it is for
+ * rather than reaching into three rosters to find out.
+ */
+interface Duty {
+  /** The difficulty band, 1 up to `config.rings`. */
+  ring: number;
+  /** Which copy of its biome this is, counted outward. */
+  nth: number;
+  cabin: boolean;
+  gym: GymSpec | null;
+  cup: boolean;
+}
 
 /**
  * What is written on the board outside the Cup's house, and on the HUD once
@@ -410,8 +483,7 @@ export const CUP_LABEL = "The Cup";
 const CELL = 8;
 
 /**
- * A route, generated canonically — in at the west, out at the east — and
- * turned afterwards to face the way its arm runs.
+ * A route, with a gap in its wall on every side that has a neighbour.
  *
  * Carved rather than drawn: the map starts solid and a maze over a coarse grid
  * of rooms decides what opens. That is what makes a route somewhere to find
@@ -419,10 +491,11 @@ const CELL = 8;
  * connectivity is structural — every room sits on a spanning tree, so
  * generation cannot seal a route off no matter what is scattered afterwards.
  */
-function buildRoute(seed: string, biome: string, ring: number): { route: Route; interiors: Route[] } {
-  const rng = rngFor(seed, "route", biome, ring);
+function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; interiors: Route[] } {
+  const { biome, id } = node;
+  const ring = duty.ring;
+  const rng = rngFor(seed, "route", id);
   const profile = profileFor(biome);
-  const id = routeId(biome, ring);
 
   const grid = new Grid(ROUTE_WIDTH, ROUTE_HEIGHT, profile.wall);
   const cols = Math.floor((ROUTE_WIDTH - 2) / CELL);
@@ -441,9 +514,57 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   });
 
   const midRow = Math.floor(rows / 2);
-  const inSide = centreOf(0, midRow);
-  const outSide = centreOf(cols - 1, midRow);
-  const fromEnd = { x: 1, y: inSide.y };
+  const midCol = Math.floor(cols / 2);
+
+  /**
+   * A room to head for on each side that has a neighbour, and the tile in the
+   * wall it opens through.
+   *
+   * The middle room along that side, so a gate opens onto the maze rather than
+   * into a corner, and the gap lines up with the room so the corridor out to
+   * it is short and straight.
+   */
+  const gateFor = (bearing: Bearing) => {
+    switch (bearing) {
+      case "w": {
+        const room = centreOf(0, midRow);
+        return { room, wall: { x: 0, y: room.y }, approach: { x: 1, y: room.y } };
+      }
+      case "e": {
+        const room = centreOf(cols - 1, midRow);
+        return {
+          room,
+          wall: { x: ROUTE_WIDTH - 1, y: room.y },
+          approach: { x: ROUTE_WIDTH - 2, y: room.y },
+        };
+      }
+      case "n": {
+        const room = centreOf(midCol, 0);
+        return { room, wall: { x: room.x, y: 0 }, approach: { x: room.x, y: 1 } };
+      }
+      default: {
+        const room = centreOf(midCol, rows - 1);
+        return {
+          room,
+          wall: { x: room.x, y: ROUTE_HEIGHT - 1 },
+          approach: { x: room.x, y: ROUTE_HEIGHT - 2 },
+        };
+      }
+    }
+  };
+
+  const ways = node.links.map((link) => ({ ...link, ...gateFor(link.bearing) }));
+
+  /**
+   * The middle of the map, and what every reachability check here is measured
+   * from.
+   *
+   * It used to be a pair — first room to last — because there were only ever
+   * two ways out and "is the way through still open" was one question. With up
+   * to four gates it is one place against many, which is both simpler and the
+   * only version that catches a pool sealing the third of three exits.
+   */
+  const heart = centreOf(midCol, midRow);
 
   /**
    * Does something to the map, and takes it back if it closed the way through.
@@ -453,7 +574,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
    * dealt a pond across a corridor. Growing the grass reshuffled them and one
    * promptly sealed marsh ring four end to end.
    *
-   * Checked between the first room and the last, not between the edge tiles:
+   * Checked from the middle to the gate rooms, not between the edge tiles:
    * the corridors out to the map edge are cut later, so a walk from the edge
    * at this point starts on solid wall and reaches nothing — which quietly
    * reverted every pool in the world the first time this ran.
@@ -461,7 +582,10 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   const keepingOpen = (change: () => void): boolean => {
     const before = [...grid.tiles];
     change();
-    if (reachableWith(grid, inSide, walkable)[outSide.y * ROUTE_WIDTH + outSide.x] === 1) return true;
+
+    const seen = reachableWith(grid, heart, walkable);
+    if (ways.every((way) => seen[way.room.y * ROUTE_WIDTH + way.room.x] === 1)) return true;
+
     grid.tiles.splice(0, grid.tiles.length, ...before);
     return false;
   };
@@ -541,19 +665,25 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   // Flowers are walkable, so they can never close anything.
   speckle(grid, rng, TILE.FLOWER, profile.clutter, [profile.ground]);
 
-  // The two ways through.
-  carveLine(grid, fromEnd, inSide, corridor, profile.ground);
-  carveLine(grid, outSide, { x: ROUTE_WIDTH - 2, y: outSide.y }, corridor, profile.ground);
-  grid.set(0, inSide.y, TILE.PATH);
-  grid.set(ROUTE_WIDTH - 1, outSide.y, TILE.PATH);
+  // The ways through: one per neighbour, and each joined to the middle, so a
+  // three-way place is a junction rather than three corridors that happen to
+  // share a map.
+  for (const way of ways) {
+    carveLine(grid, way.approach, way.room, corridor, profile.ground);
+    carveLine(grid, way.room, heart, corridor, profile.ground);
+    grid.set(way.wall.x, way.wall.y, TILE.PATH);
+  }
 
   const doors: Door[] = [];
   const signs: Sign[] = [];
   const interiors: Route[] = [];
 
+  // Only the cabin's doorstep is kept: it is the one that has a fallback if it
+  // turns out to open onto nothing (the person waits outside instead), so it is
+  // the one worth checking afterwards. A gym or the Cup's house has no
+  // fallback — eight badges and a five-stage quest are promises — which is why
+  // those two search every room rather than trying one.
   let cabinBack: { x: number; y: number } | null = null;
-  let gymBack: { x: number; y: number } | null = null;
-  let cupBack: { x: number; y: number } | null = null;
 
   /**
    * Puts a building up in the first room that will take one.
@@ -592,10 +722,10 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
 
       const before = [...grid.tiles];
       const door = building(grid, at.x - 2, at.y - 2, 5, 4, over);
-      const open = door ? reachable(grid, { x: 1, y: inSide.y }) : null;
+      const open = door ? reachable(grid, heart) : null;
       const stillOpen =
         door !== null &&
-        open![outSide.y * ROUTE_WIDTH + (ROUTE_WIDTH - 2)] === 1 &&
+        ways.every((way) => open![way.room.y * ROUTE_WIDTH + way.room.x] === 1) &&
         open![(door.y + 1) * ROUTE_WIDTH + door.x] === 1;
 
       if (!stillOpen || !door) {
@@ -624,7 +754,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
    * be standing in a cabin in the north was, in practice, always standing
    * outside in the rain instead. Eight gyms became a promise the same way.
    */
-  const cabinWanted = CABIN_ROUTES.has(`${biome}:${ring}`);
+  const cabinWanted = duty.cabin;
   if (cabinWanted || rng() < 0.6) {
     cabinBack = raise(
       `${id}:cabin`,
@@ -649,24 +779,24 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   // rooms at random found space for only half of the eight — pinewood and
   // marsh rooms are small, and a gym that silently does not exist is worse
   // than one in an awkward corner.
-  const mine = GYMS.find((entry) => entry.biome === biome && entry.ring === ring);
+  const mine = duty.gym;
   if (mine) {
-    gymBack = raise(`${id}:gym`, "gym", mine.name, mine.name, shuffle(rng, [...plan.order]));
+    raise(`${id}:gym`, "gym", mine.name, mine.name, shuffle(rng, [...plan.order]));
   }
 
   // And the Cup, which belongs on exactly one route in the world. The same
   // promise as a gym, and the same every-room search for the same reason: six
   // people are written to be standing in that room, and a house the seed can
   // decline to build is a quest that cannot be finished.
-  if (biome === CUP_BIOME && ring === CUP_RING) {
-    cupBack = raise(`${id}:cup`, "cup", CUP_LABEL, CUP_LABEL, shuffle(rng, [...plan.order]));
+  if (duty.cup) {
+    raise(`${id}:cup`, "cup", CUP_LABEL, CUP_LABEL, shuffle(rng, [...plan.order]));
   }
 
 
   // Gates: obstacles that need a tool. Placed before the seal, and the seal
   // is told to walk through them, or the first bush on a route would delete
   // everything behind it.
-  placeGates(grid, rng, ring, { x: 1, y: inSide.y }, { x: ROUTE_WIDTH - 2, y: outSide.y });
+  placeGates(grid, rng, ring, heart, ways.map((way) => way.room));
 
   // The last word on the route, and it has to come after everything that is
   // built on it: anything the walk in cannot reach is filled back in.
@@ -676,33 +806,9 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   // placed on that route at all, because the check that asks "would standing
   // here cut the map in two" compares reachable tiles against walkable ones
   // and the two had already stopped matching.
-  sealUnreachable(grid, { x: 1, y: inSide.y }, profile.wall, (tile) => passable(tile, () => true));
-  // Turned to face the way this arm runs. A transform cannot change what is
-  // connected to what, so every guarantee above survives it.
-  const facing = orientationOf(biome);
-  const turned = facing.mirror
-    ? mirror(grid.tiles, ROUTE_WIDTH, ROUTE_HEIGHT)
-    : rotate(grid.tiles, ROUTE_WIDTH, ROUTE_HEIGHT, facing.quarters);
+  sealUnreachable(grid, heart, profile.wall, (tile) => passable(tile, () => true));
 
-  const inGate = turned.map(0, inSide.y);
-  const outGate = turned.map(ROUTE_WIDTH - 1, outSide.y);
-
-  // The room a cabin door opens into is never turned — it is its own little
-  // map — but the doorstep it puts you back on out here is, and it was written
-  // down before the turn. Left unmapped, stepping out of a cabin on a rotated
-  // arm dropped you at a coordinate from the map's other orientation.
-  for (const [back, role] of [
-    [cabinBack, "house"],
-    [gymBack, "gym"],
-    [cupBack, "cup"],
-  ] as const) {
-    if (!back) continue;
-    const landing = turned.map(back.x, back.y);
-    for (const room of interiors) {
-      if (room.role !== role) continue;
-      room.doors = room.doors.map((door) => (door.to === id ? { ...door, at: landing } : door));
-    }
-  }
+  const gates = ways.map((way) => ({ bearing: way.bearing, x: way.wall.x, y: way.wall.y }));
 
   return {
     route: {
@@ -710,46 +816,25 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
       kind: "route",
       biome,
       ring,
-      width: turned.width,
-      height: turned.height,
-      tiles: turned.tiles,
-      entry: insideOf(inGate, turned.width, turned.height),
-      inGate,
-      outGate,
+      depth: node.depth,
+      nth: duty.nth,
+      cell: { ...node.cell },
+      width: ROUTE_WIDTH,
+      height: ROUTE_HEIGHT,
+      tiles: grid.tiles,
+      // Somewhere to stand if a caller has not said which gate it came
+      // through. Every real crossing carries its own landing; this is the
+      // fallback, and every node has at least one gate or it is not a node.
+      entry: insideOf(gates[0] ?? heart, ROUTE_WIDTH, ROUTE_HEIGHT),
+      gates,
       borders: [],
-      doors: doors.map((door) => ({ ...door, ...turned.map(door.x, door.y) })),
-      signs: signs.map((sign) => ({ ...sign, ...turned.map(sign.x, sign.y) })),
+      doors,
+      signs,
       props: [],
-      label: `${biome[0].toUpperCase()}${biome.slice(1)} · ring ${ring}`,
+      label: `${nameOf(biome)} · ring ${ring}`,
     },
     interiors,
   };
-}
-
-/**
- * Which way an arm runs, by where its biome hangs off town.
- *
- * The arms are listed west, north, east, south, and a route is generated
- * running west to east. So the eastern arm is already right; the western one
- * is mirrored; and the two that were the real complaint — walk north out of
- * town and the way onward was *west* — are turned a quarter, so that going up
- * keeps going up.
- */
-function orientationOf(biome: string): { quarters: number; mirror: boolean } {
-  // Which *wall* it hangs off, not which position in the list. Five arms
-  // share each wall and all five run the same way, so the turn is a property
-  // of the edge — which is the whole reason `armOf` exists.
-  const side = armOf(Math.max(0, ARM_ORDER.indexOf(biome))).edge;
-  switch (side) {
-    case 0:
-      return { quarters: 0, mirror: true };
-    case 1:
-      return { quarters: 3, mirror: false };
-    case 3:
-      return { quarters: 1, mirror: false };
-    default:
-      return { quarters: 0, mirror: false };
-  }
 }
 
 /**
@@ -762,41 +847,56 @@ function orientationOf(biome: string): { quarters: number; mirror: boolean } {
  * because two separate pieces of arithmetic happened to agree — they did not,
  * and every return from ring one used to arrive at the same gap in town.
  */
-function wireBorders(routes: Map<string, Route>, config: WorldConfig): void {
+function wireBorders(routes: Map<string, Route>, plan: WorldPlan): void {
   const town = routes.get(HUB_ID);
   if (!town) return;
 
-  const gaps = townExits(town.width, town.height, config.biomes.length);
+  const gaps = townExits(town.width, town.height);
 
-  config.biomes.forEach((biome, side) => {
-    const gap = gaps[side];
-    if (!gap) return;
+  for (const node of plan.nodes) {
+    const here = routes.get(node.id);
+    if (!here) continue;
 
-    for (let ring = 1; ring <= config.rings; ring++) {
-      const here = routes.get(routeId(biome, ring));
-      if (!here?.inGate) continue;
+    for (const link of node.links) {
+      const gate = here.gates.find((each) => each.bearing === link.bearing);
+      if (!gate) continue;
 
-      // Inward: ring one goes back to town, everything else to the ring below.
-      const inward = ring === 1 ? town : routes.get(routeId(biome, ring - 1));
-      if (inward) {
-        const landing =
-          ring === 1
-            ? townArrival(town.width, town.height, side)
-            : insideOf(inward.outGate!, inward.width, inward.height);
-
-        here.borders.push({ x: here.inGate.x, y: here.inGate.y, to: inward.id, at: landing });
-
-        // And the same crossing, written back the other way.
-        const backGate = ring === 1 ? gap : inward.outGate!;
-        inward.borders.push({
-          x: backGate.x,
-          y: backGate.y,
-          to: here.id,
-          at: insideOf(here.inGate, here.width, here.height),
+      // Out of town, or in from it. The town's gap is on the wall facing this
+      // way, which is the *opposite* bearing: a place north of town is reached
+      // through town's north wall, and its own gate back is on its south side.
+      if (link.to === HUB) {
+        const wall = opposite(link.bearing);
+        const gap = gaps[wall];
+        here.borders.push({
+          x: gate.x,
+          y: gate.y,
+          to: town.id,
+          at: townArrival(town.width, town.height, wall),
         });
+        town.borders.push({
+          x: gap.x,
+          y: gap.y,
+          to: here.id,
+          at: insideOf(gate, here.width, here.height),
+        });
+        continue;
       }
+
+      // Place to place. Only this side of the crossing is written here; the
+      // other side is written when the walk reaches that node's own links,
+      // and the two agree because the plan's links are symmetric.
+      const there = routes.get(link.to);
+      const back = there?.gates.find((each) => each.bearing === opposite(link.bearing));
+      if (!there || !back) continue;
+
+      here.borders.push({
+        x: gate.x,
+        y: gate.y,
+        to: there.id,
+        at: insideOf(back, there.width, there.height),
+      });
     }
-  });
+  }
 }
 
 /** The furniture standing on a tile, if any. */
@@ -819,8 +919,10 @@ const GATES_BY_RING: Record<number, number[]> = {
   2: [TILE.BUSH, TILE.RUBBLE],
   3: [TILE.BUSH, TILE.RUBBLE],
   4: [TILE.RUBBLE, TILE.BOULDER],
-  5: [TILE.BOULDER, TILE.CLIFF],
+  5: [TILE.RUBBLE, TILE.BOULDER],
   6: [TILE.BOULDER, TILE.CLIFF],
+  7: [TILE.BOULDER, TILE.CLIFF],
+  8: [TILE.BOULDER, TILE.CLIFF],
 };
 
 /**
@@ -832,8 +934,10 @@ const GATES_BY_RING: Record<number, number[]> = {
 const DEEP_BY_RING: Record<number, number> = {
   3: TILE.WATERFALL,
   4: TILE.WATERFALL,
-  5: TILE.WHIRLPOOL,
-  6: TILE.DEEP,
+  5: TILE.WATERFALL,
+  6: TILE.WHIRLPOOL,
+  7: TILE.WHIRLPOOL,
+  8: TILE.DEEP,
 };
 
 /**
@@ -852,7 +956,7 @@ function placeGates(
   rng: Rng,
   ring: number,
   from: { x: number; y: number },
-  to: { x: number; y: number },
+  to: readonly { x: number; y: number }[],
 ): void {
   const kinds = GATES_BY_RING[ring] ?? GATES_BY_RING[1];
   const open = (tile: number) => walkable(tile);
@@ -884,7 +988,8 @@ function placeGates(
     const kind = kinds[intBelow(rng, kinds.length)];
     grid.set(at.x, at.y, kind);
 
-    const stillOpen = reachableWith(grid, from, open)[to.y * grid.width + to.x] === 1;
+    const seen = reachableWith(grid, from, open);
+    const stillOpen = to.every((room) => seen[room.y * grid.width + room.x] === 1);
     if (stillOpen) placed++;
     else grid.set(at.x, at.y, was);
   }
@@ -1115,14 +1220,14 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
               : [...routes.values()].find((route) => route.role === role);
           return room ? { route: room, wish: { x: Math.floor(room.width / 2), y: 3 } } : null;
         }
-        case "ring": {
-          const route = routes.get(routeId(entry.where.biome, entry.where.ring));
+        case "route": {
+          const route = routes.get(routeId(entry.where.biome, entry.where.nth));
           if (!route) return null;
           return { route, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), route) };
         }
         case "cabin": {
-          const outside = routes.get(routeId(entry.where.biome, entry.where.ring));
-          const inside = routes.get(`${routeId(entry.where.biome, entry.where.ring)}:cabin`);
+          const outside = routes.get(routeId(entry.where.biome, entry.where.nth));
+          const inside = routes.get(`${routeId(entry.where.biome, entry.where.nth)}:cabin`);
           // A cabin grows on about three routes in five, so the one asked for
           // is sometimes not there. The person still is: they wait outside
           // instead, the same way a gym leader whose hall could not be built
@@ -1131,7 +1236,7 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
           return outside ? { route: outside, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), outside) } : null;
         }
         case "cup": {
-          const house = routes.get(`${routeId(CUP_BIOME, CUP_RING)}:cup`);
+          const house = routes.get(`${routeId(CUP_BIOME, CUP_NTH)}:cup`);
           if (house) {
             // The Steward keeps the door and the five stand across the back of
             // the room, so the first person you meet is the one who explains
@@ -1151,17 +1256,17 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
           // one route for it — but the same fallback as a gym is kept rather
           // than a throw. Six people standing on the route outside is a bad
           // afternoon; six people who do not exist is a quest with no end.
-          const outside = routes.get(routeId(CUP_BIOME, CUP_RING));
+          const outside = routes.get(routeId(CUP_BIOME, CUP_NTH));
           return outside ? { route: outside, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), outside) } : null;
         }
         case "gym": {
           const spec = gym(entry.where.gymId);
-          const hall = routes.get(`${routeId(spec.biome, spec.ring)}:gym`);
+          const hall = routes.get(`${routeId(spec.biome, spec.nth)}:gym`);
           // A hall that could not be built leaves its leader standing on the
           // route instead: eight gyms is a promise, and a generator that
           // sometimes cannot find room for a door does not get to break it.
           if (hall) return { route: hall, wish: { x: Math.floor(hall.width / 2), y: 3 } };
-          const outside = routes.get(routeId(spec.biome, spec.ring));
+          const outside = routes.get(routeId(spec.biome, spec.nth));
           return outside ? { route: outside, wish: outside.entry } : null;
         }
       }
@@ -1410,7 +1515,15 @@ function buildInterior(
     id,
     kind: "interior",
     biome: "indoors",
+    // A room behind a door is not anywhere on the lattice: no hops, no copy
+    // number, no walls with neighbours behind them. Zeroes rather than
+    // optional fields, so nothing downstream has to ask whether a route has
+    // a distance.
     ring: 0,
+    depth: 0,
+    nth: 0,
+    cell: { x: 0, y: 0 },
+    gates: [],
     width: ROOM_WIDTH,
     height: ROOM_HEIGHT,
     tiles: grid.tiles,
@@ -1544,7 +1657,12 @@ export function pickStarters(seed: string, allSpecies: readonly SpeciesEntry[]):
  * is most of what makes a town somewhere rather than a menu.
  */
 /**
- * The four ways out of town, in the order the biomes are listed.
+ * The four ways out of town: one gap in the middle of each wall.
+ *
+ * Twenty gaps, once, five to a wall, because twenty arms hung off the town.
+ * The town is one cell of the lattice now, so it has four neighbours at most
+ * and each of them lies in a compass direction — which means the gap is the
+ * middle of that wall, where the crossroads already runs to.
  *
  * Exported because two places need to agree about them: the generator that
  * cuts the gaps, and the movement code that decides where you reappear when
@@ -1552,42 +1670,25 @@ export function pickStarters(seed: string, allSpecies: readonly SpeciesEntry[]):
  * at the western gap, whichever arm you had come from, so leaving east and
  * coming back put you on the far side of town.
  */
-export function townExits(
-  width: number,
-  height: number,
-  count = EDGES,
-): { x: number; y: number }[] {
+export function townExits(width: number, height: number): Record<Bearing, { x: number; y: number }> {
   const midX = Math.floor(width / 2);
   const midY = Math.floor(height / 2);
 
-  // How far apart the gaps sit on a wall. Enough that two roads out are not
-  // one wide road, and tight enough that five fit on the short walls.
-  const alongX = 7;
-  const alongY = 5;
-
-  return Array.from({ length: count }, (_, index) => {
-    const { edge, offset } = armOf(index);
-
-    switch (edge) {
-      case 0:
-        return { x: 0, y: clamp(midY + offset * alongY, 1, height - 2) };
-      case 1:
-        return { x: clamp(midX + offset * alongX, 1, width - 2), y: 0 };
-      case 2:
-        return { x: width - 1, y: clamp(midY + offset * alongY, 1, height - 2) };
-      default:
-        return { x: clamp(midX + offset * alongX, 1, width - 2), y: height - 1 };
-    }
-  });
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(high, value));
+  return {
+    n: { x: midX, y: 0 },
+    e: { x: width - 1, y: midY },
+    s: { x: midX, y: height - 1 },
+    w: { x: 0, y: midY },
+  };
 }
 
 /** The tile just inside one of those gaps — where you stand on arrival. */
-export function townArrival(width: number, height: number, side: number): { x: number; y: number } {
-  const exit = townExits(width, height, side + 1)[side];
+export function townArrival(
+  width: number,
+  height: number,
+  wall: Bearing,
+): { x: number; y: number } {
+  const exit = townExits(width, height)[wall];
   return {
     x: exit.x === 0 ? 1 : exit.x === width - 1 ? width - 2 : exit.x,
     y: exit.y === 0 ? 1 : exit.y === height - 1 ? height - 2 : exit.y,
@@ -1649,13 +1750,11 @@ function buildTown(): { town: Route; interiors: Route[] } {
   // puts you — and a road inward from each, so a gap in the wall reads as
   // somewhere a road goes rather than a hole.
   //
-  // Twenty arms means sixteen gaps that the old crossroads never reached. The
-  // road is only painted over bare ground and stops the moment it meets
-  // anything else, which is what keeps decoration from eating architecture:
-  // it will not pave a doorstep, a roof or the garden. It is not needed for
-  // *passage* — the town is open grass, so every gap was already walkable to
-  // — so stopping early costs nothing but a shorter road.
-  for (const exit of townExits(TOWN_WIDTH, TOWN_HEIGHT, BIOME_IDS.length)) {
+  // Four gaps now rather than twenty, and all four sit where the crossroads
+  // already ends, so the roads are one tile long and the loop is nearly a
+  // formality. Kept anyway: it is what guarantees the gap tile itself is
+  // paved, and it will still do the right thing if the town is ever redrawn.
+  for (const exit of Object.values(townExits(TOWN_WIDTH, TOWN_HEIGHT))) {
     grid.set(exit.x, exit.y, TILE.PATH);
 
     const inward =
@@ -1677,6 +1776,9 @@ function buildTown(): { town: Route; interiors: Route[] } {
       kind: "town",
       biome: "hearth",
       ring: 0,
+      depth: 0,
+      nth: 0,
+      cell: { x: 0, y: 0 },
       width: TOWN_WIDTH,
       height: TOWN_HEIGHT,
       tiles: grid.tiles,
@@ -1684,6 +1786,10 @@ function buildTown(): { town: Route; interiors: Route[] } {
       doors,
       signs,
       props: [],
+      gates: BEARINGS.map((bearing) => ({
+        bearing,
+        ...townExits(TOWN_WIDTH, TOWN_HEIGHT)[bearing],
+      })),
       borders: [],
       label: "Hearth",
     },
@@ -1935,7 +2041,7 @@ function placeCritters(
     const route =
       entry.where.at === "town"
         ? routes.get(HUB_ID)
-        : routes.get(routeId(entry.where.biome, entry.where.ring));
+        : routes.get(routeId(entry.where.biome, entry.where.nth));
     if (!route) continue;
 
     const rng = rngFor(seed, "critter", entry.id);
@@ -2109,7 +2215,13 @@ function rolledIvs(rng: Rng): StatTable {
   return ivs;
 }
 
-export const HUB_ID = "hub-0";
+/**
+ * The town's id, which is also what the plan calls it in a link.
+ *
+ * One constant rather than two strings that happened to match: layout.ts has
+ * to name the hub in its links, and world.ts has to name the route.
+ */
+export const HUB_ID = HUB;
 
 export function generateWorld(
   config: WorldConfig,
@@ -2122,15 +2234,34 @@ export function generateWorld(
   routes.set(hearth.town.id, hearth.town);
   for (const room of hearth.interiors) routes.set(room.id, room);
 
-  for (const biome of config.biomes) {
-    for (let ring = 1; ring <= config.rings; ring++) {
-      const built = buildRoute(seed, biome, ring);
-      routes.set(built.route.id, built.route);
-      for (const room of built.interiors) routes.set(room.id, room);
-    }
+  /**
+   * The shape of the world, before anything is built on it.
+   *
+   * Grown first because everything else needs to know it: which places exist,
+   * how far out each one is, and which of its four sides has a neighbour. A
+   * route cannot be carved until its gates are known, and a gym cannot be
+   * assigned until it is known which marsh is the nearest one.
+   */
+  const plan = planWorld(rngFor(seed, "plan"), placesWanted());
+
+  for (const node of plan.nodes) {
+    // Which copy of its biome this is, straight off its name — the plan
+    // numbers them by distance from town for exactly this reason.
+    const nth = copyOf(node.id);
+
+    const built = buildRoute(seed, node, {
+      ring: bandOf(node.depth, plan.maxDepth, config.rings),
+      nth,
+      cabin: CABIN_ROUTES.has(`${node.biome}:${nth}`),
+      gym: GYMS.find((entry) => entry.biome === node.biome && entry.nth === nth) ?? null,
+      cup: node.biome === CUP_BIOME && nth === CUP_NTH,
+    });
+
+    routes.set(built.route.id, built.route);
+    for (const room of built.interiors) routes.set(room.id, room);
   }
 
-  wireBorders(routes, config);
+  wireBorders(routes, plan);
 
   const starters = pickStarters(seed, allSpecies);
 

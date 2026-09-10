@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ALL_SPECIES } from "@/engine/dex";
 import { walkCandidates } from "./helpers";
 import { applyInput, initialState, type GameState, type Input } from "@/engine/engine";
-import { rngFor } from "@/engine/rng";
+import { intBelow, rngFor } from "@/engine/rng";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { generateWorld, type World } from "@/engine/world";
 
@@ -39,16 +39,26 @@ function uiCandidates(world: World, state: GameState, rng: () => number): Input[
   }
   if (state.phase === "battleEnd") return [{ t: "continue" }];
   if (state.phase === "field") {
-    // Held items, offered on every field step. The restrictions two of them
-    // carry are the only things in this game besides PP that can take a move
-    // off the menu, and both can take *every* move off it — an Assault Vest
-    // on something that knows only status moves, or a Choice item committed to
-    // a move that then runs dry. Struggle was gated on `anyPp`, which stopped
-    // being the whole question the moment these existed, so the probe has to
-    // be able to reach them or it is guarding yesterday's hole.
-    for (const id of PROBE_HOLDS) {
-      out.push({ t: "holdItem", index: 0, item: id });
-      out.push({ t: "holdItem", index: 0, item: null });
+    // Held items, offered on one field step in twenty. The restrictions two of
+    // them carry are the only things in this game besides PP that can take a
+    // move off the menu, and both can take *every* move off it — an Assault
+    // Vest on something that knows only status moves, or a Choice item
+    // committed to a move that then runs dry. Struggle was gated on `anyPp`,
+    // which stopped being the whole question the moment these existed, so the
+    // probe has to be able to reach them or it is guarding yesterday's hole.
+    //
+    // One step in twenty, and not every step, because the probe takes the
+    // *first legal* input it is offered. Putting these first made them the
+    // only thing it ever did: sixty thousand steps, fifty-one thousand of them
+    // in the field, and the walker crossed a border eighty-seven times in all.
+    // It stood in one route out of fifty putting a waistcoat on and taking it
+    // off again. Everything below — the grass, the people, the fifty places —
+    // was being asserted about by a fixture that never went anywhere.
+    if (intBelow(rng, 20) === 0) {
+      for (const id of PROBE_HOLDS) {
+        out.push({ t: "holdItem", index: 0, item: id });
+        out.push({ t: "holdItem", index: 0, item: null });
+      }
     }
   }
   if (state.phase === "battle") {
@@ -84,7 +94,10 @@ function legal(world: World, state: GameState, input: Input): GameState | null {
 describe("deadlock probe", () => {
   it("never reaches a state with no legal input", () => {
     const failures: string[] = [];
-    const stats = { battles: 0, fights: 0, longest: 0, trainerBattles: 0 };
+    // `routes` is coverage rather than a result: fifty places and a probe that
+            // never leaves four of them is a probe that has not looked at the world.
+    const stats = { battles: 0, fights: 0, longest: 0, trainerBattles: 0, routes: 0 };
+    const walked = new Set<string>();
 
     for (const seed of ["PKMFEVER1", "AAAA1", "ZZZZ9", "TOURNEY7", "GRASS42"]) {
       const world = generateWorld(DEFAULT_WORLD, seed, ALL_SPECIES);
@@ -149,8 +162,10 @@ describe("deadlock probe", () => {
           }
         }
         state = next;
+        walked.add(state.route);
       }
     }
+    stats.routes = walked.size;
     console.log("probe stats", stats);
     expect(failures).toEqual([]);
   }, 600000);

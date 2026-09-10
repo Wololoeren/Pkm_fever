@@ -134,7 +134,7 @@ describe("where they stand", () => {
         const bare = reachedWith(route, new Set());
 
         // Only the ones that were reachable to begin with. A creature standing
-        // on a tile the walk could never have got to costs nothing @@D@@ and
+        // on a tile the walk could never have got to costs nothing — and
         // counting it anyway is how this test failed by exactly one on one
         // route out of a hundred and seventy.
         const standing = [...blocked].filter((at) => {

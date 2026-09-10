@@ -19,9 +19,16 @@ export interface GymSpec {
   leader: string;
   /** The only type its team is built from. */
   type: string;
-  /** Which map it stands on. */
+  /**
+   * Which map it stands on: a biome, and which copy of it counted outward
+   * from town.
+   *
+   * `{ biome: "marsh", nth: 1 }` is the nearest marsh — an address that
+   * resolves in every world, which `ring` stopped being the moment the world
+   * became a graph. See `placeIndex` in layout.ts.
+   */
   biome: string;
-  ring: number;
+  nth: number;
   /** Where it starts from before anything scales it. */
   baseLevel: number;
   /** How many it brings. */
@@ -40,7 +47,7 @@ export const GYMS: readonly GymSpec[] = [
     leader: "Wren",
     type: "bug",
     biome: "meadow",
-    ring: 1,
+    nth: 1,
     baseLevel: 12,
     team: 3,
     lines: [
@@ -55,7 +62,7 @@ export const GYMS: readonly GymSpec[] = [
     leader: "Doria",
     type: "water",
     biome: "marsh",
-    ring: 1,
+    nth: 1,
     baseLevel: 16,
     team: 3,
     lines: [
@@ -70,7 +77,7 @@ export const GYMS: readonly GymSpec[] = [
     leader: "Ferrous",
     type: "rock",
     biome: "ashflats",
-    ring: 2,
+    nth: 1,
     baseLevel: 20,
     team: 4,
     lines: ["Rock does not move. That is the entire lesson and it takes most people twice."],
@@ -81,8 +88,8 @@ export const GYMS: readonly GymSpec[] = [
     name: "Greenhouse Gym",
     leader: "Sorrel",
     type: "grass",
-    biome: "meadow",
-    ring: 3,
+    biome: "bramblewood",
+    nth: 2,
     baseLevel: 26,
     team: 4,
     lines: ["Everything in here grew slowly and on purpose. Recognise the approach?"],
@@ -93,8 +100,8 @@ export const GYMS: readonly GymSpec[] = [
     name: "Kiln Gym",
     leader: "Ash",
     type: "fire",
-    biome: "ashflats",
-    ring: 4,
+    biome: "emberfields",
+    nth: 1,
     baseLevel: 32,
     team: 5,
     lines: ["Four badges in. You will have noticed I am not where I was when you started."],
@@ -105,8 +112,8 @@ export const GYMS: readonly GymSpec[] = [
     name: "Pylon Gym",
     leader: "Static",
     type: "electric",
-    biome: "pinewood",
-    ring: 4,
+    biome: "thunderplain",
+    nth: 3,
     baseLevel: 38,
     team: 5,
     lines: ["Speed is the only stat that decides who gets to use the others."],
@@ -117,8 +124,8 @@ export const GYMS: readonly GymSpec[] = [
     name: "Hollow Gym",
     leader: "Vesper",
     type: "ghost",
-    biome: "pinewood",
-    ring: 6,
+    biome: "duskhollow",
+    nth: 1,
     baseLevel: 44,
     team: 6,
     lines: ["Seven people have got this far. Two came back for the eighth."],
@@ -129,8 +136,8 @@ export const GYMS: readonly GymSpec[] = [
     name: "Headwater Gym",
     leader: "Cirra",
     type: "dragon",
-    biome: "marsh",
-    ring: 6,
+    biome: "cloudreach",
+    nth: 1,
     baseLevel: 50,
     team: 6,
     lines: [

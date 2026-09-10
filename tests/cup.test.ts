@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { maxHp } from "@/engine/battle";
+import { biome, copiesOf } from "@/engine/biomes";
 import { holdOf } from "@/engine/carry";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import {
@@ -13,7 +14,7 @@ import {
   CUP_HOLDS,
   CUP_BIOME,
   CUP_IDS,
-  CUP_RING,
+  CUP_NTH,
   CUP_ROSTER,
   CUP_SIZE,
 } from "@/engine/cup";
@@ -33,7 +34,7 @@ import { nature } from "@/engine/natures";
 import { NPCS, type NpcKind } from "@/engine/npc";
 import { progressOf, quest as questSpec, QUESTS } from "@/engine/quests";
 import { EV_MAX_TOTAL, IV_MAX } from "@/engine/stats";
-import { DEFAULT_WORLD, STAT_IDS } from "@/engine/types";
+import { STAT_IDS } from "@/engine/types";
 import { CUP_LABEL, routeId } from "@/engine/world";
 import { creature, testWorld } from "./helpers";
 
@@ -67,7 +68,7 @@ const SEEDS = ["alpha", "bravo", "charlie", "delta"];
 /** The state of somebody standing in the house with a team worth fielding. */
 function atTheDoor(seed: string): { world: ReturnType<typeof testWorld>; state: GameState } {
   const world = testWorld(seed);
-  const house = world.routes.get(`${routeId(CUP_BIOME, CUP_RING)}:cup`);
+  const house = world.routes.get(`${routeId(CUP_BIOME, CUP_NTH)}:cup`);
   if (!house) throw new Error(`${seed} grew no house`);
 
   const base = initialState(world);
@@ -92,12 +93,25 @@ function talkingTo(world: ReturnType<typeof testWorld>, state: GameState, id: st
 }
 
 describe("the house at the far end", () => {
-  it("C1: it is on the outermost ring, indoors, on every seed, with all six inside", () => {
-    expect(CUP_RING).toBe(DEFAULT_WORLD.rings);
+  it("C1: it is on the furthest ash flats, indoors, on every seed, with all six inside", () => {
+    // "The far end of the ash flats" is literal now rather than a ring index:
+    // there are three of them scattered about the lattice, and the house is on
+    // the one you have to walk past the other two to reach.
+    expect(CUP_NTH).toBe(copiesOf(biome(CUP_BIOME).tier));
+
+    for (const seed of SEEDS) {
+      const others = [1, 2].map((nth) => testWorld(seed).routes.get(routeId(CUP_BIOME, nth))!);
+      const house = testWorld(seed).routes.get(routeId(CUP_BIOME, CUP_NTH))!;
+      for (const other of others) {
+        expect(house.depth, `${seed}: ${other.id} is further out than the Cup`).toBeGreaterThanOrEqual(
+          other.depth,
+        );
+      }
+    }
 
     for (const seed of SEEDS) {
       const world = testWorld(seed);
-      const house = world.routes.get(`${routeId(CUP_BIOME, CUP_RING)}:cup`);
+      const house = world.routes.get(`${routeId(CUP_BIOME, CUP_NTH)}:cup`);
 
       expect(house, `${seed}: no house`).toBeTruthy();
       expect(house!.role, seed).toBe("cup");
@@ -111,7 +125,7 @@ describe("the house at the far end", () => {
       expect(inside, `${seed}: steward`).toContain("cup-steward");
 
       // And a door out here that says what it is, so it can be found at all.
-      const outside = world.routes.get(routeId(CUP_BIOME, CUP_RING))!;
+      const outside = world.routes.get(routeId(CUP_BIOME, CUP_NTH))!;
       expect(outside.doors.some((door) => door.to === house!.id), seed).toBe(true);
       expect(outside.signs.some((sign) => sign.text === CUP_LABEL), seed).toBe(true);
     }
@@ -120,7 +134,7 @@ describe("the house at the far end", () => {
   it("C2: nobody stands on anybody, and everybody can be reached", () => {
     for (const seed of SEEDS) {
       const world = testWorld(seed);
-      const house = world.routes.get(`${routeId(CUP_BIOME, CUP_RING)}:cup`)!;
+      const house = world.routes.get(`${routeId(CUP_BIOME, CUP_NTH)}:cup`)!;
       const people = world.npcs.get(house.id) ?? [];
 
       const spots = new Set(people.map((who) => `${who.x},${who.y}`));

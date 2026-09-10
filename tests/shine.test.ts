@@ -25,6 +25,7 @@ import {
 import { countOf, item, ITEMS, LURE_MOVES, LURES } from "@/engine/items";
 import { NPCS, SHINE_GLITTER, SHINE_PRICE } from "@/engine/npc";
 import { rngFor } from "@/engine/rng";
+import { routeId as worldRouteId } from "@/engine/world";
 import { walkable } from "@/engine/terrain";
 import { appearanceId, TOP_TIER, variant } from "@/engine/variants";
 import { creature, testWorld } from "./helpers";
@@ -65,7 +66,18 @@ function beside(world: ReturnType<typeof testWorld>, state: GameState, id: strin
 }
 
 describe("the buyer in the north", () => {
-  it("S1: the Appraiser is indoors on pinewood's third ring, on every seed", () => {
+  it("S1: the Appraiser is indoors, behind his own door, on every seed", () => {
+    // Where he lives is read off the roster rather than written down here, so
+    // moving him moves the test with him. What is under test is not the
+    // address — it is that the cabin at that address is *built* rather than
+    // hoped for. One random attempt per route put a cabin on one route in
+    // forty-eight where the rooms are small, so a person written to be inside
+    // one was, in practice, always standing outside in the rain instead.
+    const spec = NPCS.find((who) => who.id === "buy-appraiser")!;
+    expect(spec.where.at).toBe("cabin");
+    const home =
+      spec.where.at === "cabin" ? worldRouteId(spec.where.biome, spec.where.nth) : "";
+
     for (const seed of ["A1", "B2", "C3"]) {
       const world = testWorld(seed);
       const where = [...world.npcs].find(([, here]) =>
@@ -73,17 +85,13 @@ describe("the buyer in the north", () => {
       );
       expect(where, `no Appraiser on seed ${seed}`).toBeDefined();
 
-      // The cabin is *built* for him rather than hoped for. One random attempt
-      // per route put a cabin on one pinewood route in forty-eight, because
-      // pinewood's rooms are the small ones — so a person written to be inside
-      // one was, in practice, always outside instead.
       const [routeId] = where!;
-      expect(routeId, `Appraiser is outdoors on seed ${seed}`).toBe("pinewood-3:cabin");
+      expect(routeId, `Appraiser is outdoors on seed ${seed}`).toBe(`${home}:cabin`);
 
       const room = world.routes.get(routeId)!;
       expect(room.kind).toBe("interior");
       // And the door out of it still goes somewhere.
-      expect(room.doors.some((door) => door.to === "pinewood-3")).toBe(true);
+      expect(room.doors.some((door) => door.to === home)).toBe(true);
     }
   });
 

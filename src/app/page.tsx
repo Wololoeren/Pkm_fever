@@ -320,7 +320,8 @@ export default function Page() {
           </div>
           <p className="hint">
             <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to
-            walk. Tall grass has things in it. Walk east to go further out; the hub is west.
+            walk. Tall grass has things in it. Every gap in the wall leads somewhere; the small
+            map shows which of them you have taken.
           </p>
           {state.notice?.t === "whiteout" ? (
             <p className="error">Everything fainted. You woke up back in Hearth, patched up.</p>

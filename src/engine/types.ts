@@ -14,7 +14,7 @@ import { BIOME_IDS } from "./biomes";
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 16;
+export const ENGINE_VERSION = 17;
 
 // ------------------------------------------------------------------ stats
 
@@ -164,24 +164,44 @@ export interface Individual {
 
 export interface WorldConfig {
   engineVersion: number;
-  /** How many rings out from the hub the world extends. */
+  /**
+   * How many difficulty bands the world is graded into.
+   *
+   * This used to be how many rings out the world extended, which was the same
+   * number as "how hard the far edge is" because the world was a star and
+   * distance was the only axis it had. It is a graph now: how far out anywhere
+   * is varies with the seed, so difficulty is that distance stretched onto a
+   * fixed number of bands — the nearest hop is always band 1 and the furthest
+   * place in any world is always the last one. See `bandOf` in layout.ts.
+   */
   rings: number;
-  /** Biome corridors radiating from the hub. */
+  /**
+   * The kinds of place the world is built out of.
+   *
+   * Not corridors any more, and not one each: how many copies of each the
+   * world holds is the biome's tier, and fifty places are dealt out of these
+   * twenty kinds. See `placesWanted` in biomes.ts.
+   */
   biomes: string[];
 }
 
 export const DEFAULT_WORLD: WorldConfig = {
   engineVersion: ENGINE_VERSION,
-  rings: 6,
   /**
-   * Twenty of them, five to each wall of town, and the list lives in
-   * biomes.ts so that a place is one row rather than three.
+   * Eight bands, because a world comes out seven to ten hops across and eight
+   * is the middle of that — so a band is about one hop, and the curve is not
+   * being stretched or squashed hard on any seed.
+   */
+  rings: 8,
+  /**
+   * Twenty kinds of place, dealt into fifty, and the list lives in biomes.ts
+   * so that a place is one row rather than three.
    *
-   * The first four are the settled world: every gym, every person, the Cup
-   * and every one-off breeding item is placed on those, and every balance
-   * number in the game was measured against them. The other sixteen are
-   * wilderness — creatures, trainers, things on the floor and the census,
-   * but nobody to talk to.
+   * Every one of the twenty is settled now. It used to be four with everything
+   * on them and sixteen empty, which was honest about how they arrived and a
+   * waste of sixteen places: the gyms, the people, the one-off items and the
+   * Cup are spread across the whole roster, so a biome you have not seen is a
+   * biome that might have somebody in it.
    */
   biomes: [...BIOME_IDS],
 };

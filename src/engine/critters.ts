@@ -49,9 +49,9 @@ export type CritterKind =
  *
  * The creature is stored whole rather than as a species and a level, unlike a
  * trainer's team — because unlike a trainer's team it is a *particular*
- * creature, and the whole appeal of a roamer is that the one circling the
- * ashflats is the one circling the ashflats. Its uid is filled in when it
- * actually enters a battle, the same way a wild one's is.
+ * creature, and the whole appeal of a roamer is that the shiny dragon over the
+ * storm coast is *the* shiny dragon over the storm coast. Its uid is filled in
+ * when it actually enters a battle, the same way a wild one's is.
  */
 export interface CritterSpec {
   id: string;
@@ -170,7 +170,7 @@ export interface CritterPlacement {
   speciesId: string;
   level: number;
   /** Which map, and how it stands on it. */
-  where: { at: "town" } | { at: "ring"; biome: string; ring: number };
+  where: { at: "town" } | { at: "route"; biome: string; nth: number };
   /** Whether it walks a loop. */
   roams?: boolean;
   /** What it looks like. Left off, it is ordinary. */
@@ -192,63 +192,67 @@ export const CRITTERS: readonly CritterPlacement[] = [
 
   // ----------------------------------------------------- the four roamers
   //
-  // One per arm, further out each time, and each of them something you would
-  // otherwise have to be very lucky to meet. A roamer is the only creature in
-  // this world you can *see* before you fight it, so it may as well be worth
-  // seeing.
+  // Four kinds of place, further out each time, and each of them something you
+  // would otherwise have to be very lucky to meet. A roamer is the only
+  // creature in this world you can *see* before you fight it, so it may as
+  // well be worth seeing.
+  //
+  // One per arm, once. There are no arms, so they are spread by *kind* instead
+  // and each one put where it belongs: the dark one in the Dusk Hollow, the
+  // sea serpent in the drowned reach, the dragon over the storm coast.
   {
     id: "roam-meadow",
     kind: "wild",
     speciesId: "snorlax",
     level: 34,
     roams: true,
-    where: { at: "ring", biome: "meadow", ring: 3 },
+    where: { at: "route", biome: "meadow", nth: 3 },
   },
   {
-    id: "roam-pinewood",
+    id: "roam-duskhollow",
     kind: "wild",
     speciesId: "absol",
     level: 42,
     roams: true,
     variantId: "tint2",
-    where: { at: "ring", biome: "pinewood", ring: 4 },
+    where: { at: "route", biome: "duskhollow", nth: 2 },
   },
   {
-    id: "roam-marsh",
+    id: "roam-sunkenreach",
     kind: "wild",
     speciesId: "lapras",
     level: 48,
     roams: true,
-    where: { at: "ring", biome: "marsh", ring: 5 },
+    where: { at: "route", biome: "sunkenreach", nth: 1 },
   },
   {
-    id: "roam-ashflats",
+    id: "roam-stormcoast",
     kind: "wild",
     speciesId: "dragonite",
     level: 58,
     roams: true,
     variantId: "shiny",
-    where: { at: "ring", biome: "ashflats", ring: 6 },
+    where: { at: "route", biome: "stormcoast", nth: 3 },
   },
 
   // ------------------------------------------ two more that come with you
   //
-  // Out on the arms rather than in town, so that walking somewhere difficult
-  // is what finds them.
+  // Out on the map rather than in town, so that walking somewhere difficult is
+  // what finds them.
   {
     id: "gift-marsh",
     kind: "joins",
     speciesId: "lotad",
     level: 12,
-    where: { at: "ring", biome: "marsh", ring: 1 },
+    where: { at: "route", biome: "marsh", nth: 1 },
   },
   {
-    id: "gift-pinewood",
+    id: "gift-bramblewood",
     kind: "joins",
     speciesId: "phantump",
     level: 22,
     roams: false,
-    where: { at: "ring", biome: "pinewood", ring: 3 },
+    where: { at: "route", biome: "bramblewood", nth: 3 },
   },
 ];
 
@@ -257,5 +261,5 @@ export function idlersFor(ring: number): number {
   // Thinner further out. The outer rings are where the census hides its best
   // things, and a crowd of visible creatures out there would read as though
   // the hunting were over.
-  return ring <= 2 ? 3 : ring <= 4 ? 2 : 1;
+  return ring <= 2 ? 3 : ring <= 5 ? 2 : 1;
 }

@@ -109,11 +109,22 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
   where:
     | { at: "town"; x: number; y: number }
     | { at: "interior"; role: "centre" | "mart" | "daycare" | "house"; index?: number }
-    | { at: "ring"; biome: string; ring: number }
+    /**
+     * Out on a route: which biome, and which copy of it counted outward from
+     * town.
+     *
+     * This used to name a ring, and the ring was both the name of the route
+     * and how hard it was. Neither survived the world becoming a graph.
+     * `nth` is the part that can still be written down by hand: every world
+     * has exactly four marshes, so "the nearest marsh" is an address, and it
+     * means what a designer means by it — near town is
+     * early. See `placeIndex` in layout.ts.
+     */
+    | { at: "route"; biome: string; nth: number }
     /** Inside the cabin on that route — or, on a seed that grew no cabin
      * there, outside on the route itself. A person who exists on some seeds
      * and not others is not a person, it is a bug with a name. */
-    | { at: "cabin"; biome: string; ring: number }
+    | { at: "cabin"; biome: string; nth: number }
     | { at: "gym"; gymId: string }
     /**
      * Inside the house at the end of the ash flats.
@@ -227,19 +238,19 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Quarryman",
     kind: "gift",
     item: "tm-rockslide",
-    where: { at: "ring", biome: "ashflats", ring: 2 },
+    where: { at: "route", biome: "slagheap", nth: 1 },
     lines: [
       "You are standing on about four hundred tons of loose rock. I would not linger.",
       "Here — I have three of these and one back. Rock Slide. Take it and let me get on.",
     ],
   },
 
-  // ------------------------------------------------ north, behind a door
+  // ----------------------------------------------------- behind a door
   {
     id: "buy-appraiser",
     name: "Appraiser",
     kind: "buy",
-    where: { at: "cabin", biome: "pinewood", ring: 3 },
+    where: { at: "cabin", biome: "fellgarden", nth: 1 },
     lines: [
       "Shut the door. Thank you. The light in here is mine and I would like to keep it.",
       "I buy shine. Not colour — colour is somebody else's trade — shine. A thousand a rung, so five for a true one, and I do not argue about the arithmetic because the arithmetic is not mine.",
@@ -248,12 +259,12 @@ export const NPCS: readonly NpcPlacement[] = [
     ],
   },
 
-  // ------------------------------------------------------- out on the arms
+  // ------------------------------------------------------ out on the map
   {
     id: "trade-onyx",
     name: "Collector",
     kind: "trade",
-    where: { at: "ring", biome: "meadow", ring: 2 },
+    where: { at: "route", biome: "duskhollow", nth: 1 },
     wants: { chromaId: "onyx" },
     gives: { speciesId: "ditto", variantId: "shiny", gender: "trans", level: 25, nickname: "Smudge" },
     lines: [
@@ -266,7 +277,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "trade-angler",
     name: "Angler",
     kind: "trade",
-    where: { at: "ring", biome: "marsh", ring: 1 },
+    where: { at: "route", biome: "marsh", nth: 1 },
     wants: { type: "water", minLevel: 12 },
     gives: { speciesId: "magikarp", variantId: "tint4:tide", gender: "female", level: 20 },
     lines: [
@@ -280,7 +291,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Cartographer",
     kind: "quest",
     questId: "far-enough",
-    where: { at: "ring", biome: "ashflats", ring: 1 },
+    where: { at: "route", biome: "ashflats", nth: 1 },
     lines: ["I map what people bring back. Lately people bring back very little."],
   },
   {
@@ -288,7 +299,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Chromatic",
     kind: "quest",
     questId: "colour-theory",
-    where: { at: "ring", biome: "pinewood", ring: 2 },
+    where: { at: "route", biome: "mycelia", nth: 1 },
     lines: ["Colour is not decoration. Colour is a stat line with a coat on."],
   },
   {
@@ -296,7 +307,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Hunter",
     kind: "quest",
     questId: "the-shine",
-    where: { at: "ring", biome: "ashflats", ring: 5 },
+    where: { at: "route", biome: "crystalvault", nth: 1 },
     lines: ["I have been out here eleven years. Ask me what I am looking for."],
   },
   {
@@ -304,7 +315,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Old Angler",
     kind: "quest",
     questId: "the-drenched",
-    where: { at: "ring", biome: "marsh", ring: 3 },
+    where: { at: "route", biome: "stormcoast", nth: 2 },
     lines: ["A rod is not for catching things. A rod is for reaching."],
   },
   {
@@ -312,7 +323,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Coach",
     kind: "quest",
     questId: "the-work",
-    where: { at: "ring", biome: "meadow", ring: 4 },
+    where: { at: "route", biome: "pinewood", nth: 3 },
     lines: ["Everyone wants the rare one. Nobody wants to do the work on the common one."],
   },
   {
@@ -320,7 +331,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Climber",
     kind: "quest",
     questId: "the-climb",
-    where: { at: "ring", biome: "pinewood", ring: 4 },
+    where: { at: "route", biome: "cloudreach", nth: 1 },
     lines: ["Levels are the one thing nobody can hand you."],
   },
   {
@@ -328,7 +339,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Jeweller",
     kind: "quest",
     questId: "deep-pockets",
-    where: { at: "ring", biome: "ashflats", ring: 3 },
+    where: { at: "route", biome: "dunes", nth: 2 },
     lines: ["Everything out here is worth something to somebody. I am the somebody."],
   },
   {
@@ -336,7 +347,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Naturalist",
     kind: "quest",
     questId: "a-ditto",
-    where: { at: "ring", biome: "marsh", ring: 5 },
+    where: { at: "route", biome: "sunkenreach", nth: 1 },
     lines: ["There is a creature that is all of them and none of them. I want to see it."],
   },
   {
@@ -344,7 +355,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Ranger",
     kind: "gift",
     item: "oldrod",
-    where: { at: "ring", biome: "marsh", ring: 2 },
+    where: { at: "route", biome: "marsh", nth: 2 },
     lines: [
       "You have walked past four ponds and not looked at one of them.",
       "Here. It is old and it is short, but stand at the water's edge with it and something will bite.",
@@ -355,7 +366,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Prospector",
     kind: "gift",
     item: "nugget",
-    where: { at: "ring", biome: "ashflats", ring: 4 },
+    where: { at: "route", biome: "saltpan", nth: 3 },
     lines: [
       "Found two. Only need one.",
       "Do not carry it around admiring it — it does nothing. Sell it.",
@@ -366,7 +377,7 @@ export const NPCS: readonly NpcPlacement[] = [
     name: "Herbalist",
     kind: "gift",
     item: "revive",
-    where: { at: "ring", biome: "pinewood", ring: 3 },
+    where: { at: "route", biome: "frostmire", nth: 2 },
     lines: [
       "Everything faints eventually. Out here that is a long walk home.",
       "Take it. And do not use it on something that is merely tired — it only works on the ones that have already gone down.",
@@ -376,7 +387,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "heal-camp",
     name: "Camper",
     kind: "heal",
-    where: { at: "ring", biome: "pinewood", ring: 5 },
+    where: { at: "route", biome: "glacier", nth: 2 },
     lines: [
       "Fire is lit. Sit for a minute.",
       "There — that is the best I can do out here, but it is enough to get you home.",
@@ -386,7 +397,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "heal-hermit",
     name: "Hermit",
     kind: "heal",
-    where: { at: "ring", biome: "meadow", ring: 5 },
+    where: { at: "route", biome: "boneyard", nth: 1 },
     lines: [
       "You are a long way from a Center.",
       "I have nothing to sell and nothing to ask. Go on.",
@@ -396,7 +407,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "hint-veteran",
     name: "Veteran",
     kind: "hint",
-    where: { at: "ring", biome: "meadow", ring: 1 },
+    where: { at: "route", biome: "meadow", nth: 1 },
     lines: [
       "Nothing out here is rolled when you meet it. It was decided when the world was made.",
       "Which means running away does not reroll it — it spends it. That slot is gone. I have lost two shinies that way and I think about them daily.",
@@ -406,7 +417,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "hint-tactician",
     name: "Tactician",
     kind: "hint",
-    where: { at: "ring", biome: "ashflats", ring: 2 },
+    where: { at: "route", biome: "bramblewood", nth: 1 },
     lines: [
       "Hover anything in a battle and it will tell you everything — its stats, its effort, what it knows.",
       "There is no hidden information in this world. There is only information you did not look at.",
@@ -416,7 +427,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "hint-effort",
     name: "Trainer",
     kind: "hint",
-    where: { at: "ring", biome: "marsh", ring: 4 },
+    where: { at: "route", biome: "thunderplain", nth: 2 },
     lines: [
       "What you fight is what you become. Beat attackers and you get attack.",
       "Five hundred and ten points, total, and no more. Spend them on purpose or something else will spend them for you.",
@@ -426,7 +437,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "hint-lost",
     name: "Lost Walker",
     kind: "hint",
-    where: { at: "ring", biome: "pinewood", ring: 1 },
+    where: { at: "route", biome: "pinewood", nth: 1 },
     lines: [
       "Do not trust the trees. They all look like that.",
       "Use the small map. The way through is drawn on it, and it is drawn correctly, which is more than I can say for my sense of direction.",

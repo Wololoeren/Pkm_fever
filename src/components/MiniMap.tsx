@@ -3,8 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
-import { armOf } from "@/engine/biomes";
-import { HUB_ID, routeId, type World } from "@/engine/world";
+import { HUB_ID, type Route, type World } from "@/engine/world";
 import { paletteFor, tileColor } from "@/render/tiles";
 
 /**
@@ -15,23 +14,17 @@ import { paletteFor, tileColor } from "@/render/tiles";
  * of the map you are standing on, and under it the corridor diagram of the
  * region.
  *
- * The corridor diagram is not a shrunken map either. The world is a town with
- * twenty arms running outward and difficulty is one-dimensional along each
- * arm, so the useful question is "which arm, how far out" rather than "which
- * pixel".
+ * The region diagram is not a shrunken map either — it is the graph. Fifty
+ * places on a lattice around one town, a dot each, joined by a line wherever
+ * you can walk from one to the other.
  *
- * The arms are drawn where they actually lie. Five hang off each wall of town,
- * so each wall's arms fan out around that wall's direction rather than all
- * twenty spreading evenly round the circle — the picture is a diagram of the
- * town's geometry, and a town with five roads out of its north wall should
- * look like one.
+ * It used to be a fan of twenty arms, and a fan was the honest picture of a
+ * world where the only questions were which arm and how far out. There are no
+ * arms now: there are loops, junctions and a few blind ends, and the useful
+ * question is "what have I not walked yet". So the dots are drawn at the cells
+ * the places actually occupy and the lines at the crossings that actually
+ * exist, which makes this a drawing of the world rather than a diagram of it.
  */
-
-/** Which way each wall of town faces, in degrees, screen coordinates. */
-const EDGE_ANGLES = [180, 270, 0, 90];
-
-/** How far an arm leans off its wall's direction, per step from the middle. */
-const FAN_DEGREES = 26;
 
 const MINI_WIDTH = 176;
 
@@ -118,78 +111,113 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
   );
 }
 
-/** The region: which arm, how far out. */
+/** The region: the whole graph, and which dot you are standing on. */
 function RegionMap({ world, state, outer }: { world: World; state: GameState; outer: string }) {
-  const biomes = world.config.biomes;
-  const rings = world.config.rings;
-
   const size = MINI_WIDTH;
-  const centre = size / 2;
-  const step = (centre - 16) / rings;
-  const inTown = outer === HUB_ID;
+  const pad = 9;
+
+  // Every place that has a cell — the fifty routes and the town. Interiors do
+  // not: a room behind a door is not anywhere on the lattice.
+  const places = [...world.routes.values()].filter(
+    (route) => route.kind === "route" || route.kind === "town",
+  );
+
+  // The lattice is lumpy and off-centre by construction, so its extent is
+  // measured rather than assumed, and the shorter axis is centred inside the
+  // square. Scaled by the longer axis so a world that grew wide is drawn
+  // wide rather than squashed to fit.
+  const minX = Math.min(...places.map((place) => place.cell.x));
+  const maxX = Math.max(...places.map((place) => place.cell.x));
+  const minY = Math.min(...places.map((place) => place.cell.y));
+  const maxY = Math.max(...places.map((place) => place.cell.y));
+  const span = Math.max(maxX - minX, maxY - minY, 1);
+  const step = (size - pad * 2) / span;
+
+  const at = (cell: { x: number; y: number }) => ({
+    x: pad + (cell.x - minX) * step + ((span - (maxX - minX)) * step) / 2,
+    y: pad + (cell.y - minY) * step + ((span - (maxY - minY)) * step) / 2,
+  });
+
+  const dot = Math.max(2.4, Math.min(5, step * 0.34));
+
+  // One line per crossing rather than two. Borders are written from both
+  // sides — that is what makes stepping out and back a round trip — so the
+  // pairs are deduplicated here by name.
+  const drawn = new Set<string>();
+  const edges: { from: Route; to: Route; walked: boolean }[] = [];
+  for (const place of places) {
+    for (const border of place.borders) {
+      const other = world.routes.get(border.to);
+      if (!other || (other.kind !== "route" && other.kind !== "town")) continue;
+      const key = place.id < other.id ? `${place.id}|${other.id}` : `${other.id}|${place.id}`;
+      if (drawn.has(key)) continue;
+      drawn.add(key);
+      edges.push({
+        from: place,
+        to: other,
+        // Both ends walked. Drawn brighter, which is what turns the picture
+        // from a diagram of the world into a record of where you have been:
+        // the dim lines are the ones still to take.
+        walked: [place, other].every(
+          (end) => end.id === HUB_ID || state.visited.includes(end.id),
+        ),
+      });
+    }
+  }
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Map of the region">
-      {biomes.map((biome, arm) => {
-        // The same layout the town wall uses, so the diagram and the world
-        // agree about which road is which.
-        const { edge, offset } = armOf(arm);
-        const angle = ((EDGE_ANGLES[edge] + offset * FAN_DEGREES) * Math.PI) / 180;
-        const dx = Math.cos(angle);
-        const dy = Math.sin(angle);
-        const palette = paletteFor(biome);
-
+      {edges.map(({ from, to, walked }) => {
+        const a = at(from.cell);
+        const b = at(to.cell);
         return (
-          // No labels. The arms are told apart by the colour of what you have
-          // walked, which is the thing the map is actually for; four names
-          // pointing outward from a 176px square were more ink than answer.
-          <g key={biome}>
-            <line
-              x1={centre}
-              y1={centre}
-              x2={centre + dx * step * rings}
-              y2={centre + dy * step * rings}
-              stroke="var(--line)"
-              strokeWidth={2}
-            />
-            {Array.from({ length: rings }, (_, index) => {
-              const ring = index + 1;
-              const id = routeId(biome, ring);
-              const visited = state.visited.includes(id);
-              const current = id === outer;
-              const x = centre + dx * step * ring;
-              const y = centre + dy * step * ring;
-
-              return (
-                <circle
-                  key={id}
-                  cx={x}
-                  cy={y}
-                  r={current ? 6 : 4}
-                  // Unvisited rings are drawn but empty: the shape of the
-                  // world is not a secret, only what is in it.
-                  fill={visited ? palette.grass : "var(--bg)"}
-                  stroke={current ? "var(--accent)" : "var(--line)"}
-                  strokeWidth={current ? 3 : 1.5}
-                >
-                  <title>{`${biome} ring ${ring}${visited ? "" : " — not yet visited"}`}</title>
-                </circle>
-              );
-            })}
-          </g>
+          <line
+            key={`${from.id}|${to.id}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            // `--line` is a hairline against a panel and vanished entirely at
+            // this size: sixty-four crossings were being drawn and none of
+            // them could be seen, which left the map a field of loose dots.
+            stroke="var(--muted)"
+            strokeOpacity={walked ? 0.85 : 0.3}
+            strokeWidth={walked ? 2 : 1.25}
+          />
         );
       })}
 
-      <circle
-        cx={centre}
-        cy={centre}
-        r={inTown ? 8 : 6}
-        fill="var(--panel-2)"
-        stroke={inTown ? "var(--accent)" : "var(--line)"}
-        strokeWidth={inTown ? 3 : 1.5}
-      >
-        <title>Hearth — the town at the centre</title>
-      </circle>
+      {places.map((place) => {
+        const here = at(place.cell);
+        const town = place.id === HUB_ID;
+        const visited = town || state.visited.includes(place.id);
+        const current = place.id === outer;
+        const palette = paletteFor(place.biome);
+
+        return (
+          // No labels. Fifty names in a 176px square would be ink rather than
+          // answer; the places are told apart by the colour of the ones you
+          // have walked, and hovering one names it.
+          <circle
+            key={place.id}
+            cx={here.x}
+            cy={here.y}
+            r={current ? dot + 2 : town ? dot + 1 : dot}
+            // Unwalked places are drawn but empty: the shape of the world is
+            // not a secret, only what is in it.
+            fill={town ? "var(--panel-2)" : visited ? palette.grass : "var(--bg)"}
+            stroke={current ? "var(--accent)" : "var(--muted)"}
+            strokeOpacity={current || visited ? 1 : 0.45}
+            strokeWidth={current ? 3 : 1.25}
+          >
+            <title>
+              {town
+                ? "Hearth — the town at the centre"
+                : `${place.label}${visited ? "" : " — not yet visited"}`}
+            </title>
+          </circle>
+        );
+      })}
     </svg>
   );
 }

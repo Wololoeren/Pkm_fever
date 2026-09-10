@@ -43,9 +43,17 @@ import { BATTLE_STAT_IDS, STAT_IDS, type StatId, type StatTable } from "./types"
  * the Steward at the door wants to see it before he will write your name down.
  */
 
-/** Which route the house stands on. The far end of the ash flats. */
+/**
+ * Which route the house stands on: the furthest of the ash flats.
+ *
+ * Literally that, now. It used to be `ring: 6`, the last ring of the arm,
+ * which was the far end only because an arm had an end. There are three ash
+ * flats scattered about the lattice, and `nth: 3` is the one you have to walk
+ * past the other two to reach — so the address says what the prose always
+ * said, and it resolves in every world.
+ */
 export const CUP_BIOME = "ashflats";
-export const CUP_RING = 6;
+export const CUP_NTH = 3;
 
 /** How many each of them brings. Six, all at the same level: nobody in this
  * house is padding a team out with something two levels down. */

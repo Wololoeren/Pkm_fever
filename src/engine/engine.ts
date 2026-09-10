@@ -417,38 +417,44 @@ const WILD_TAG = "wild:";
  */
 const ITEM_FOR_RING: Record<number, BreedingItem> = {
   2: "heirloom",
-  4: "talisman",
-  6: "catalyst",
+  5: "talisman",
+  8: "catalyst",
 };
 
 /**
- * The lenses and the prism are keyed to a biome as well as a ring.
+ * The lenses and the prism are keyed to a *particular place*.
  *
  * The three above are the core of breeding and drop from any route at the
- * right distance, so nobody can miss them. These nine are specialised — each
- * aims a pairing at one colour — so each asks you to have been somewhere
- * specific rather than merely far. Eight colours over four biomes means two
- * apiece, at the two depths that were not already spoken for.
+ * right distance, so nobody can miss them. These fourteen are specialised —
+ * each aims a pairing at one colour — so each asks you to have been somewhere
+ * specific rather than merely far.
+ *
+ * The key is `biome:nth`: the biome, and which copy of it counted outward from
+ * town. Eight colours over four biomes used to mean two apiece at whichever
+ * two depths were free; there are twenty kinds of place now, so each colour
+ * gets one that suits it — ember in the Emberfields, onyx on the slag, ivory
+ * in the boneyard — and finding the right one is a place you can be told
+ * about rather than a depth you happen to reach.
  */
 const ITEM_FOR_PLACE: Record<string, BreedingItem> = {
-  "ashflats:1": "lens-ember",
-  "marsh:1": "lens-tide",
-  "pinewood:1": "lens-static",
+  "emberfields:1": "lens-ember",
+  "stormcoast:1": "lens-tide",
+  "thunderplain:1": "lens-static",
   "meadow:1": "lens-verdant",
-  "pinewood:3": "lens-umbral",
-  "marsh:3": "lens-teal",
-  "ashflats:5": "lens-onyx",
-  "meadow:5": "lens-ivory",
+  "duskhollow:2": "lens-umbral",
+  "sunkenreach:1": "lens-teal",
+  "slagheap:1": "lens-onyx",
+  "boneyard:1": "lens-ivory",
 
   // The five flat additions to the climb, laid out by how far you have to go
-  // for one. A percent is a two-ring walk; ten percent is the far end of the
-  // world, and there is exactly one of it.
+  // for one. A percent is a stroll; ten percent is the far end of the world,
+  // and there is exactly one of it.
   "meadow:2": "glint",
-  "ashflats:2": "gleam",
-  "pinewood:4": "lustre",
-  "marsh:6": "radiance",
-  "meadow:6": "brilliance",
-  "pinewood:5": "prism",
+  "dunes:1": "gleam",
+  "frostmire:3": "lustre",
+  "glacier:2": "radiance",
+  "cloudreach:1": "brilliance",
+  "crystalvault:1": "prism",
 };
 
 const STARTING_BALLS = 30;
@@ -858,7 +864,7 @@ function arrive(world: World, state: GameState, routeId: string): GameState {
   const visited = [...state.visited, routeId].sort();
   const route = world.routes.get(routeId);
   const found =
-    (route ? ITEM_FOR_PLACE[`${route.biome}:${route.ring}`] : undefined) ??
+    (route ? ITEM_FOR_PLACE[`${route.biome}:${route.nth}`] : undefined) ??
     ITEM_FOR_RING[route?.ring ?? 0];
   if (!found || hasItem(state.bag, found)) return { ...state, visited, notice: null };
 

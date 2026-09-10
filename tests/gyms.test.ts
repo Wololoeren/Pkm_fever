@@ -50,7 +50,7 @@ describe("gyms", () => {
     for (const seed of ["A1", "B2", "C3"]) {
       const world = testWorld(seed);
       for (const gym of GYMS) {
-        const hall = world.routes.get(`${gym.biome}-${gym.ring}:gym`);
+        const hall = world.routes.get(`${gym.biome}-${gym.nth}:gym`);
         expect(hall, `${seed}: no hall for ${gym.id}`).toBeDefined();
         expect(hall!.role).toBe("gym");
 
@@ -137,14 +137,19 @@ describe("tools", () => {
     }
   });
 
-  it("T-3: nothing the world places ever blocks the way to the next ring", () => {
+  it("T-3: nothing the world places ever blocks the way out of a route", () => {
     // Gates gate optional pockets, never the route. Walking with no tools at
-    // all has to get from one side of every route to the other.
-    for (const seed of ["A1", "B2", "C3"]) {
+    // all has to reach every gap in the wall from every other one.
+    //
+    // It used to be one pair — in at the west, out at the east — because that
+    // was every way through there was. A place with three neighbours has three,
+    // and checking one pair of them would pass a world where a boulder had
+    // sealed the third: reachable, unreachable and never asked about.
+    for (const seed of ["A1", "B2", "C3", "PKMFEVER1", "ZZZZ9"]) {
       const world = testWorld(seed);
 
       for (const route of world.routes.values()) {
-        if (route.kind !== "route" || !route.inGate || !route.outGate) continue;
+        if (route.kind !== "route") continue;
 
         const seen = new Set<string>();
         const start = route.entry;
@@ -164,10 +169,12 @@ describe("tools", () => {
           }
         }
 
-        expect(
-          seen.has(`${route.outGate.x},${route.outGate.y}`),
-          `${seed}: ${route.id} needs a tool to get through`,
-        ).toBe(true);
+        for (const gate of route.gates) {
+          expect(
+            seen.has(`${gate.x},${gate.y}`),
+            `${seed}: ${route.id} needs a tool to reach its ${gate.bearing} gate`,
+          ).toBe(true);
+        }
       }
     }
   });
@@ -216,7 +223,9 @@ describe("tools", () => {
     const { world, state } = started();
     const flying: GameState = { ...state, bag: addItem(state.bag, "hm-fly") };
 
-    expect(flyRefusal(world, flying, "meadow-6")).toBe("you have never been there");
+    // The fourth meadow: somewhere that exists in every world and that the
+            // player has certainly not walked to yet.
+    expect(flyRefusal(world, flying, "meadow-4")).toBe("you have never been there");
     expect(flyRefusal(world, flying, state.route)).toBe("you are already there");
     expect(flyRefusal(world, state, "meadow-1")).toBe("you have no way to fly");
 
