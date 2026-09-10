@@ -10,6 +10,7 @@ import {
   type GameState,
   type Input,
 } from "@/engine/engine";
+import { contender as cupSpec, CUP_SIZE } from "@/engine/cup";
 import { gym as gymSpec, gymBreakdown } from "@/engine/gyms";
 import { item } from "@/engine/items";
 import { dialogueOf, givesText } from "@/engine/npc";
@@ -43,6 +44,7 @@ const ACCEPT: Record<string, string> = {
   heal: "Yes, please",
   quest: "Take the job",
   gym: "Challenge",
+  cup: "Play them",
 };
 
 interface Option {
@@ -201,6 +203,8 @@ export function TalkPanel({
         <GymTerms state={state} gymId={person.gymId} />
       ) : null}
 
+      {person.kind === "cup" && person.cupId ? <CupTerms cupId={person.cupId} /> : null}
+
       {person.kind === "buy" ? (
         <p className="muted">
           A thousand for every rung, or one Glitter for every rung — your choice, and it is the
@@ -238,6 +242,28 @@ export function TalkPanel({
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * What one of the five is fielding.
+ *
+ * Shorter than a gym's terms because there is less to say, and that *is* the
+ * information: a gym quotes three numbers that add up to its level, and this
+ * quotes one that came from nowhere but itself. Nothing here moved because of
+ * anything you did.
+ */
+function CupTerms({ cupId }: { cupId: string }) {
+  const spec = cupSpec(cupId);
+
+  return (
+    <p className="muted">
+      <strong>{spec.name}</strong> — {CUP_SIZE}{" "}
+      {spec.slant ? `${spec.slant} types` : "of the best there are"} at level{" "}
+      <strong>{spec.level}</strong>. Perfect where it counts, every point of effort spent, and two
+      abilities each. Not scaled to you and never was. Nothing out here gives a spent move back,
+      so what is in your bag is the only thing between you and the next one.
+    </p>
   );
 }
 

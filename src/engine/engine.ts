@@ -28,7 +28,7 @@ import {
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { awardExp, expForLevel, MAX_LEVEL, MOVE_SLOTS } from "./progression";
-import { rollAbilities } from "./abilities";
+import { pickAbilities, rollAbilities } from "./abilities";
 import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
@@ -38,8 +38,18 @@ import {
   type QuestView,
 } from "./quests";
 import { gym as gymSpec, gymLevel } from "./gyms";
+import {
+  contender as cupSpec,
+  cupEffort,
+  cupMoveset,
+  cupNature,
+  CUP_ABILITIES,
+  CUP_POOL,
+  CUP_SIZE,
+  isContender,
+} from "./cup";
 import { hash32, intBelow, intBetween, rngFor } from "./rng";
-import { clampIvs, computeStats } from "./stats";
+import { clampIvs, computeStats, IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type StatTable } from "./types";
 import { variant } from "./variants";
 import {
@@ -1533,12 +1543,33 @@ export function offerRefusal(world: World, state: GameState): string | null {
       if (!person.questId) return "there is nothing to take";
       if (state.questsDone.includes(person.questId)) return "that one is finished";
       if (state.questsTaken.includes(person.questId)) return "you already took that";
+      // A job with a price of admission. Only the Cup has one, and it wants to
+      // *see* the invitation rather than take it: the item is never spent, so
+      // this reads the bag and changes nothing in it.
+      const needs = questSpec(person.questId).needs;
+      if (needs && !countOf(state.bag, needs)) {
+        return `they will not talk terms without ${item(needs).name}`;
+      }
       return null;
     }
 
     case "gym": {
       if (!person.gymId) return "there is nothing to take";
       if (state.badges.includes(person.gymId)) return "you already have that badge";
+      if (!state.party.some((one) => one.hp > 0)) return "nothing that could fight";
+      return null;
+    }
+
+    case "cup": {
+      if (!person.cupId) return "there is nothing to take";
+      // Beaten once and that is the whole of it, as with a badge. What the Cup
+      // pays is the quest at the end of it, so a rematch could only ever be
+      // for the experience — and five people who can be farmed at level a
+      // hundred is not a tournament, it is a treadmill.
+      if (state.beaten.includes(person.cupId)) return "you already beat them";
+      if (!state.questsTaken.includes(CUP_QUEST)) {
+        return "your name is not down - speak to the Steward";
+      }
       if (!state.party.some((one) => one.hp > 0)) return "nothing that could fight";
       return null;
     }
@@ -1593,6 +1624,9 @@ function npcAccept(world: World, state: GameState): GameState {
 
     case "gym":
       return challengeGym(world, state, person.gymId!);
+
+    case "cup":
+      return challengeCup(world, state, person.cupId!);
 
     default:
       throw new IllegalInput("that is not something they offer");
@@ -2015,6 +2049,125 @@ function challengeGym(world: World, state: GameState, id: string): GameState {
   };
 }
 
+/** Which quest puts your name down for the Cup. */
+const CUP_QUEST = "the-cup";
+
+/** What beating one of the five pays. Five times a gym, once each. */
+const CUP_PURSE = 25000;
+
+/** The tag a Cup battle carries, so winning one can be recognised. */
+const CUP_TAG = "cup:";
+
+/** Which contender a battle is against, or null. */
+export function cupIdOf(battle: BattleState | null): string | null {
+  return battle?.tag.startsWith(CUP_TAG) ? battle.tag.slice(CUP_TAG.length) : null;
+}
+
+/**
+ * What one of the five is fielding.
+ *
+ * Built when you walk up to them rather than when the world was made, like a
+ * gym team — but for the opposite reason. A gym is built late because what it
+ * fields depends on how far you have come; the Cup is built late only because
+ * a team needs uids, and uids belong to the save. Nothing here reads the save
+ * at all, which is the point: these six are the same six on your first badge
+ * as on your eighth.
+ *
+ * Every number in it comes from somewhere the player can already see:
+ *
+ *   **Species** from the strong end of the dex, by base stat total. Slanted
+ *   contenders draw from their own type; the Sovereign draws from everything,
+ *   which is what having no type means.
+ *
+ *   **IVs** perfect. This is a bred creature and that is what bred means.
+ *
+ *   **Effort** the whole 510, spent on the two stats the species is for — see
+ *   `cupEffort`, which derives the spread rather than listing thirty of them.
+ *
+ *   **Nature** chosen, up in its best and down in its worst.
+ *
+ *   **Abilities** two apiece, which in the wild is one creature in a hundred.
+ *
+ * The seed still decides *which* six of the strongest twelve turn up, so the
+ * wall is a fixed height and not a fixed photograph.
+ */
+export function cupTeam(world: World, state: GameState, id: string): Individual[] {
+  const spec = cupSpec(id);
+
+  const power = (base: StatTable) => STAT_IDS.reduce((sum, stat) => sum + base[stat], 0);
+  const ranked = ALL_SPECIES.filter(
+    (entry) => spec.slant === null || entry.types.some((type) => type === spec.slant),
+  ).sort((a, b) => power(b.base) - power(a.base) || a.id.localeCompare(b.id));
+
+  const pool = ranked.slice(0, CUP_POOL);
+  if (!pool.length) return [];
+
+  const team: Individual[] = [];
+  const used: string[] = [];
+  let uid = state.nextUid;
+
+  for (let slot = 0; slot < CUP_SIZE; slot++) {
+    const rng = rngFor(world.seed, "cup", id, slot);
+
+    // Six distinct, walking the pool from wherever the draw landed. A team
+    // with the same species twice is a team that lost a slot to the dice.
+    let pick = pool[intBelow(rng, pool.length)];
+    for (let step = 0; used.includes(pick.id) && step < pool.length; step++) {
+      pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+    }
+    used.push(pick.id);
+
+    // The one place a moveset is chosen rather than inherited from the last
+    // four levels — see `cupMoveset` for why, and for why nothing else does.
+    const moves = cupMoveset(pick.id, spec.level, pick.base);
+
+    team.push(
+      atFullHealth({
+        pp: fullPp(moves),
+        abilities: pickAbilities(rng, CUP_ABILITIES),
+        uid: uid++,
+        speciesId: pick.id,
+        level: spec.level,
+        exp: expForLevel(spec.level),
+        ivs: { hp: IV_MAX, atk: IV_MAX, def: IV_MAX, spa: IV_MAX, spd: IV_MAX, spe: IV_MAX },
+        evs: cupEffort(pick.base),
+        natureId: cupNature(pick.base),
+        variantId: "normal",
+        hp: 0,
+        status: null,
+        sleepTurns: 0,
+        moves,
+        nickname: null,
+        traded: false,
+        parents: null,
+        gender: rollGender(rng),
+      }),
+    );
+  }
+
+  return team;
+}
+
+function challengeCup(world: World, state: GameState, id: string): GameState {
+  if (!isContender(id)) throw new IllegalInput("nobody of that name is in the running");
+
+  const team = cupTeam(world, state, id);
+  if (!team.length) throw new IllegalInput("they have nobody to field");
+
+  const lead = state.party.findIndex((one) => !isFainted(one));
+  if (lead < 0) throw new IllegalInput("nothing that could fight");
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    talking: null,
+    phase: "battle",
+    battle: startBattle(world.seed, `${CUP_TAG}${id}`, state.party, team, lead),
+    nextUid: state.nextUid + team.length,
+    notice: null,
+  };
+}
+
 /** What the quest rules are allowed to look at, from this save. */
 export function questViewOf(world: World, state: GameState): QuestView {
   return {
@@ -2225,7 +2378,14 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
   try {
     // Side 1 is the wild creature; its move is derived from the battle's own
     // seed, so it is as unrerollable as the encounter that produced it.
-    const rules = trainerIdOf(state.battle) ? TRAINER_RULES : WILD_RULES;
+    //
+    // Asked as "is this the grass" rather than "is this somebody on a route",
+    // which is what it used to ask. Every battle that was neither was left
+    // with WILD_RULES and therefore `catchable: true`, so a gym leader's team
+    // was catchable as far as the engine was concerned — only the UI declined
+    // to draw the button. A third kind of trainer battle would have walked
+    // into the same hole, so the question is now the one that was meant.
+    const rules = isWildBattle(state.battle) ? WILD_RULES : TRAINER_RULES;
     result = resolveTurn(state.battle, [action, aiAction(state.battle)], rules, ballAt(state, action));
   } catch (error) {
     throw new IllegalInput(error instanceof Error ? error.message : "bad battle action");
@@ -2307,6 +2467,30 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
           money: base.money + (already ? 0 : GYM_PURSE),
           bag: already ? base.bag : addItem(base.bag, gymSpec(gymId).tool),
           notice: already ? { t: "won" } : { t: "badge", gym: gymId },
+        };
+      }
+
+      const cupId = cupIdOf(base.battle);
+      if (cupId) {
+        // Recorded in `beaten` with everybody else you have beaten, because
+        // that is what the list is — and the quest counts the five by name
+        // rather than by how long the list is, so nothing else has to care
+        // that these five are in it. `beatenAt` and `wins` are set for the
+        // same reason a trainer's are: they are what the world uses to answer
+        // "again?", and the refusal above already says no.
+        const already = base.beaten.includes(cupId);
+        return {
+          ...base,
+          phase: "battleEnd",
+          beaten: already ? base.beaten : [...base.beaten, cupId].sort(),
+          beatenAt: { ...base.beatenAt, [cupId]: base.tick },
+          wins: { ...base.wins, [cupId]: (base.wins[cupId] ?? 0) + 1 },
+          money: base.money + (already ? 0 : CUP_PURSE),
+          notice: {
+            t: "beatTrainer",
+            name: cupSpec(cupId).name,
+            money: already ? 0 : CUP_PURSE,
+          },
         };
       }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { canSee, DARK_RADIUS, tileAt, type GameState } from "@/engine/engine";
+import type { NpcKind } from "@/engine/npc";
 import { TILE } from "@/engine/terrain";
 import { drawProp } from "@/render/props";
 import type { World } from "@/engine/world";
@@ -351,13 +352,26 @@ function signpost(ctx: CanvasRenderingContext2D, px: number, py: number, text: s
   ctx.restore();
 }
 
-/** What sort of person this is, in one colour. */
-const NPC_COLOURS: Record<string, string> = {
+/**
+ * What sort of person this is, in one colour.
+ *
+ * Every kind needs an entry. A missing one is not a default — `person` sets
+ * `ctx.fillStyle` to it, and assigning an invalid value to a canvas context is
+ * *ignored*, so the figure keeps whatever colour was set last. That was the
+ * shadow ellipse drawn a line earlier, which is why gym leaders and the
+ * Appraiser were being painted in near-black instead of failing loudly.
+ * `tests/palette.test.ts` now asks every NpcKind for its colour.
+ */
+const NPC_COLOURS: Record<NpcKind, string> = {
   hint: "#8a7fc4",
   gift: "#4f9e7a",
   heal: "#4a9ec9",
   trade: "#c98a4a",
   quest: "#c9a83a",
+  gym: "#c95a7a",
+  buy: "#b09a5a",
+  // The five at the end of the world, and the one who keeps their door.
+  cup: "#a55ac9",
 };
 
 /** An item on the floor. A ball whatever it holds — finding out is the point

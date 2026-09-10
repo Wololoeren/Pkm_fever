@@ -441,14 +441,23 @@ const KEYS: ItemSpec[] = [
 ];
 
 /**
- * Five ways to buy the climb outright, in ascending order of how far you have
- * to walk for one.
+ * Ways to buy the climb outright, in ascending order of how far you have to
+ * walk for one.
  *
- * A light word each, because they are the same thing at five strengths and a
- * family of names says that faster than a table would. The last two sit on the
- * outermost ring, which is the hardest thing this world has to ask for.
+ * A light word each, because they are the same thing at several strengths and
+ * a family of names says that faster than a table would. The last two of the
+ * five sit on the outermost ring, which is the hardest thing this world has to
+ * ask for — and then there is the Cup, which is not on the floor anywhere and
+ * is the largest of them by half again. It is the only one that is won.
  */
 const CLIMB_ITEMS: { id: string; name: string; blurb: string; climbBonus: number }[] = [
+  {
+    id: "thecup",
+    name: "The Cup",
+    blurb:
+      "Fifteen percent onto the climb, permanently. There is one, it is not found, and nobody has ever sold one.",
+    climbBonus: 1500,
+  },
   { id: "glint", name: "Glint", blurb: "One percent onto the climb, permanently.", climbBonus: 100 },
   { id: "gleam", name: "Gleam", blurb: "Two percent onto the climb, permanently.", climbBonus: 200 },
   { id: "lustre", name: "Lustre", blurb: "Three percent onto the climb, permanently.", climbBonus: 300 },

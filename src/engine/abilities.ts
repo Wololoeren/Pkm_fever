@@ -436,10 +436,23 @@ export const MAX_ABILITIES = 3;
  */
 export function rollAbilities(rng: Rng): string[] {
   const roll = intBelow(rng, 1000);
-  const count = roll < NONE_UP_TO ? 0 : roll < ONE_UP_TO ? 1 : 2;
+  return pickAbilities(rng, roll < NONE_UP_TO ? 0 : roll < ONE_UP_TO ? 1 : 2);
+}
+
+/**
+ * Exactly this many, drawn distinct.
+ *
+ * Split out from the roll above because the Cup does not roll: everybody in
+ * that house has two, which is a one-in-a-hundred creature in the wild. Two
+ * callers, one draw order — a second copy of this loop beside the Cup's team
+ * builder would be a second place for "the same ability twice" to creep back
+ * in.
+ */
+export function pickAbilities(rng: Rng, count: number): string[] {
+  const wanted = Math.min(Math.max(0, count), Math.min(MAX_ABILITIES, ABILITIES.length));
 
   const picked: string[] = [];
-  while (picked.length < count) {
+  while (picked.length < wanted) {
     const candidate = ABILITIES[intBelow(rng, ABILITIES.length)].id;
     // Two of the same is one ability, and a creature listed as carrying it
     // twice would be lying about what it has.

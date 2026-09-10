@@ -159,12 +159,17 @@ describe("the buyer in the north", () => {
 });
 
 describe("what buys the climb", () => {
-  it("S7: the five light items add exactly what they say, and add together", () => {
-    expect(CLIMB_ITEMS.map((id) => item(id).climbBonus)).toEqual([100, 200, 300, 500, 1000]);
+  it("S7: the light items add exactly what they say, and add together", () => {
+    // Weakest first, and the Cup last: it is not found anywhere, so it is the
+    // one that may be larger than the far end of the world.
+    expect(CLIMB_ITEMS.map((id) => item(id).climbBonus)).toEqual([
+      100, 200, 300, 500, 1000, 1500,
+    ]);
 
     // One percent to begin with, and the item on top of it.
     expect(climbChance(["glint"], 0)).toBe(200);
     expect(climbChance(["brilliance"], 0)).toBe(1100);
+    expect(climbChance(["thecup"], 0)).toBe(1600);
     // Held together they simply sum: no multiplier anywhere but the Prism.
     expect(climbChance(["glint", "gleam", "lustre"], 0)).toBe(700);
     expect(flatBonus(["glint", "gleam", "lustre"])).toBe(600);

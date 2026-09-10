@@ -1,3 +1,4 @@
+import { contender as cupSpec, CUP_ROSTER } from "./cup";
 import { species as speciesById } from "./dex";
 import { item as itemSpec } from "./items";
 import { quest as questSpec } from "./quests";
@@ -18,7 +19,7 @@ import { variant } from "./variants";
  * somebody decided what they would say.
  */
 
-export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest" | "gym" | "buy";
+export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest" | "gym" | "buy" | "cup";
 
 /**
  * What a buyer pays for one rung of the shine ladder.
@@ -62,6 +63,8 @@ export interface NpcSpec {
   questId?: string;
   /** gym: which one. */
   gymId?: string;
+  /** cup: which of the five. */
+  cupId?: string;
 }
 
 /** Whether a creature satisfies what a trader is asking for. */
@@ -111,7 +114,16 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
      * there, outside on the route itself. A person who exists on some seeds
      * and not others is not a person, it is a bug with a name. */
     | { at: "cabin"; biome: string; ring: number }
-    | { at: "gym"; gymId: string };
+    | { at: "gym"; gymId: string }
+    /**
+     * Inside the house at the end of the ash flats.
+     *
+     * Six people share one room, which is why this is a place rather than a
+     * coordinate: the room is thirteen by ten with furniture in it, and six
+     * hand-written positions would be six chances to stand somebody inside a
+     * bookcase on the seed where the furniture landed differently.
+     */
+    | { at: "cup" };
 }
 
 export const NPCS: readonly NpcPlacement[] = [
@@ -420,7 +432,46 @@ export const NPCS: readonly NpcPlacement[] = [
       "Use the small map. The way through is drawn on it, and it is drawn correctly, which is more than I can say for my sense of direction.",
     ],
   },
+
+  // ------------------------------------------- the house at the far end
+  //
+  // The Steward keeps the door and the other five stand behind him. He is an
+  // ordinary quest-giver with one unusual thing about him: the job he hands
+  // out asks to see the invitation first, which is what the eight badges were
+  // ever for.
+  {
+    id: "cup-steward",
+    name: "Steward",
+    kind: "quest",
+    questId: "the-cup",
+    where: { at: "cup" },
+    lines: [
+      "You found it. Most people who come this far were looking for something else.",
+      "This is the Cup. Five of them, six each, and every one of those six bred the way a serious person breeds — perfect where it counts, every point of effort spent on purpose, and two abilities apiece.",
+      "Two things before you say yes. There is no bed in this house, so nothing here gives your creatures their uses back — five battles on one tank, and when a move is spent it is spent. Whatever you brought in your bag is another matter. Bring more than you think you need.",
+      "And if you go down you wake up in town, healed, having walked a very long way for nothing. The five you got past stay got past. That is the only mercy in the building.",
+    ],
+  },
+  ...cupContenders(),
 ];
+
+/**
+ * The five, as people standing in a room.
+ *
+ * Read off the Cup's own roster rather than written out again here, so their
+ * names, their order and what they say live in one file and the placement
+ * lives in this one. A gym leader is assembled the same way, in placeNpcs.
+ */
+function cupContenders(): NpcPlacement[] {
+  return CUP_ROSTER.map((spec) => ({
+    id: spec.id,
+    name: spec.name,
+    kind: "cup" as const,
+    cupId: spec.id,
+    lines: spec.lines,
+    where: { at: "cup" as const },
+  }));
+}
 
 /** Everything an NPC says, plus whatever the offer is. */
 export function dialogueOf(npc: NpcSpec): string[] {
@@ -428,6 +479,12 @@ export function dialogueOf(npc: NpcSpec): string[] {
 
   if (npc.kind === "gift" && npc.item) lines.push(`(${itemSpec(npc.item).name})`);
   if (npc.kind === "quest" && npc.questId) lines.push(questSpec(npc.questId).blurb);
+  if (npc.kind === "cup" && npc.cupId) {
+    const spec = cupSpec(npc.cupId);
+    lines.push(
+      `(Six${spec.slant ? ` ${spec.slant} types` : ""}, all at level ${spec.level}.)`,
+    );
+  }
   if (npc.kind === "trade" && npc.wants && npc.gives) {
     lines.push(`Wants ${wantText(npc.wants)} — gives ${givesText(npc.gives)}.`);
   }

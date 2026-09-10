@@ -2,6 +2,7 @@ import { rollAbilities } from "./abilities";
 import { STARTER_TYPES, startersOfType } from "./dex";
 import { MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
+import { CUP_BIOME, CUP_IDS, CUP_RING } from "./cup";
 import { GYMS, gym } from "./gyms";
 import { NPCS, type NpcPlacement, type NpcSpec } from "./npc";
 import { furnish, PROPS, type PropPlacement } from "./props";
@@ -78,7 +79,7 @@ const ENCOUNTER_RATE = 118;
 export type RouteKind = "town" | "route" | "interior";
 
 /** What a building is for. A house is somewhere to look at. */
-export type InteriorRole = "daycare" | "centre" | "mart" | "gym" | "house";
+export type InteriorRole = "daycare" | "centre" | "mart" | "gym" | "house" | "cup";
 
 /** What the board outside each kind of building says. */
 const SIGN_TEXT: Record<InteriorRole, string> = {
@@ -87,6 +88,7 @@ const SIGN_TEXT: Record<InteriorRole, string> = {
   mart: "Mart",
   gym: "Gym",
   house: "House",
+  cup: "The Cup",
 };
 
 /** A board beside a door, saying what the building behind it is for. */
@@ -424,6 +426,16 @@ const CABIN_ROUTES = new Set(
   NPCS.flatMap((who) => (who.where.at === "cabin" ? [`${who.where.biome}:${who.where.ring}`] : [])),
 );
 
+/**
+ * What is written on the board outside the Cup's house, and on the HUD once
+ * you are inside it.
+ *
+ * One string, because the sign and the room label are the same fact and a
+ * house whose door says one thing and whose inside says another is a bug
+ * nobody would think to look for.
+ */
+export const CUP_LABEL = "The Cup";
+
 /** How coarse the maze is. Eight tiles a cell over 88x68 gives 10x8 rooms. */
 const CELL = 8;
 
@@ -569,45 +581,48 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   const signs: Sign[] = [];
   const interiors: Route[] = [];
 
-  /**
-   * A cabin in one of the rooms — always where somebody is meant to be living
-   * in one, and otherwise about three routes in five.
-   *
-   * It used to simply go up. Dropped into one of pinewood's small rooms it
-   * filled the room end to end, `sealUnreachable` then filled in everything
-   * past it, and the route lost its own exit tile: from ring five outward, an
-   * arm of the world became unreachable. Putting it up and taking it down
-   * again is cheaper than reasoning about which rooms are wide enough.
-   *
-   * Which is also why a route somebody *lives* on tries every room in turn
-   * rather than one at random. Pinewood's rooms are the small ones, and one
-   * random attempt succeeded on one pinewood route in forty-eight — so a
-   * person written to be standing in a cabin in the north was, in practice,
-   * always standing outside in the rain instead. Eight gyms became a promise
-   * the same way; this is the same fix.
-   */
   let cabinBack: { x: number; y: number } | null = null;
   let gymBack: { x: number; y: number } | null = null;
+  let cupBack: { x: number; y: number } | null = null;
 
-  const cabinWanted = CABIN_ROUTES.has(`${biome}:${ring}`);
-  if (cabinWanted || rng() < 0.6) {
+  /**
+   * Puts a building up in the first room that will take one.
+   *
+   * Three callers wanted the same forty lines — the cabin, the gym hall and
+   * the Cup's house — and the third copy is what made this worth naming. The
+   * order of operations is the load-bearing part, and every step of it is
+   * something that went wrong once:
+   *
+   *   *Ask before copying.* Snapshotting six thousand tiles for a room that
+   *   was never going to fit is the whole of what made generation slow.
+   *
+   *   *Check the doorstep as well as the way through.* Checking only the way
+   *   through left doors opening onto ground `sealUnreachable` then filled in,
+   *   which is a building you can see and cannot enter.
+   *
+   *   *Put it back if it sealed anything.* Dropped into one of pinewood's
+   *   small rooms a building genuinely did cost an arm of the world its own
+   *   exit tile, and putting one up and taking it down again is cheaper than
+   *   reasoning about which rooms are wide enough.
+   *
+   * Returns the doorstep out here, or null if no room would take it.
+   */
+  const raise = (
+    key: string,
+    role: InteriorRole,
+    label: string,
+    sign: string,
+    rooms: readonly { cx: number; cy: number }[],
+  ): { x: number; y: number } | null => {
     const over = [profile.ground, TILE.GRASS, TILE.FLOWER];
-    const rooms = cabinWanted
-      ? shuffle(rng, [...plan.order])
-      : [plan.order[intBetween(rng, 1, plan.order.length - 1)]];
 
     for (const cell of rooms) {
       const at = centreOf(cell.cx, cell.cy);
-
-      // Ask before copying: snapshotting six thousand tiles for a room that
-      // was never going to fit is the whole of what made generation slow.
       if (!grid.clear(at.x - 2, at.y - 2, 5, 4, over)) continue;
 
       const before = [...grid.tiles];
       const door = building(grid, at.x - 2, at.y - 2, 5, 4, over);
       const open = door ? reachable(grid, { x: 1, y: inSide.y }) : null;
-      // The way through, *and* the building's own doorstep. Checking only the
-      // first left doors opening onto ground the seal then filled in.
       const stillOpen =
         door !== null &&
         open![outSide.y * ROUTE_WIDTH + (ROUTE_WIDTH - 2)] === 1 &&
@@ -618,14 +633,38 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
         continue;
       }
 
-      const cabin = `${id}:cabin`;
-      cabinBack = { x: door.x, y: door.y + 1 };
-      const inside = buildInterior(cabin, id, "house", "A cabin", cabinBack, rng);
-      doors.push({ x: door.x, y: door.y, to: cabin, at: inside.entry });
-      if (door.sign) signs.push({ ...door.sign, text: "Cabin" });
+      const back = { x: door.x, y: door.y + 1 };
+      const inside = buildInterior(key, id, role, label, back, rng);
+      doors.push({ x: door.x, y: door.y, to: key, at: inside.entry });
+      if (door.sign) signs.push({ ...door.sign, text: sign });
       interiors.push(inside);
-      break;
+      return back;
     }
+
+    return null;
+  };
+
+  /**
+   * A cabin in one of the rooms — always where somebody is meant to be living
+   * in one, and otherwise about three routes in five.
+   *
+   * A route somebody *lives* on tries every room in turn rather than one at
+   * random. Pinewood's rooms are the small ones, and one random attempt
+   * succeeded on one pinewood route in forty-eight — so a person written to
+   * be standing in a cabin in the north was, in practice, always standing
+   * outside in the rain instead. Eight gyms became a promise the same way.
+   */
+  const cabinWanted = CABIN_ROUTES.has(`${biome}:${ring}`);
+  if (cabinWanted || rng() < 0.6) {
+    cabinBack = raise(
+      `${id}:cabin`,
+      "house",
+      "A cabin",
+      "Cabin",
+      cabinWanted
+        ? shuffle(rng, [...plan.order])
+        : [plan.order[intBetween(rng, 1, plan.order.length - 1)]],
+    );
   }
 
   // A cabin cut off by that pass is a door onto nothing, so it goes with it.
@@ -636,45 +675,21 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
     cabinBack = null;
   }
 
-  // The gym, if one belongs on this route. Same routine as the cabin and the
-  // same safeguard: it comes down again if it would seal the way through.
+  // The gym, if one belongs on this route. Every room in turn, because picking
+  // rooms at random found space for only half of the eight — pinewood and
+  // marsh rooms are small, and a gym that silently does not exist is worse
+  // than one in an awkward corner.
   const mine = GYMS.find((entry) => entry.biome === biome && entry.ring === ring);
   if (mine) {
-    // Every room in turn rather than a dozen random tries. Eight gyms is a
-    // promise the world makes, and picking rooms at random found space for
-    // only half of them — pinewood and marsh rooms are small, and a gym that
-    // silently does not exist is worse than one in an awkward corner.
-    for (const cell of shuffle(rng, [...plan.order])) {
-      const at = centreOf(cell.cx, cell.cy);
-      const over = [profile.ground, TILE.GRASS, TILE.FLOWER];
+    gymBack = raise(`${id}:gym`, "gym", mine.name, mine.name, shuffle(rng, [...plan.order]));
+  }
 
-      // Ask before copying. Snapshotting the whole grid for every room that
-      // was never going to fit copied six thousand tiles eighty times a gym.
-      if (!grid.clear(at.x - 2, at.y - 2, 5, 4, over) || !grid.clear(at.x - 2, at.y + 2, 5, 1, over)) {
-        continue;
-      }
-
-      const before = [...grid.tiles];
-      const door = building(grid, at.x - 2, at.y - 2, 5, 4, over);
-      const seen = door ? reachable(grid, { x: 1, y: inSide.y }) : null;
-      const ok =
-        door !== null &&
-        seen![outSide.y * ROUTE_WIDTH + (ROUTE_WIDTH - 2)] === 1 &&
-        seen![(door.y + 1) * ROUTE_WIDTH + door.x] === 1;
-
-      if (!ok || !door) {
-        grid.tiles.splice(0, grid.tiles.length, ...before);
-        continue;
-      }
-
-      const hall = `${id}:gym`;
-      gymBack = { x: door.x, y: door.y + 1 };
-      const inside = buildInterior(hall, id, "gym", mine.name, gymBack, rng);
-      doors.push({ x: door.x, y: door.y, to: hall, at: inside.entry });
-      if (door.sign) signs.push({ ...door.sign, text: mine.name });
-      interiors.push(inside);
-      break;
-    }
+  // And the Cup, which belongs on exactly one route in the world. The same
+  // promise as a gym, and the same every-room search for the same reason: six
+  // people are written to be standing in that room, and a house the seed can
+  // decline to build is a quest that cannot be finished.
+  if (biome === CUP_BIOME && ring === CUP_RING) {
+    cupBack = raise(`${id}:cup`, "cup", CUP_LABEL, CUP_LABEL, shuffle(rng, [...plan.order]));
   }
 
 
@@ -709,6 +724,7 @@ function buildRoute(seed: string, biome: string, ring: number): { route: Route; 
   for (const [back, role] of [
     [cabinBack, "house"],
     [gymBack, "gym"],
+    [cupBack, "cup"],
   ] as const) {
     if (!back) continue;
     const landing = turned.map(back.x, back.y);
@@ -1139,6 +1155,30 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
           // instead, the same way a gym leader whose hall could not be built
           // stands on the route. Somebody the seed can delete is not somebody.
           if (inside) return { route: inside, wish: { x: Math.floor(inside.width / 2), y: 3 } };
+          return outside ? { route: outside, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), outside) } : null;
+        }
+        case "cup": {
+          const house = routes.get(`${routeId(CUP_BIOME, CUP_RING)}:cup`);
+          if (house) {
+            // The Steward keeps the door and the five stand across the back of
+            // the room, so the first person you meet is the one who explains
+            // what the room is. Wishing all six at the middle of it put them in
+            // a huddle you could talk to in any order, which reads as six
+            // people who happen to be standing there.
+            const slot = CUP_IDS.indexOf(entry.id);
+            return {
+              route: house,
+              wish:
+                slot < 0
+                  ? { x: Math.floor(house.width / 2), y: house.height - 4 }
+                  : { x: 2 + slot * 2, y: 2 },
+            };
+          }
+          // The house is not optional — buildRoute tries every room on that
+          // one route for it — but the same fallback as a gym is kept rather
+          // than a throw. Six people standing on the route outside is a bad
+          // afternoon; six people who do not exist is a quest with no end.
+          const outside = routes.get(routeId(CUP_BIOME, CUP_RING));
           return outside ? { route: outside, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), outside) } : null;
         }
         case "gym": {

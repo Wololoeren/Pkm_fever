@@ -57,12 +57,17 @@ export const STEPS_PER_EGG = 120;
 export const CHROMA_LENSES = CHROMA_IDS.map((id) => `lens-${id}`);
 
 /**
- * The five flat additions to the climb, weakest first.
+ * The flat additions to the climb, weakest first.
  *
  * Their sizes live in the item catalogue with everything else about them, so
  * this is a list of names and not a second table of numbers to keep in step.
+ *
+ * The first five are found, one to a world, at the depth each is worth. The
+ * Cup is last and is not found at all: it is what the five in the house at the
+ * end of the ash flats are holding on to, and it is the largest of them by
+ * half again because it is the only one you cannot simply walk to.
  */
-export const CLIMB_ITEMS = ["glint", "gleam", "lustre", "radiance", "brilliance"] as const;
+export const CLIMB_ITEMS = ["glint", "gleam", "lustre", "radiance", "brilliance", "thecup"] as const;
 
 /** The one piece of breeding equipment that is spent rather than kept. */
 export const GLITTER = "glitter";

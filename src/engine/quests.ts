@@ -1,3 +1,4 @@
+import { CUP_IDS } from "./cup";
 import { effortSpent } from "./effort";
 import { item as itemSpec } from "./items";
 import { species as speciesById } from "./dex";
@@ -30,7 +31,16 @@ export type QuestGoal =
   | { t: "carryItem"; item: string; count: number }
   | { t: "effort"; amount: number }
   | { t: "level"; level: number }
-  | { t: "badges"; count: number };
+  | { t: "badges"; count: number }
+  /**
+   * The five in the house at the end of the ash flats.
+   *
+   * Named as a goal of its own rather than as `beatTrainers: 5`, because the
+   * five it means are five particular people. A count would be satisfied by
+   * any five trainers on any route, which is a different job entirely and one
+   * the player has already done by the time anybody mentions the Cup.
+   */
+  | { t: "beatCup" };
 
 export interface QuestSpec {
   id: string;
@@ -40,6 +50,16 @@ export interface QuestSpec {
   /** What to do. */
   goal: QuestGoal;
   reward: { money?: number; item?: string };
+  /**
+   * An item you must be carrying before anybody will hand this over.
+   *
+   * A gate on *taking* the job, not on finishing it, and it is never spent —
+   * the one that uses it is the Cup, and the Steward at the door wants to see
+   * an invitation rather than collect one. Kept as an item rather than as
+   * "quest X is done" so the requirement is a thing in your bag that you can
+   * look at, which is the same reason the invitation is an item at all.
+   */
+  needs?: string;
 }
 
 export const QUESTS: readonly QuestSpec[] = [
@@ -117,6 +137,15 @@ export const QUESTS: readonly QuestSpec[] = [
       "Eight badges. Not seven, not seven and a good story. Bring me eight and there is a seat with your name on it.",
     goal: { t: "badges", count: 8 },
     reward: { money: 100000, item: "worldcup" },
+  },
+  {
+    id: "the-cup",
+    name: "The Cup",
+    needs: "worldcup",
+    blurb:
+      "Five of them, six each, and not one of them scaled to you. No bed in this house, so nothing here gives a move back once it is spent. Say the word and I will write you down.",
+    goal: { t: "beatCup" },
+    reward: { money: 300000, item: "thecup" },
   },
   {
     id: "the-climb",
@@ -206,6 +235,9 @@ export function progressOf(view: QuestView, goal: QuestGoal): QuestProgress {
 
     case "badges":
       return done(view.badges.length, goal.count);
+
+    case "beatCup":
+      return done(CUP_IDS.filter((id) => view.beaten.includes(id)).length, CUP_IDS.length);
   }
 }
 
@@ -234,6 +266,8 @@ export function goalText(goal: QuestGoal): string {
       return `Raise one to level ${goal.level}`;
     case "badges":
       return `Win ${goal.count} gym badges`;
+    case "beatCup":
+      return `Beat all ${CUP_IDS.length} of them in the house`;
   }
 }
 

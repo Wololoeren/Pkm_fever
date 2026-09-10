@@ -86,6 +86,13 @@ const ROOM_STYLE: Record<InteriorRole, PropKind[]> = {
     "bed", "bunk", "cabinet", "shelf", "clock", "lamp", "plant", "rug",
     "mirror", "chair", "table", "vase", "painting", "stool", "bin",
   ],
+  // A room five people wait in and one of them keeps. Chairs nobody sits on,
+  // a hearth, a clock — and the chests, because the five of them are holding
+  // the only Cup there is and it had to be somewhere before you arrived.
+  cup: [
+    "chest", "hearth", "clock", "chair", "rug", "cabinet", "painting", "lamp",
+    "table", "stool", "mirror", "bookcase", "vase", "bin", "mat",
+  ],
   // Spartan on purpose: a gym is a room somebody fights in.
   gym: [
     "mat", "rug", "bin", "crate", "barrel", "lamp", "clock", "painting",
