@@ -216,6 +216,70 @@ export const QUESTS: readonly QuestSpec[] = [
     goal: { t: "carryItem", item: "pearl", count: 2 },
     reward: { money: 20000, item: "szechuansauce" },
   },
+
+  // ============================================ the survey's standing orders
+  //
+  // Seven, handed out by the officers scattered one to a route. Each is the
+  // shape of a thing that programme did over and over: a miracle asked of
+  // engineering with no time to do it in, a soft creature that multiplies, an
+  // order to observe and not interfere, and a test nobody is meant to win.
+
+  {
+    id: "the-miracle",
+    name: "The Miracle",
+    blurb:
+      "Everyone wants the miracle. Nobody wants the six hours of maintenance that make one possible. Get something of yours to level forty-five and I will show you the difference.",
+    goal: { t: "level", level: 45 },
+    reward: { money: 9000, item: "hyperpotion" },
+  },
+  {
+    id: "the-tribbles",
+    name: "They Multiply",
+    blurb:
+      "Five of the soft ones, in your party, at once. They are pleasant and they are harmless and there are more of them every time I look away. I would like a second opinion before I file anything.",
+    goal: { t: "ownType", type: "normal", count: 5 },
+    reward: { money: 7000, item: "ultraball" },
+  },
+  {
+    id: "the-record",
+    name: "The Honest History",
+    blurb:
+      "Whatever happened under this ash, everybody involved lost. Beat thirty of the people out on the routes and bring me the count. Numbers are the only history nobody can flatter.",
+    goal: { t: "beatTrainers", count: 30 },
+    reward: { money: 11000, item: "tm-earthquake" },
+  },
+  {
+    id: "the-directive",
+    name: "Observe, Do Not Interfere",
+    blurb:
+      "The standing order is that we watch and we keep our hands behind our backs. I have watched a great deal of salt. Go and do something notable so that I have something to put in the report.",
+    goal: { t: "badges", count: 4 },
+    reward: { money: 10000, item: "greatball" },
+  },
+  {
+    id: "no-win",
+    name: "The Morning After",
+    blurb:
+      "The sea gives you an unwinnable afternoon about once a week. The test was never the afternoon. Get out to the sixth band and come back, and we will talk about the morning after.",
+    goal: { t: "reachRing", ring: 6 },
+    reward: { money: 13000, item: "revive" },
+  },
+  {
+    id: "the-shine-trade",
+    name: "No Good Deed",
+    blurb:
+      "Something with real shine on it — the third rung or better. I will pay properly, I will not ask where it came from, and I will feel nothing about any of it.",
+    goal: { t: "ownTier", tier: 3 },
+    reward: { money: 16000, item: "nugget" },
+  },
+  {
+    id: "behind-glass",
+    name: "Behind Glass",
+    blurb:
+      "Two of the colours. Not the shine — the *colours*, the ones that were never born that way. Bring me two and I will tell you which half of my life's sentence I settled on.",
+    goal: { t: "ownChroma", count: 2 },
+    reward: { money: 14000, item: "heartscale" },
+  },
 ];
 
 const BY_ID = new Map(QUESTS.map((quest) => [quest.id, quest]));

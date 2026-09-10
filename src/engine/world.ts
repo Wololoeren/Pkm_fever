@@ -2582,7 +2582,17 @@ function buildTrainers(seed: string, route: Route, allSpecies: readonly SpeciesE
   }
   if (!open.length) return [];
 
-  const chosen = shuffle(rng, open).slice(0, 1 + intBelow(rng, 3));
+  // Four to six of them, and one more again out past the halfway band.
+  //
+  // It was one to three, chosen when a route was 44x34. A route is 88x68 now @@D@@
+  // four times the ground, a real maze through it, and a walk from one side to
+  // the other of about eighty steps @@D@@ so one or two people on it read as a
+  // corridor with encounters rather than as somewhere anybody lives. Doubling
+  // them is the difference between "there might be somebody" and "there is
+  // somebody round most corners", which is what makes a route worth combing
+  // rather than crossing.
+  const wanted = 4 + intBelow(rng, 3) + (route.ring >= 5 ? 1 : 0);
+  const chosen = shuffle(rng, open).slice(0, wanted);
 
   return chosen.map((spot, index) => {
     const size = 1 + intBelow(rng, Math.min(3, route.ring));

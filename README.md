@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         473 tests, including the replay property everything rests on
+tests/         479 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -307,6 +307,39 @@ drawn brighter than the ones you have not, and hovering a dot names it. Unwalked
 places are drawn but empty — the *shape* of the world is not a secret, only
 what is in it. Standing indoors lights up the town you are indoors in, because
 a door is not a journey.
+
+### The survey
+
+Somebody to talk to on every one of the fifty routes, and four to seven people
+who will fight you.
+
+It was one to three trainers and nobody at all on most routes, which was written
+when a route was 44x34. A route is 88x68 now, with a real maze through it and
+about eighty steps from one side to the other — so one or two people on it read
+as a corridor with encounters in it rather than as somewhere anybody lives.
+There are about two hundred and seventy of them across a world now, where there
+were a hundred.
+
+The fifty who talk are a long-range expedition that fanned out across the world:
+officers by department, a diplomat or two, and the merchants who followed the
+fleet because merchants always do. Every one of them either **trades** or hands
+out a **job**, because a hint-giver on every route would be fifty people saying
+words, and the point of walking down a route is that there is something at the
+end of it worth doing.
+
+The merchants number their rules of acquisition, which is the conceit worth
+spending forty-odd entries on: it gives each of them a distinct opening line
+that is also a piece of a coherent philosophy, and the philosophy gets worse the
+further out you go. The seven jobs are the shapes that programme did over and
+over — a miracle asked of engineering with no time to do it in, a soft creature
+that multiplies, an order to observe and not interfere, and a test nobody is
+meant to win.
+
+One to a route rather than a scattering, and `S1` checks the fifty addresses
+cover the fifty routes exactly once, because "there is somebody on every route"
+stops being a reason to walk down one the moment it is only true of most of
+them. `S6` walks up to all forty-four traders with the wrong creature, is
+refused, comes back with the right one and checks the swap lands.
 
 ### The three outer towns
 

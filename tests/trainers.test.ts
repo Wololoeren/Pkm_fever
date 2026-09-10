@@ -26,8 +26,12 @@ describe("where they stand", () => {
       for (const route of world.routes.values()) {
         if (route.ring < 1) continue;
         const here = world.trainers.get(route.id) ?? [];
-        expect(here.length).toBeGreaterThanOrEqual(1);
-        expect(here.length).toBeLessThanOrEqual(3);
+        // Four to seven. It was one to three, written when a route was 44x34;
+        // on a map four times that size, with a maze through it, one or two
+        // people read as a corridor with encounters rather than as somewhere
+        // anybody lives.
+        expect(here.length).toBeGreaterThanOrEqual(4);
+        expect(here.length).toBeLessThanOrEqual(8);
       }
     }
   });
