@@ -180,10 +180,14 @@ export interface CritterPlacement {
 export const CRITTERS: readonly CritterPlacement[] = [
   // -------------------------------------------------------------- in town
   //
-  // Six of them, and only one does anything. That ratio is deliberate: a town
-  // where every creature is a reward is a shopping list, and a town where
-  // none of them is worth walking over to is scenery.
-  { id: "town-doorstep", kind: "joins", speciesId: "eevee", level: 5, where: { at: "town" } },
+  // Five of them, and **none of them does anything**. That is the rule now,
+  // not the ratio: nothing you can pick up is in Hearth. A town that hands you
+  // a creature before you have left it makes the starter choice smaller, and
+  // makes the first walk out something you do having already been paid. There
+  // was an Eevee on the doorstep and it has gone out to the meadow.
+  //
+  // What is left is scenery, and scenery is worth having: a town with nothing
+  // alive in it is a menu with roofs.
   { id: "town-roof", kind: "idle", speciesId: "meowth", level: 8, where: { at: "town" } },
   { id: "town-well", kind: "idle", speciesId: "psyduck", level: 6, where: { at: "town" } },
   { id: "town-fence", kind: "idle", speciesId: "pidgey", level: 4, where: { at: "town" } },
@@ -235,10 +239,24 @@ export const CRITTERS: readonly CritterPlacement[] = [
     where: { at: "route", biome: "stormcoast", nth: 3 },
   },
 
-  // ------------------------------------------ two more that come with you
+  // ----------------------------------------- three that come with you
   //
-  // Out on the map rather than in town, so that walking somewhere difficult is
-  // what finds them.
+  // Out on the map rather than in town, so that walking somewhere is what
+  // finds them, and further out each time.
+  //
+  // The Eevee is the one that used to be on Hearth's doorstep. It is a level
+  // *one* now rather than a five, which is the whole difference between a free
+  // second starter and a project: it is below anything the first patch of
+  // grass will throw at it, so taking it out of the meadow means bringing it
+  // up rather than being handed a spare. Eight stones in the game turn it into
+  // eight different things, so it is worth the raising.
+  {
+    id: "gift-eevee",
+    kind: "joins",
+    speciesId: "eevee",
+    level: 1,
+    where: { at: "route", biome: "meadow", nth: 1 },
+  },
   {
     id: "gift-marsh",
     kind: "joins",

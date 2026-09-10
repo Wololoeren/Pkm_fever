@@ -151,7 +151,7 @@ describe("where they stand", () => {
     }
   });
 
-  it("N3: town has some, and the roster's promises are kept on every seed", () => {
+  it("N3: town has some and none of them is a prize, on every seed", () => {
     for (const seed of SEEDS) {
       const world = testWorld(seed);
       const all = allOf(world);
@@ -165,12 +165,20 @@ describe("where they stand", () => {
         if (written.variantId) expect(found!.creature.variantId).toBe(written.variantId);
       }
 
-      // Town is populated, and most of what is in it is scenery.
+      // Town is populated, and every last one of it is scenery.
+      //
+      // This was "most of it", back when an Eevee stood on the doorstep. There
+      // is nothing free in Hearth now: a creature you can collect without
+      // leaving town makes the starter choice smaller and pays you before you
+      // have walked anywhere. It is out in the meadow instead, at level one.
       const inTown = world.critters.get("hub-0") ?? [];
       expect(inTown.length, `${seed}: nothing in town`).toBeGreaterThan(3);
-      expect(inTown.filter((spec) => spec.kind === "idle").length).toBeGreaterThan(
-        inTown.filter((spec) => spec.kind !== "idle").length,
-      );
+
+      const prizes = inTown.filter((spec) => spec.kind !== "idle");
+      expect(
+        prizes.map((spec) => spec.id),
+        `${seed}: something in town can be collected or fought`,
+      ).toEqual([]);
     }
   });
 });
@@ -487,6 +495,50 @@ describe("walking into one", () => {
     if (fled.battle?.outcome?.t === "fled") {
       expect(fled.met).not.toContain(spec.id);
       expect(critterOn(world, fled, spec.routeId, spec.x, spec.y)).toBeTruthy();
+    }
+  });
+});
+
+describe("the Eevee", () => {
+  it("N16: it is out on the meadow at level one, and it comes along", () => {
+    // Its own test because it is a specific promise and it moved once.
+    //
+    // It stood on Hearth's doorstep at level five: a second starter, free,
+    // before you had left the town you were given the first one in. Out on the
+    // meadow at level *one* it is the opposite — below anything the grass
+    // there will throw at it, so it is something to raise rather than
+    // something to be handed. Eight stones turn it into eight different
+    // things, which is what makes that worth doing.
+    for (const seed of SEEDS) {
+      const world = testWorld(seed);
+
+      const where = [...world.critters].find(([, here]) =>
+        here.some((one) => one.id === "gift-eevee"),
+      );
+      expect(where, `${seed}: no Eevee anywhere in the world`).toBeTruthy();
+
+      const [routeId, here] = where!;
+      const spec = here.find((one) => one.id === "gift-eevee")!;
+      const route = world.routes.get(routeId)!;
+
+      // Out of town, and on the mildest ground there is.
+      expect(routeId, `${seed}: the Eevee is still in Hearth`).not.toBe("hub-0");
+      expect(route.biome).toBe("meadow");
+      expect(route.nth).toBe(1);
+      expect(spec.kind).toBe("joins");
+      expect(spec.creature.level).toBe(1);
+
+      // And walking into it still works: full health, moves it knows at level
+      // one, and a party of two.
+      const { world: same, state } = started(seed);
+      const live: GameState = { ...state, route: routeId, x: spec.x - 1, y: spec.y };
+      const after = applyInput(same, live, { t: "move", dir: "e" });
+      const joined = after.party[after.party.length - 1];
+
+      expect(joined.speciesId).toBe("eevee");
+      expect(joined.level).toBe(1);
+      expect(joined.hp).toBe(maxHp(joined));
+      expect(joined.moves.length, `${seed}: it joined knowing nothing`).toBeGreaterThan(0);
     }
   });
 });
