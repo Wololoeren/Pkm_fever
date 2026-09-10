@@ -22,7 +22,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, critterDoing, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -363,14 +363,15 @@ export default function Page() {
           ) : null}
           {state.notice?.t === "noticed" ? (
             <p className="muted">
-              The {speciesById(state.notice.speciesId).name} looks up at you, and goes back to
-              whatever it was doing.
+              {critterDoing(session.world, state.route, state.notice.critterId) ??
+                `The ${speciesById(state.notice.speciesId).name} looks up at you, and goes back to whatever it was doing.`}
             </p>
           ) : null}
           {state.notice?.t === "joined" ? (
             <p className="good">
-              The {speciesById(state.notice.speciesId).name} decided to come along
-              {state.notice.boxed ? " — your party was full, so it is in the box" : ""}.
+              {critterDoing(session.world, state.route, state.notice.critterId) ??
+                `The ${speciesById(state.notice.speciesId).name} decided to come along.`}
+              {state.notice.boxed ? " Your party was full, so it is in the box." : ""}
             </p>
           ) : null}
           {state.notice?.t === "given" ? (

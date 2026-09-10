@@ -1,9 +1,9 @@
 import { rollAbilities } from "./abilities";
-import { ALL_SPECIES, STARTER_TYPES, startersOfType } from "./dex";
+import { ALL_SPECIES, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
 import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { nameOf, placesWanted, profileFor, typesFor } from "./biomes";
-import { CRITTERS, idlersFor, type CritterSpec } from "./critters";
+import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
 import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
 import { GYMS, gym, type GymSpec } from "./gyms";
 import {
@@ -2094,6 +2094,31 @@ function shortestWalk(
  * a creature written to be circling the ashflats has to be circling the
  * ashflats.
  */
+/**
+ * A line for a generated creature that nothing else on this route is doing.
+ *
+ * The pool for a type holds three, so it tries each in turn from a seeded
+ * start and takes the first nobody has used here. A route holds at most three
+ * generated creatures, so there is always one left — and if there somehow is
+ * not, a repeat is better than nothing.
+ */
+function freshLine(
+  said: Map<string, Set<string>>,
+  routeId: string,
+  speciesId: string,
+  rng: Rng,
+): string {
+  const spec = speciesById(speciesId);
+  const here = said.get(routeId) ?? new Set<string>();
+  const from = intBelow(rng, 64);
+
+  for (let tried = 0; tried < 16; tried++) {
+    const line = idleLine(spec.name, spec.types, from + tried);
+    if (!here.has(line)) return line;
+  }
+  return idleLine(spec.name, spec.types, from);
+}
+
 function placeCritters(
   seed: string,
   routes: Map<string, Route>,
@@ -2118,7 +2143,19 @@ function placeCritters(
   for (const [routeId, here] of npcs) for (const who of here) claim(routeId, who.x, who.y);
   for (const [routeId, here] of trainers) for (const who of here) claim(routeId, who.x, who.y);
 
+  /**
+   * What has already been said on each route, so nothing is said twice there.
+   *
+   * Per route rather than per world: three idlers on one map drawing from a
+   * pool of three will collide often enough to notice, and two creatures a
+   * continent apart doing the same thing is not a repeat anybody experiences.
+   */
+  const said = new Map<string, Set<string>>();
+
   const add = (routeId: string, spec: CritterSpec) => {
+    const here = said.get(routeId) ?? new Set<string>();
+    here.add(spec.line);
+    said.set(routeId, here);
     placed.set(routeId, [...(placed.get(routeId) ?? []), spec]);
   };
 
@@ -2257,6 +2294,16 @@ function placeCritters(
       x: start.x,
       y: start.y,
       creature: built,
+      // Written by hand for these twelve, because each of them stands
+      // somewhere particular. The fallback is the generated one, so a roster
+      // entry added without a line is still not the same as every other.
+      line:
+        entry.line ??
+        idleLine(
+          speciesById(entry.speciesId).name,
+          speciesById(entry.speciesId).types,
+          intBelow(rngFor(seed, "critterline", entry.id), 64),
+        ),
       path,
     });
   }
@@ -2301,9 +2348,19 @@ function placeCritters(
       };
 
       claim(route.id, spot.x, spot.y);
+      const id = `${route.id}:idle${index}`;
       add(route.id, {
-        id: `${route.id}:idle${index}`,
+        id,
         routeId: route.id,
+        // Drawn from what it is, and from its own name, so it is the same
+        // creature doing the same thing every time you walk past.
+        //
+        // And never a line already used on this route. Two of a species share
+        // a pool of three, so a pair of them collided about one route in
+        // thirty @@D@@ which is exactly where a repeat is noticed, because both of
+        // them are on the same small map. Anywhere else in the world it does
+        // not matter and is not worth the arithmetic.
+        line: freshLine(said, route.id, speciesId, rngFor(seed, "critterline", id)),
         // A third of the generated ones will fight you, which is what stops
         // walking up to one being a free look every time.
         kind: intBelow(rng, 3) === 0 ? "wild" : "idle",

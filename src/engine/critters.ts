@@ -63,6 +63,16 @@ export interface CritterSpec {
   /** What it is. Built at world generation, so it never changes. */
   creature: Individual;
   /**
+   * What it is doing, in words, decided when the world was made.
+   *
+   * On the world rather than worked out when you bump into it, for the same
+   * reason everything else here is: two players on a seed should walk past the
+   * same creature doing the same thing, and it should be doing that thing
+   * again tomorrow. A creature that says something different every time you
+   * pass is not a character, it is a slot machine.
+   */
+  line: string;
+  /**
    * The closed loop it walks, or null if it stands still.
    *
    * Tile by tile and every step adjacent, so it never appears to jump. Built
@@ -175,6 +185,147 @@ export interface CritterPlacement {
   roams?: boolean;
   /** What it looks like. Left off, it is ordinary. */
   variantId?: string;
+  /**
+   * What it is doing when you walk into it.
+   *
+   * Written by hand for these, because each of them stands somewhere
+   * particular and that is half of it: the Psyduck is by the well, and the
+   * line is about the well. The generated ones draw from `IDLE_LINES` instead.
+   */
+  line?: string;
+}
+
+/**
+ * What a creature standing about is doing when you walk into it.
+ *
+ * Every one of them used to say the same eleven words — "looks up at you, and
+ * goes back to whatever it was doing" — which is a fine line once and a hundred
+ * identical creatures by the time you have crossed the world. A creature you can
+ * see and walk up to and get *nothing particular* from is worse than no creature
+ * at all: it teaches you that walking over is not worth the steps.
+ *
+ * The roster's own creatures are written by hand, because they stand somewhere
+ * specific and that is half the joke. The generated ones cannot be — there are
+ * about a hundred a world, drawn from whatever lives on the route — so they draw
+ * from a pool keyed on **what they are**. A Fire one does something fiery and a
+ * Ghost one does something ghostly, which is both funnier and more informative
+ * than anything generic could be: the line tells you what you are looking at.
+ *
+ * Dual types read from both pools, so a Grass/Poison creature has six lines to
+ * pick from rather than three, and reads differently from a plain Grass one.
+ * Which line it gets is drawn from its id at world generation, so it is the same
+ * for everybody on a seed and the same every time you walk past it. A creature
+ * that says something different on Tuesday is not a character, it is a slot
+ * machine.
+ *
+ * `{name}` is the species.
+ */
+const IDLE_LINES: Record<string, readonly string[]> = {
+  normal: [
+    "The {name} is doing something entirely ordinary with tremendous commitment.",
+    "The {name} moves six inches to the left, considers whether that was better, and moves back.",
+    "The {name} has found the one patch of sun there is, and will not be discussing it.",
+  ],
+  fire: [
+    "The {name} is warming a rock. The rock did not ask.",
+    "The {name} sneezes, and a small area of the ground stops being green.",
+    "The {name} is very carefully not setting anything alight, and would like that noticed.",
+  ],
+  water: [
+    "The {name} is soaked to the skin and could not be happier about it.",
+    "The {name} has been holding the same mouthful of water for some time now. It has plans.",
+    "The {name} shakes itself dry, immediately gets wet again, and appears to have expected this.",
+  ],
+  electric: [
+    "Your hair stands up. The {name} finds this hilarious.",
+    "The {name} is chewing something it should not be chewing, and the something is buzzing.",
+    "The {name} has counted to three twice and is plainly building up to something.",
+  ],
+  grass: [
+    "The {name} is photosynthesising and would rather not be interrupted.",
+    "The {name} has grown roots into the path. It intends to deal with that later.",
+    "The {name} is arguing with a flower. The flower is winning.",
+  ],
+  ice: [
+    "The {name} has frozen a puddle solid and is standing on it, entirely pleased with itself.",
+    "The {name} breathes out. You can see it, and it is the middle of summer.",
+    "The {name} has not noticed the cold, or you, or anything else in particular.",
+  ],
+  fighting: [
+    "The {name} is doing press-ups. You have interrupted the count and it is starting again.",
+    "The {name} squares up to a boulder. The boulder holds its ground.",
+    "The {name} nods at you the way one professional nods at another.",
+  ],
+  poison: [
+    "The {name} is bubbling gently. You take a step back and it seems to approve.",
+    "The {name} offers you something it found. You decline. It shrugs and eats it.",
+    "Everything within a foot of the {name} has gone an interesting colour.",
+  ],
+  ground: [
+    "The {name} surfaces, looks around, disagrees with all of it, and goes back down.",
+    "The {name} has dug a hole. The {name} is now filling in the hole.",
+    "There is a {name}-shaped hole here, and a {name} sitting beside it, thinking.",
+  ],
+  flying: [
+    "The {name} takes off, thinks better of it, and lands exactly where it started.",
+    "The {name} is watching something in the sky that you cannot see.",
+    "The {name} preens one feather for a very long time.",
+  ],
+  psychic: [
+    "The {name} answers a question you had not asked yet.",
+    "The {name} is levitating a pebble. It is not an impressive pebble.",
+    "The {name} looks at you like somebody who has already read the last page.",
+  ],
+  bug: [
+    "The {name} is carrying something four times its own size and refuses all help.",
+    "The {name} has been going round the same stone for several minutes.",
+    "The {name} freezes, hoping very hard that it is a stick.",
+  ],
+  rock: [
+    "The {name} is being a rock. It is extremely good at it.",
+    "You almost trod on the {name}. The {name} is used to this.",
+    "The {name} shifts its weight, and something several feet away falls over.",
+  ],
+  ghost: [
+    "The {name} is there. Then it is not. Then it is, slightly to the left.",
+    "The {name} tries to frighten you and gets the timing very slightly wrong.",
+    "You feel watched. The {name} is being extremely unsubtle about it.",
+  ],
+  dragon: [
+    "The {name} regards you the way one regards weather.",
+    "The {name} is sitting on a pile of nothing in particular, guarding it fiercely.",
+    "The {name} yawns. Somewhere behind you, a bird decides to be elsewhere.",
+  ],
+  dark: [
+    "The {name} was definitely not doing anything, and would like that on the record.",
+    "The {name} watches you from a shadow that is a little too small for it.",
+    "The {name} has your something. You check your pockets. It has your something.",
+  ],
+  steel: [
+    "The {name} rings faintly whenever the wind changes.",
+    "The {name} is polishing itself with a leaf, methodically, and has been for hours.",
+    "You tap the {name}. It sounds expensive.",
+  ],
+  fairy: [
+    "The {name} smiles at you. You feel obscurely that you have agreed to something.",
+    "The {name} has arranged nine pebbles into a shape it will not explain.",
+    "The {name} laughs at nothing at all, which is somehow worse.",
+  ],
+  stellar: [
+    "The {name} is looking at something a very long way off, and does not blink.",
+  ],
+};
+
+/**
+ * The line a generated one gets: drawn from what it is, and from its own id.
+ *
+ * Both types when it has two, so a Grass/Poison creature reads differently from
+ * a plain Grass one and has twice as many things it might be doing.
+ */
+export function idleLine(name: string, types: readonly string[], pick: number): string {
+  const pool = types.flatMap((type) => IDLE_LINES[type] ?? []);
+  const lines = pool.length ? pool : IDLE_LINES.normal;
+  return lines[pick % lines.length].replace(/\{name\}/g, name);
 }
 
 export const CRITTERS: readonly CritterPlacement[] = [
@@ -188,11 +339,51 @@ export const CRITTERS: readonly CritterPlacement[] = [
   //
   // What is left is scenery, and scenery is worth having: a town with nothing
   // alive in it is a menu with roofs.
-  { id: "town-roof", kind: "idle", speciesId: "meowth", level: 8, where: { at: "town" } },
-  { id: "town-well", kind: "idle", speciesId: "psyduck", level: 6, where: { at: "town" } },
-  { id: "town-fence", kind: "idle", speciesId: "pidgey", level: 4, where: { at: "town" } },
-  { id: "town-garden", kind: "idle", speciesId: "oddish", level: 5, where: { at: "town" } },
-  { id: "town-step", kind: "idle", speciesId: "rattata", level: 3, where: { at: "town" } },
+  {
+    id: "town-roof",
+    kind: "idle",
+    speciesId: "meowth",
+    level: 8,
+    where: { at: "town" },
+    line:
+      "The Meowth is asleep on a warm roof tile, and has clearly done the arithmetic on which one.",
+  },
+  {
+    id: "town-well",
+    kind: "idle",
+    speciesId: "psyduck",
+    level: 6,
+    where: { at: "town" },
+    line:
+      "The Psyduck is staring down the well. The well is staring back. This has been going on for a while.",
+  },
+  {
+    id: "town-fence",
+    kind: "idle",
+    speciesId: "pidgey",
+    level: 4,
+    where: { at: "town" },
+    line:
+      "The Pidgey shuffles four inches along the fence, which it considers a complete answer.",
+  },
+  {
+    id: "town-garden",
+    kind: "idle",
+    speciesId: "oddish",
+    level: 5,
+    where: { at: "town" },
+    line:
+      "The Oddish has buried itself in the flowerbed and believes, sincerely, that you cannot see it.",
+  },
+  {
+    id: "town-step",
+    kind: "idle",
+    speciesId: "rattata",
+    level: 3,
+    where: { at: "town" },
+    line:
+      "The Rattata is guarding a crust of bread the size of its own head. It will not share it, and it does not intend to eat it either.",
+  },
 
   // ----------------------------------------------------- the four roamers
   //
@@ -206,6 +397,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   // sea serpent in the drowned reach, the dragon over the storm coast.
   {
     id: "roam-meadow",
+    line:
+      "The Snorlax does not wake. Somewhere under all that, a decision is being made about whether you are worth it.",
     kind: "wild",
     speciesId: "snorlax",
     level: 34,
@@ -214,6 +407,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   },
   {
     id: "roam-duskhollow",
+    line:
+      "The Absol looks at you the way a doctor looks at an X-ray.",
     kind: "wild",
     speciesId: "absol",
     level: 42,
@@ -223,6 +418,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   },
   {
     id: "roam-sunkenreach",
+    line:
+      "The Lapras is singing something long and slow, and stops the moment it notices you listening.",
     kind: "wild",
     speciesId: "lapras",
     level: 48,
@@ -231,6 +428,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   },
   {
     id: "roam-stormcoast",
+    line:
+      "The Dragonite is carrying a parcel, and seems to be waiting for you to tell it which way is north.",
     kind: "wild",
     speciesId: "dragonite",
     level: 58,
@@ -252,6 +451,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   // eight different things, so it is worth the raising.
   {
     id: "gift-eevee",
+    line:
+      "The Eevee has decided. It was not a long process.",
     kind: "joins",
     speciesId: "eevee",
     level: 1,
@@ -259,6 +460,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   },
   {
     id: "gift-marsh",
+    line:
+      "The Lotad paddles over, climbs out, and stands beside you looking pleased with the whole arrangement.",
     kind: "joins",
     speciesId: "lotad",
     level: 12,
@@ -266,6 +469,8 @@ export const CRITTERS: readonly CritterPlacement[] = [
   },
   {
     id: "gift-bramblewood",
+    line:
+      "The Phantump follows you. You are fairly sure it was not there a moment ago, and fairly sure it would say the same of you.",
     kind: "joins",
     speciesId: "phantump",
     level: 22,

@@ -4,6 +4,7 @@ import {
   awayFrom,
   critterAt,
   CRITTERS,
+  idleLine,
   CRITTER_TAG,
   critterIdOf,
   ROAM_CHANCE,
@@ -12,6 +13,7 @@ import {
 import { species as speciesById } from "@/engine/dex";
 import {
   applyInput,
+  critterDoing,
   critterOn,
   crittersOn,
   initialState,
@@ -401,7 +403,15 @@ describe("walking into one", () => {
     const { world, spec, dir, state } = set!;
 
     const after = applyInput(world, state, { t: "move", dir });
-    expect(after.notice).toEqual({ t: "noticed", speciesId: spec.creature.speciesId });
+    expect(after.notice).toEqual({
+      t: "noticed",
+      speciesId: spec.creature.speciesId,
+      critterId: spec.id,
+    });
+    // And what it says is its own. The id is in the notice rather than the
+    // words, because the words are display language and belong on the world.
+    expect(critterDoing(world, spec.routeId, spec.id)).toBe(spec.line);
+    expect(spec.line.length, "it has nothing to say").toBeGreaterThan(0);
     // Nothing recorded, so it is still standing there tomorrow: that is the
     // whole of what makes it scenery rather than a reward.
     expect(after.met).toEqual([]);
@@ -424,7 +434,12 @@ describe("walking into one", () => {
       t: "joined",
       speciesId: spec.creature.speciesId,
       boxed: false,
+      critterId: spec.id,
     });
+    // Its own words as it comes along, rather than "decided to come along" for
+    // all three of them. The three lines were written and, until the id was in
+    // this notice, never shown to anybody.
+    expect(critterDoing(world, spec.routeId, spec.id)).toBe(spec.line);
 
     // Recorded, so it is not standing there to be collected again.
     expect(after.met).toContain(spec.id);
@@ -540,6 +555,94 @@ describe("the Eevee", () => {
       expect(joined.hp).toBe(maxHp(joined));
       expect(joined.moves.length, `${seed}: it joined knowing nothing`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("what they say", () => {
+  it("N17: every one of them is doing something, and hardly any two the same", () => {
+    // The complaint this guards: they all said the same eleven words. "The
+    // {name} looks up at you, and goes back to whatever it was doing" is a
+    // fine line once and a hundred identical creatures by the time you have
+    // crossed the world — and a creature you can see and walk up to and get
+    // nothing particular from teaches you that walking over is not worth the
+    // steps.
+    for (const seed of SEEDS) {
+      const world = testWorld(seed);
+      const all = allOf(world);
+      expect(all.length, `${seed}: nobody standing about`).toBeGreaterThan(50);
+
+      for (const spec of all) {
+        expect(spec.line.length, `${seed}/${spec.id} says nothing`).toBeGreaterThan(10);
+        // A template that never got filled in is the failure this cannot see
+        // any other way: it reads as a line right up until you meet it.
+        expect(spec.line, `${seed}/${spec.id}`).not.toContain("{name}");
+        // And it is about *this* creature, not about creatures in general.
+        expect(spec.line, `${seed}/${spec.id}`).toContain(
+          speciesById(spec.creature.speciesId).name,
+        );
+      }
+
+      // Nearly all distinct. Not all: two of the same species doing the same
+      // thing on opposite sides of the world is not a bug, and demanding
+      // otherwise would mean a line a creature rather than a line a *kind* of
+      // creature. Measured, it comes out at a hundred and ten out of a hundred
+      // and eleven.
+      const distinct = new Set(all.map((spec) => spec.line)).size;
+      expect(distinct / all.length, `${seed}: ${distinct} lines for ${all.length}`).toBeGreaterThan(
+        0.85,
+      );
+
+      // And never twice on one route, where you would actually notice.
+      for (const [routeId, here] of world.critters) {
+        const lines = here.map((spec) => spec.line);
+        expect(new Set(lines).size, `${seed}: two the same on ${routeId}`).toBe(lines.length);
+      }
+    }
+  });
+
+  it("N18: the ones written by hand keep the words they were written with", () => {
+    // Twelve of them stand somewhere particular, and the line is about the
+    // place: the Psyduck is by the well and the joke is the well. A generated
+    // line would be about being a Water type, which is true and much duller.
+    const world = testWorld("a");
+    const all = allOf(world);
+
+    const written = CRITTERS.filter((entry) => entry.line);
+    expect(written.length, "nothing is written by hand any more").toBe(CRITTERS.length);
+
+    for (const entry of written) {
+      const spec = all.find((one) => one.id === entry.id);
+      expect(spec, `${entry.id} is not in the world`).toBeTruthy();
+      expect(spec!.line).toBe(entry.line);
+    }
+
+    // No two of the twelve say the same thing.
+    const lines = written.map((entry) => entry.line);
+    expect(new Set(lines).size).toBe(lines.length);
+  });
+
+  it("N19: a generated line is drawn from what the creature is", () => {
+    // Both of its types, so a Grass/Poison creature reads differently from a
+    // plain Grass one and has twice as many things it might be doing.
+    const fiery = idleLine("Testmon", ["fire"], 0);
+    const ghostly = idleLine("Testmon", ["ghost"], 0);
+    expect(fiery).not.toBe(ghostly);
+    expect(fiery).toContain("Testmon");
+
+    // A dual type can say either of its parents' lines, and says one of them.
+    const both = new Set(
+      Array.from({ length: 40 }, (_, at) => idleLine("Testmon", ["fire", "ghost"], at)),
+    );
+    const single = new Set([
+      ...Array.from({ length: 40 }, (_, at) => idleLine("Testmon", ["fire"], at)),
+      ...Array.from({ length: 40 }, (_, at) => idleLine("Testmon", ["ghost"], at)),
+    ]);
+    expect(both.size).toBeGreaterThan(3);
+    for (const line of both) expect(single.has(line), line).toBe(true);
+
+    // A type nothing is written for still says something rather than nothing.
+    expect(idleLine("Testmon", ["nonsense"], 0).length).toBeGreaterThan(10);
+    expect(idleLine("Testmon", [], 0)).toContain("Testmon");
   });
 });
 

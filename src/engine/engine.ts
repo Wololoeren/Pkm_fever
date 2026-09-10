@@ -300,9 +300,11 @@ export type Notice =
   | { t: "given"; item: string; on: string }
   | { t: "took"; item: string; on: string }
   /** Walked up to something standing about that had nothing to offer. */
-  | { t: "noticed"; speciesId: string }
+  /** `critterId` finds what it was doing; see `critterDoing`. */
+  | { t: "noticed"; speciesId: string; critterId: string }
   /** Something standing about came along. */
-  | { t: "joined"; speciesId: string; boxed: boolean };
+  /** `critterId` finds what it was doing as it came along; see `critterDoing`. */
+  | { t: "joined"; speciesId: string; boxed: boolean; critterId: string };
 
 export interface GameState {
   tick: number;
@@ -2022,6 +2024,17 @@ function landAt(world: World, state: GameState, id: string): GameState {
  * nothing else has to know that a roamer's position is derived from an index
  * and an idle one's is written down.
  */
+/**
+ * What a creature standing about was doing, in words.
+ *
+ * The notice carries its id rather than the sentence: the words are display
+ * language and belong on the world, not in the state. Everything else about a
+ * creature works this way already.
+ */
+export function critterDoing(world: World, routeId: string, id: string): string | null {
+  return (world.critters.get(routeId) ?? []).find((one) => one.id === id)?.line ?? null;
+}
+
 export function crittersOn(
   world: World,
   state: GameState,
@@ -2098,7 +2111,7 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
       ...state,
       tick: state.tick + 1,
       talking: null,
-      notice: { t: "noticed", speciesId: spec.creature.speciesId },
+      notice: { t: "noticed", speciesId: spec.creature.speciesId, critterId: spec.id },
     };
   }
 
@@ -2117,7 +2130,7 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
       found,
       met: [...state.met, spec.id].sort(),
       talking: null,
-      notice: { t: "joined", speciesId: creature.speciesId, boxed },
+      notice: { t: "joined", speciesId: creature.speciesId, boxed, critterId: spec.id },
     };
   }
 
@@ -2129,7 +2142,7 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
       ...state,
       tick: state.tick + 1,
       talking: null,
-      notice: { t: "noticed", speciesId: spec.creature.speciesId },
+      notice: { t: "noticed", speciesId: spec.creature.speciesId, critterId: spec.id },
     };
   }
 

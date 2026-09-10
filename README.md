@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         463 tests, including the replay property everything rests on
+tests/         467 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -307,6 +307,34 @@ drawn brighter than the ones you have not, and hovering a dot names it. Unwalked
 places are drawn but empty — the *shape* of the world is not a secret, only
 what is in it. Standing indoors lights up the town you are indoors in, because
 a door is not a journey.
+
+### What they are doing
+
+A creature standing about used to say the same eleven words — "looks up at you,
+and goes back to whatever it was doing" — which is a fine line once and a
+hundred identical creatures by the time you have crossed the world. A creature
+you can see and walk up to and get nothing particular from teaches you that
+walking over is not worth the steps.
+
+The twelve on the roster are written by hand, because each stands somewhere
+specific and that is half of it: the Psyduck is staring down the well, and the
+well is staring back. The other hundred cannot be — they are drawn from whatever
+lives on the route — so they draw from a pool keyed on **what they are**. A Fire
+one is warming a rock the rock did not ask to have warmed; a Ghost one is there,
+then not, then there again slightly to the left. That is funnier than anything
+generic and it also tells you what you are looking at.
+
+Both types when it has two, so a Grass/Poison creature has six lines to choose
+from and reads differently from a plain Grass one. Which line it gets is drawn
+from its id at world generation, so it is the same for everybody on a seed and
+the same every time you walk past — a creature that says something different on
+Tuesday is not a character, it is a slot machine. And never a line already used
+on that route, since that is the only place a repeat is noticed. Measured, a
+world comes out at a hundred and ten distinct lines across a hundred and eleven
+creatures.
+
+The words live on the world and the notice carries only the creature's id,
+because display language does not belong in game state.
 
 ### Waking up
 
