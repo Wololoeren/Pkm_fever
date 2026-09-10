@@ -2049,6 +2049,38 @@ function challengeGym(world: World, state: GameState, id: string): GameState {
   };
 }
 
+/**
+ * Whose creature you are looking at, as a possessive to hang on its name.
+ *
+ * The log reads `${label} ${name}`, and the label defaulted to "Wild" for
+ * everything — so a gym leader's ace announced itself as "Wild Metagross",
+ * and so did every trainer on every route. Nobody noticed for a long time
+ * because the wild case is the common one; it became impossible to ignore the
+ * first time the Cup opened with "Wild Iron Crown is out!".
+ *
+ * The battle tag already knows which kind of battle this is, so the answer is
+ * derived here rather than guessed at the call site. Empty string for a duel:
+ * two people who both know whose creature it is do not need telling.
+ */
+export function opponentLabel(world: World, battle: BattleState | null): string {
+  if (!battle) return "";
+  if (isWildBattle(battle)) return "Wild";
+
+  const cupId = cupIdOf(battle);
+  if (cupId) return `${cupSpec(cupId).name}'s`;
+
+  const gymId = gymIdOf(battle);
+  if (gymId) return `${gymSpec(gymId).leader}'s`;
+
+  const trainerId = trainerIdOf(battle);
+  if (trainerId) {
+    const who = [...world.trainers.values()].flat().find((one) => one.id === trainerId);
+    return who ? `${who.name}'s` : "";
+  }
+
+  return "";
+}
+
 /** Which quest puts your name down for the Cup. */
 const CUP_QUEST = "the-cup";
 

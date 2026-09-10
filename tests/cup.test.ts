@@ -144,6 +144,19 @@ describe("the house at the far end", () => {
 });
 
 describe("what the five bring", () => {
+  it("C3a: five of them, six each", () => {
+    // Literals, deliberately. Everything below compares a team against
+    // `CUP_SIZE` and the quest's need against `CUP_IDS.length`, which is the
+    // right way round for reading — and means neither notices if the constant
+    // itself changes. Dropping CUP_SIZE to four passed the entire file. These
+    // two numbers are the shape the feature was asked for, so they are stated
+    // once as numbers and everything else may go on deriving from them.
+    expect(CUP_SIZE).toBe(6);
+    expect(CUP_IDS.length).toBe(5);
+    expect(CUP_ROSTER.length).toBe(5);
+    expect(CUP_ABILITIES).toBe(2);
+  });
+
   it("C3: six each, all at the stated level, bred rather than caught", () => {
     const { world, state } = atTheDoor("alpha");
 
@@ -234,6 +247,40 @@ describe("what the five bring", () => {
       const right = moves.filter((moveId) => moveById(moveId).category === wanted).length;
       expect(right, `${speciesId} brought ${moves.join("/")}`).toBeGreaterThanOrEqual(2);
     }
+  });
+
+  it("C6b: every slant has enough candidates to field six, and the seed still chooses", () => {
+    // Two things that can only be measured rather than reasoned about.
+    //
+    // The pool is the strongest twelve of a slant. A slant with fewer than six
+    // species in the whole manifest would field duplicates: the loop that
+    // walks the pool for an unused one gives up after a lap and repeats rather
+    // than failing. The four current slants have seventy-odd each, which says
+    // nothing about whatever a fifth slant might be.
+    for (const spec of CUP_ROSTER) {
+      const candidates = ALL_SPECIES.filter(
+        (entry) => spec.slant === null || entry.types.some((type) => type === spec.slant),
+      );
+      expect(
+        candidates.length,
+        `${spec.id} has only ${candidates.length} to choose from`,
+      ).toBeGreaterThanOrEqual(CUP_SIZE);
+    }
+
+    // And a fixed *height* is not a fixed photograph: which six of the twelve
+    // turn up is still the seed's to say. A pool that quietly narrowed to six
+    // would make every world in existence identical here, and nothing else in
+    // this file would notice.
+    const rosters = new Set(
+      SEEDS.map((seed) => {
+        const world = testWorld(seed);
+        return cupTeam(world, initialState(world), "cup-sovereign")
+          .map((one) => one.speciesId)
+          .sort()
+          .join(",");
+      }),
+    );
+    expect(rosters.size, "every seed fielded the same six").toBeGreaterThan(1);
   });
 
   it("C7: the Cup does not scale — it is the same wall on your first badge as your eighth", () => {

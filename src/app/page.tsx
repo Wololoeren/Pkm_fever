@@ -21,10 +21,10 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
-import { generateWorld, type World } from "@/engine/world";
+import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
   clearAutosave,
   downloadSave,
@@ -51,6 +51,24 @@ const KEY_DIRECTIONS: Record<string, Direction> = {
   s: "s",
   a: "w",
   d: "e",
+};
+
+/**
+ * What a room with no panel of its own says.
+ *
+ * Keyed on what the building is for, because the catch-all was "Somebody lives
+ * here. There is nothing to do but look around" for *every* interior that was
+ * not the daycare, the centre or the mart — which meant a gym hall said it
+ * too, standing in front of a gym leader, and the Cup's house said it to five
+ * people who were waiting to fight you.
+ *
+ * A missing entry falls back to the house line, which is the safe reading: the
+ * worst a new sort of room can say is that somebody lives in it.
+ */
+const INDOORS_NOTE: Partial<Record<InteriorRole, string>> = {
+  house: "Somebody lives here. There is nothing to do but look around — step back out the way you came.",
+  gym: "A gym. The leader is in here somewhere, and they are not waiting for you to be ready.",
+  cup: "The Cup. Five of them, and whoever keeps the door. Nothing in this house gives a spent move back, so what is in your bag is what you have.",
 };
 
 export default function Page() {
@@ -257,6 +275,10 @@ export default function Page() {
           // Only a wild battle gets a ball count, because that is what
           // BattleView reads as "balls and running are legal here".
           balls={isWildBattle(state.battle) ? countOf(state.bag, "pokeball") : undefined}
+          // Whose it is, worked out from the battle's own tag. Left to its
+          // default, every trainer and gym leader in the game fielded "Wild"
+          // creatures.
+          opponentLabel={opponentLabel(session.world, state.battle)}
           onAction={dispatch as (action: BattleAction) => void}
           footer={
             state.phase === "battleEnd" ? (
@@ -419,10 +441,7 @@ export default function Page() {
 
       {indoors && !inHub && !inMart ? (
         <section className="panel">
-          <p className="muted">
-            Somebody lives here. There is nothing to do but look around — step back out the way
-            you came.
-          </p>
+          <p className="muted">{INDOORS_NOTE[here!.role ?? "house"] ?? INDOORS_NOTE.house}</p>
         </section>
       ) : null}
 
