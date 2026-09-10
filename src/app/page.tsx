@@ -246,6 +246,27 @@ export default function Page() {
     );
   }
 
+  /**
+   * Who you have, built once and shown in one of two places.
+   *
+   * Beside the field during a battle, under the map while you are walking, and
+   * nowhere at all in a town, where the hub panel already lists everybody.
+   * One panel rather than two, because two would be two answers to the same
+   * question and they would drift.
+   */
+  const fighting = state.phase === "battle" || state.phase === "battleEnd";
+  const partyPanel = (
+    <section className="panel">
+      <h3>Party</h3>
+      <PartyStrip
+        party={state.party}
+        activeIndex={state.battle?.sides[0].active}
+        onInspect={setInspecting}
+        onReorder={(from, to) => dispatch({ t: "reorderParty", from, to })}
+      />
+    </section>
+  );
+
   return (
     <main className="shell game">
       <header className="hud">
@@ -281,6 +302,7 @@ export default function Page() {
 
       {state.phase === "battle" || state.phase === "battleEnd" ? (
         <BattleView
+          aside={partyPanel}
           battle={state.battle!}
           role={0}
           // Only a wild battle gets a ball count, because that is what
@@ -511,17 +533,9 @@ export default function Page() {
           lists it, and the bag only appears in the field — and whichever
           remains takes the full width rather than sitting in half of it. */}
       <div className="sideBySide">
-        {inHub ? null : (
-          <section className="panel">
-            <h3>Party</h3>
-            <PartyStrip
-              party={state.party}
-              activeIndex={state.battle?.sides[0].active}
-              onInspect={setInspecting}
-              onReorder={(from, to) => dispatch({ t: "reorderParty", from, to })}
-            />
-          </section>
-        )}
+        {/* Not here during a battle: it is up beside the field instead, which
+            is where you want it when you are deciding who to send out. */}
+        {inHub || fighting ? null : partyPanel}
 
         {state.phase === "field" ? (
           <section className="panel">

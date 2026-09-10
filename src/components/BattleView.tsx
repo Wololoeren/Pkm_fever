@@ -80,6 +80,7 @@ export function BattleView({
   busy = false,
   busyLabel,
   footer,
+  aside,
 }: {
   battle: BattleState;
   /** The side we are driving. */
@@ -93,6 +94,14 @@ export function BattleView({
   busyLabel?: string;
   /** Shown in place of the action buttons once the battle is decided. */
   footer?: React.ReactNode;
+  /**
+   * Who you have, shown down the left of the battle.
+   *
+   * Passed in rather than built here because the party panel belongs to the
+   * page — it is the same one that sits under the map when you are walking, and
+   * two of them would be two answers to "who is with me".
+   */
+  aside?: React.ReactNode;
 }) {
   const [switching, setSwitching] = useState(false);
 
@@ -122,6 +131,111 @@ export function BattleView({
     side === role ? displayName(player) : `${opponentLabel} ${displayName(foe)}`.trim(),
   );
 
+  const actions = (
+    <>
+        {footer ? (
+          <div className="actions">{footer}</div>
+        ) : busy ? (
+          <div className="actions">
+            <p className="prompt">{busyLabel ?? "Waiting…"}</p>
+          </div>
+        ) : mustSwitch || switching ? (
+          <div className="actions">
+            <p className="prompt">{mustSwitch ? "Send out who?" : "Switch to who?"}</p>
+            <PartyStrip
+              party={ourTeam}
+              activeIndex={battle.sides[role].active}
+              onSelect={(index) => {
+                setSwitching(false);
+                onAction({ t: "switch", partyIndex: index });
+              }}
+            />
+            {mustSwitch ? null : (
+              <button type="button" className="ghost" onClick={() => setSwitching(false)}>
+                Back
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="actions">
+            <div className="moves">
+              {player.moves.map((moveId, index) => {
+                const entry = moveById(moveId);
+                const left = ppLeft(player, index);
+                return (
+                  <button
+                    key={moveId}
+                    type="button"
+                    className={`moveBtn${left === 0 ? " spent" : ""}`}
+                    style={{ borderLeftColor: typeColor(entry.type) }}
+                    disabled={left === 0}
+                    title={left === 0 ? `${entry.name} has no uses left` : undefined}
+                    onClick={() => onAction({ t: "fight", moveIndex: index })}
+                  >
+                    {/* The key that presses it. One to four already worked and
+                        nothing said so, which is a shortcut nobody uses. */}
+                    <span className="moveKey" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <span className="moveName">{entry.name}</span>
+                    <span className="moveMeta">
+                      {entry.type} · {powerText(entry)}
+                    </span>
+                    {/* Uses left, on the button rather than in the tooltip: it
+                        is the number that decides whether you can press it. */}
+                    <span className={`movePp${left <= Math.ceil(maxPp(moveId) / 4) ? " low" : ""}`}>
+                      {left}/{maxPp(moveId)}
+                    </span>
+                    {/* The rest of it, including how it lands on whatever is
+                        actually standing there. */}
+                    <MoveNote moveId={moveId} against={speciesById(foe.speciesId).types} />
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Only when it is the only thing left. A creature with anything in
+                the tank is refused it by the engine, so offering it would be a
+                button that throws. */}
+            {!anyPp(player) ? (
+              <button
+                type="button"
+                className="moveBtn spentAll"
+                onClick={() => onAction({ t: "struggle" })}
+              >
+                <span className="moveName">Struggle</span>
+                <span className="moveMeta">nothing left · hurts you too</span>
+              </button>
+            ) : null}
+            <div className="row">
+              {wildBattle ? (
+                <button type="button" onClick={() => onAction({ t: "ball" })} disabled={balls <= 0}>
+                  Throw ball ({balls})
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setSwitching(true)} disabled={ourTeam.length < 2}>
+                Switch
+              </button>
+              {wildBattle ? (
+                <button type="button" className="ghost" onClick={() => onAction({ t: "flee" })}>
+                  Run
+                </button>
+              ) : null}
+            </div>
+            <p className="hint">
+              Keys: <kbd>1</kbd>–<kbd>4</kbd> moves
+              {wildBattle ? (
+                <>
+                  {" · "}
+                  <kbd>B</kbd> ball · <kbd>R</kbd> run
+                </>
+              ) : null}
+            </p>
+          </div>
+        )}
+    </>
+  );
+
   return (
     <div className="battle">
       {evolving ? (
@@ -132,127 +246,57 @@ export function BattleView({
         />
       ) : null}
 
-      <div className="field">
+      <div className="stage">
+        {/* Who you have, up the left. It used to sit a long way below the
+            battle, under the bag, which meant checking what was left on the
+            bench was a scroll rather than a glance. */}
+        {aside ? <div className="stageParty">{aside}</div> : null}
+
+        <div className="stageField">
+          <div className="field">
         {/* Hover either creature for its full numbers. Nothing across the
             field is secret: a duel commits to a move before it is revealed,
             so reading the opponent cannot be used to cheat. */}
-        <div className="slot wild hoverable" tabIndex={0}>
-          <Nameplate creature={foe} team={theirTeam} active={battle.sides[them].active} />
-          <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={192} faint={foe.hp <= 0} />
-          <StatHover creature={foe} />
+            {/* Ninety-six, which is the size the art was drawn at.
+                It was a hundred and ninety-two, and doubling a
+                ninety-six-pixel sprite does not add a single pixel of
+                detail — it only makes every one of them four times as
+                large and four times as obvious. Small and sharp beats
+                big and soft. */}
+            <div className="slot wild hoverable" tabIndex={0}>
+              <Nameplate creature={foe} team={theirTeam} active={battle.sides[them].active} />
+              <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
+              <StatHover creature={foe} />
+            </div>
+            <div className="slot mine hoverable" tabIndex={0}>
+              <Sprite speciesId={player.speciesId} variantId={player.variantId} size={96} flip faint={player.hp <= 0} />
+              <Nameplate creature={player} team={ourTeam} active={battle.sides[role].active} right />
+              <StatHover creature={player} />
+            </div>
+          </div>
+
+          {/* The buttons go under the field rather than under the whole
+              stage, so what you press sits directly beneath what you are
+              looking at. */}
+          {actions}
         </div>
-        <div className="slot mine hoverable" tabIndex={0}>
-          <Sprite speciesId={player.speciesId} variantId={player.variantId} size={192} flip faint={player.hp <= 0} />
-          <Nameplate creature={player} team={ourTeam} active={battle.sides[role].active} right />
-          <StatHover creature={player} />
+
+        {/* And the log down the right, where it can be as long as it likes
+            without pushing the buttons off the bottom of the screen. */}
+        <div className="stageLog">
+          <div className="log">
+            {lines.length ? (
+              lines.map((line, i) => <p key={i}>{line}</p>)
+            ) : (
+              <p className="muted">
+                {opponentLabel} {displayName(foe)} is out!
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="log">
-        {lines.length ? (
-          lines.map((line, i) => <p key={i}>{line}</p>)
-        ) : (
-          <p className="muted">
-            {opponentLabel} {displayName(foe)} is out!
-          </p>
-        )}
-      </div>
 
-      {footer ? (
-        <div className="actions">{footer}</div>
-      ) : busy ? (
-        <div className="actions">
-          <p className="prompt">{busyLabel ?? "Waiting…"}</p>
-        </div>
-      ) : mustSwitch || switching ? (
-        <div className="actions">
-          <p className="prompt">{mustSwitch ? "Send out who?" : "Switch to who?"}</p>
-          <PartyStrip
-            party={ourTeam}
-            activeIndex={battle.sides[role].active}
-            onSelect={(index) => {
-              setSwitching(false);
-              onAction({ t: "switch", partyIndex: index });
-            }}
-          />
-          {mustSwitch ? null : (
-            <button type="button" className="ghost" onClick={() => setSwitching(false)}>
-              Back
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="actions">
-          <div className="moves">
-            {player.moves.map((moveId, index) => {
-              const entry = moveById(moveId);
-              const left = ppLeft(player, index);
-              return (
-                <button
-                  key={moveId}
-                  type="button"
-                  className={`moveBtn${left === 0 ? " spent" : ""}`}
-                  style={{ borderLeftColor: typeColor(entry.type) }}
-                  disabled={left === 0}
-                  title={left === 0 ? `${entry.name} has no uses left` : undefined}
-                  onClick={() => onAction({ t: "fight", moveIndex: index })}
-                >
-                  <span className="moveName">{entry.name}</span>
-                  <span className="moveMeta">
-                    {entry.type} · {powerText(entry)}
-                  </span>
-                  {/* Uses left, on the button rather than in the tooltip: it
-                      is the number that decides whether you can press it. */}
-                  <span className={`movePp${left <= Math.ceil(maxPp(moveId) / 4) ? " low" : ""}`}>
-                    {left}/{maxPp(moveId)}
-                  </span>
-                  {/* The rest of it, including how it lands on whatever is
-                      actually standing there. */}
-                  <MoveNote moveId={moveId} against={speciesById(foe.speciesId).types} />
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Only when it is the only thing left. A creature with anything in
-              the tank is refused it by the engine, so offering it would be a
-              button that throws. */}
-          {!anyPp(player) ? (
-            <button
-              type="button"
-              className="moveBtn spentAll"
-              onClick={() => onAction({ t: "struggle" })}
-            >
-              <span className="moveName">Struggle</span>
-              <span className="moveMeta">nothing left · hurts you too</span>
-            </button>
-          ) : null}
-          <div className="row">
-            {wildBattle ? (
-              <button type="button" onClick={() => onAction({ t: "ball" })} disabled={balls <= 0}>
-                Throw ball ({balls})
-              </button>
-            ) : null}
-            <button type="button" onClick={() => setSwitching(true)} disabled={ourTeam.length < 2}>
-              Switch
-            </button>
-            {wildBattle ? (
-              <button type="button" className="ghost" onClick={() => onAction({ t: "flee" })}>
-                Run
-              </button>
-            ) : null}
-          </div>
-          <p className="hint">
-            Keys: <kbd>1</kbd>–<kbd>4</kbd> moves
-            {wildBattle ? (
-              <>
-                {" · "}
-                <kbd>B</kbd> ball · <kbd>R</kbd> run
-              </>
-            ) : null}
-          </p>
-        </div>
-      )}
     </div>
   );
 }

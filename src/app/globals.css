@@ -209,6 +209,32 @@ button.ghost { background: transparent; }
 
 .battle { display: flex; flex-direction: column; gap: 14px; }
 
+/*
+ * Party down the left, the battle in the middle, the log down the right.
+ *
+ * It was one column: field, then log, then buttons, with the party a long way
+ * below under the bag. Checking what was left on the bench was a scroll rather
+ * than a glance, and the log pushed the buttons further down every turn.
+ *
+ * Collapses back to one column on a narrow screen, in reading order, because
+ * three columns of 200px is not a phone.
+ */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(190px, 230px) minmax(0, 1fr) minmax(210px, 300px);
+  gap: 14px;
+  align-items: start;
+}
+.stageParty, .stageLog { min-width: 0; }
+.stageField { min-width: 0; }
+.stageParty .panel { margin: 0; }
+.stageLog .log { max-height: 320px; }
+
+@media (max-width: 980px) {
+  .stage { grid-template-columns: 1fr; }
+  .stageLog .log { max-height: 150px; }
+}
+
 .battle .field {
   background: linear-gradient(#26313a, #1d252c);
   border: 1px solid var(--line);
@@ -360,7 +386,31 @@ button.ghost { background: transparent; }
 .actions { display: flex; flex-direction: column; gap: 10px; }
 .prompt { font-weight: 600; }
 
-.moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+/*
+ * Two by two, always.
+ *
+ * It was `auto-fit`, which put four moves in a row on a wide screen and one on
+ * a narrow one — so where a move *was* changed with the window, and the number
+ * key that presses it did not. Four moves are a fixed set of four; the grid
+ * that shows them should be too.
+ */
+.moves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+/* The number that presses it, up in the corner where a key legend goes. */
+.moveKey {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+.moveBtn:hover .moveKey, .moveBtn:focus-visible .moveKey { color: var(--text); }
 .moveBtn {
   border-left-width: 4px;
   border-left-style: solid;
@@ -368,7 +418,8 @@ button.ghost { background: transparent; }
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 9px 12px;
+  /* Room down the right for the key badge, which is absolutely placed. */
+  padding: 9px 34px 9px 12px;
   text-align: left;
 }
 .moveName { font-weight: 600; }
