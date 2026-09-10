@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { GameState } from "@/engine/engine";
+import { hasSeen, type GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
 import { HUB_ID, type Route, type World } from "@/engine/world";
 import { paletteFor, tileColor } from "@/render/tiles";
@@ -36,13 +36,28 @@ export function MiniMap({ world, state }: { world: World; state: GameState }) {
 
   return (
     <div className="miniMap">
+      {/* Where you are, over the map of it. The header at the top of the page
+          says it too, but the header is a long way from the picture and the
+          picture is the thing you are reading when you want to know. */}
+      <h3 className="miniWhere">{route?.label ?? "Nowhere"}</h3>
       <LocalMap world={world} state={state} />
       <RegionMap world={world} state={state} outer={outer} />
     </div>
   );
 }
 
-/** The map you are standing on, small. */
+/**
+ * The map you are standing on, small, and only the parts you have looked at.
+ *
+ * It drew the whole route before, which made it a satellite photograph: you
+ * arrived somewhere new and the map already knew the way through. Fog turns it
+ * into what a small map should be — a record of where you have been, and a
+ * picture of how much of a place is left.
+ *
+ * What counts as looked at is `hasSeen`, folded in the engine from what the
+ * camera showed you. Coarser than a tile, so it reads as regions of a route
+ * rather than a torch beam; see `FOG`.
+ */
 function LocalMap({ world, state }: { world: World; state: GameState }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const route = world.routes.get(state.route);
@@ -58,10 +73,14 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    const seen = (x: number, y: number) => hasSeen(state, route, x, y);
+
     for (let y = 0; y < route.height; y++) {
       for (let x = 0; x < route.width; x++) {
         const tile = route.tiles[y * route.width + x];
-        ctx.fillStyle = tileColor(route.biome, tile, x, y);
+        // Unwalked ground is drawn rather than left blank, so the shape of the
+        // canvas still tells you how big the place is.
+        ctx.fillStyle = seen(x, y) ? tileColor(route.biome, tile, x, y) : "#141920";
         ctx.fillRect(x * cell, y * cell, cell, cell);
       }
     }
@@ -69,18 +88,26 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
     // Doors, because on a map the size of a stamp a brown tile in a red roof
     // is invisible and knowing where you can go in is the whole point.
     ctx.fillStyle = "#ffd98a";
-    for (const door of route.doors) ctx.fillRect(door.x * cell, door.y * cell, cell, cell);
+    for (const door of route.doors) {
+      if (!seen(door.x, door.y)) continue;
+      ctx.fillRect(door.x * cell, door.y * cell, cell, cell);
+    }
     for (let y = 0; y < route.height; y++) {
       for (let x = 0; x < route.width; x++) {
-        if (route.tiles[y * route.width + x] === TILE.EXIT) ctx.fillRect(x * cell, y * cell, cell, cell);
+        if (route.tiles[y * route.width + x] !== TILE.EXIT) continue;
+        if (!seen(x, y)) continue;
+        ctx.fillRect(x * cell, y * cell, cell, cell);
       }
     }
 
     // People still standing. Beaten trainers are off the map: they are
     // scenery now, and drawing them would suggest a fight that is not there.
+    // Nor is anybody drawn on ground you have not looked at — the map cannot
+    // know about somebody you have never seen.
     ctx.fillStyle = "#5b86d6";
     for (const trainer of world.trainers.get(route.id) ?? []) {
       if (state.beaten.includes(trainer.id)) continue;
+      if (!seen(trainer.x, trainer.y)) continue;
       ctx.fillRect(trainer.x * cell, trainer.y * cell, cell, cell);
     }
 
@@ -189,8 +216,14 @@ function RegionMap({ world, state, outer }: { world: World; state: GameState; ou
 
       {places.map((place) => {
         const here = at(place.cell);
-        const town = place.id === HUB_ID;
-        const visited = town || state.visited.includes(place.id);
+        // By kind, not by id: there are four towns now and only one of them
+        // is home.
+        const town = place.kind === "town";
+        // `town ||` used to be here, from when there was one town and it was
+        // where you started. With four of them that read as "every town has
+        // been visited", so the map handed you the location of three towns you
+        // had never walked to.
+        const visited = state.visited.includes(place.id);
         const current = place.id === outer;
         const palette = paletteFor(place.biome);
 
@@ -205,15 +238,13 @@ function RegionMap({ world, state, outer }: { world: World; state: GameState; ou
             r={current ? dot + 2 : town ? dot + 1 : dot}
             // Unwalked places are drawn but empty: the shape of the world is
             // not a secret, only what is in it.
-            fill={town ? "var(--panel-2)" : visited ? palette.grass : "var(--bg)"}
+            fill={town ? (visited ? "var(--accent)" : "var(--panel-2)") : visited ? palette.grass : "var(--bg)"}
             stroke={current ? "var(--accent)" : "var(--muted)"}
             strokeOpacity={current || visited ? 1 : 0.45}
             strokeWidth={current ? 3 : 1.25}
           >
             <title>
-              {town
-                ? "Hearth — the town at the centre"
-                : `${place.label}${visited ? "" : " — not yet visited"}`}
+              {`${place.label}${town ? " — a town" : ""}${visited ? "" : " — not yet visited"}`}
             </title>
           </circle>
         );

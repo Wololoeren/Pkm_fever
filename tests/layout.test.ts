@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { BIOMES, copiesOf, placesWanted } from "@/engine/biomes";
-import { BEARINGS, bandOf, copyOf, HUB, opposite, planWorld } from "@/engine/layout";
+import {
+  BEARINGS,
+  bandOf,
+  copyOf,
+  HUB,
+  opposite,
+  OUTER_TOWNS,
+  planWorld,
+  TOWNS_APART,
+} from "@/engine/layout";
 import { rngFor } from "@/engine/rng";
 import { walkable } from "@/engine/terrain";
 import { DEFAULT_WORLD } from "@/engine/types";
@@ -33,18 +42,30 @@ import { outdoorRoutes, testWorld } from "./helpers";
 const SEEDS = ["A1", "B2", "C3", "PKMFEVER1", "ZZZZ9"];
 
 describe("the plan", () => {
-  it("Y1: fifty places, all reachable, with loops and a few blind ends", () => {
+  it("Y1: fifty routes and four towns, all reachable, with loops and blind ends", () => {
     for (const seed of SEEDS) {
-      const plan = planWorld(rngFor(seed, "plan"), placesWanted());
+      const wanted = placesWanted() + OUTER_TOWNS;
+      const plan = planWorld(rngFor(seed, "plan"), wanted);
 
-      expect(plan.nodes.length, seed).toBe(50);
-      expect(new Set(plan.nodes.map((node) => node.id)).size, seed).toBe(50);
-      expect(new Set(plan.nodes.map((node) => `${node.cell.x},${node.cell.y}`)).size, seed).toBe(50);
+      // The hub is a node in the list, so the count is the routes plus the
+      // three founded towns plus home.
+      expect(plan.nodes.length, seed).toBe(wanted + 1);
+      expect(new Set(plan.nodes.map((node) => node.id)).size, seed).toBe(wanted + 1);
+      expect(
+        new Set(plan.nodes.map((node) => `${node.cell.x},${node.cell.y}`)).size,
+        seed,
+      ).toBe(wanted + 1);
 
-      // Nothing on the town's own cell, and nothing at depth 0 but the town.
+      expect(plan.nodes.filter((node) => node.kind === "route").length, seed).toBe(placesWanted());
+      expect(plan.nodes.filter((node) => node.kind === "town").length, seed).toBe(OUTER_TOWNS + 1);
+
+      // One cell at the origin, it is home, and it is the only thing at depth
+      // nought.
+      const home = plan.nodes.filter((node) => node.cell.x === 0 && node.cell.y === 0);
+      expect(home.map((node) => node.id), seed).toEqual([HUB]);
+      expect(home[0].kind).toBe("town");
       for (const node of plan.nodes) {
-        expect(`${node.cell.x},${node.cell.y}`, seed).not.toBe("0,0");
-        expect(node.depth, `${seed}: ${node.id}`).toBeGreaterThan(0);
+        expect(node.depth === 0, `${seed}: ${node.id}`).toBe(node.id === HUB);
       }
 
       // Links are symmetric, and a link's bearing is the way the neighbour
@@ -53,14 +74,6 @@ describe("the plan", () => {
       for (const node of plan.nodes) {
         for (const link of node.links) {
           expect(BEARINGS, `${seed}: ${node.id}`).toContain(link.bearing);
-
-          if (link.to === HUB) {
-            expect(
-              [node.cell.x, node.cell.y].map(Math.abs).reduce((a, b) => a + b),
-              `${seed}: ${node.id} links to town but is not beside it`,
-            ).toBe(1);
-            continue;
-          }
 
           const other = byId.get(link.to);
           expect(other, `${seed}: ${node.id} links to a place that is not there`).toBeTruthy();
@@ -81,13 +94,11 @@ describe("the plan", () => {
         expect(new Set(node.links.map((link) => link.bearing)).size).toBe(node.links.length);
       }
 
-      // Loops, which is the whole reason for the graph: a tree over fifty
-      // nodes has forty-nine edges, so anything more than that is somewhere
-      // you can walk round rather than only into and back out of.
-      const edges =
-        plan.nodes.reduce((total, node) => total + node.links.length, 0) / 2 +
-        plan.hub.links.length / 2;
-      expect(edges, `${seed}: no loops at all`).toBeGreaterThan(50);
+      // Loops, which is the whole reason for the graph: a tree over N nodes has
+      // N-1 edges, so anything more than that is somewhere you can walk round
+      // rather than only into and back out of.
+      const edges = plan.nodes.reduce((total, node) => total + node.links.length, 0) / 2;
+      expect(edges, `${seed}: no loops at all`).toBeGreaterThan(plan.nodes.length - 1);
 
       // And a few blind ends, so exploring can still be wrong. "A few": more
       // than none and nothing like a majority.
@@ -126,6 +137,56 @@ describe("the plan", () => {
             bandOf(depth, maxDepth, bands),
             `depth ${depth} of ${maxDepth} over ${bands}`,
           ).toBeGreaterThanOrEqual(bandOf(depth - 1, maxDepth, bands));
+        }
+      }
+    }
+  });
+
+  it("Y3b: three towns are founded, and no two are near each other", () => {
+    // "At least two zones apart", which is `TOWNS_APART` hops: two routes
+    // between any two towns, and between any town and home. Somewhere to heal
+    // one hop from where you started is somewhere nobody will ever walk to.
+    //
+    // The towns are chosen by taking, each time, whichever cell is furthest
+    // from every town chosen so far. That cannot fail to find three, and it
+    // finds the most spread-out three rather than the first three that pass —
+    // which is why this can assert a floor and expect real headroom over it.
+    for (const seed of SEEDS) {
+      const plan = planWorld(rngFor(seed, "plan"), placesWanted() + OUTER_TOWNS);
+      const towns = plan.nodes.filter((node) => node.kind === "town");
+      expect(towns.length, seed).toBe(OUTER_TOWNS + 1);
+
+      // Every town is somewhere you can get to and leave more than one way.
+      for (const town of towns) {
+        if (town.id === HUB) continue;
+        expect(town.links.length, `${seed}: ${town.id} is a cul-de-sac`).toBeGreaterThan(1);
+        expect(town.depth, `${seed}: ${town.id} is under the founding distance`)
+          .toBeGreaterThanOrEqual(TOWNS_APART);
+      }
+
+      // Hops between every pair, over the plan's own links.
+      const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+      const between = (from: string, to: string) => {
+        const seen = new Map([[from, 0]]);
+        const queue = [from];
+        for (let head = 0; head < queue.length; head++) {
+          const at = queue[head];
+          if (at === to) return seen.get(at)!;
+          for (const link of byId.get(at)?.links ?? []) {
+            if (seen.has(link.to)) continue;
+            seen.set(link.to, seen.get(at)! + 1);
+            queue.push(link.to);
+          }
+        }
+        return seen.get(to) ?? Infinity;
+      };
+
+      for (const a of towns) {
+        for (const b of towns) {
+          if (a.id >= b.id) continue;
+          expect(between(a.id, b.id), `${seed}: ${a.id} to ${b.id}`).toBeGreaterThanOrEqual(
+            TOWNS_APART,
+          );
         }
       }
     }

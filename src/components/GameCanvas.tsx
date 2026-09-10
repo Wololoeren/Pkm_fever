@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { canSee, crittersOn, DARK_RADIUS, tileAt, type GameState } from "@/engine/engine";
+import {
+  canSee,
+  crittersOn,
+  DARK_RADIUS,
+  sightCorner,
+  tileAt,
+  type GameState,
+} from "@/engine/engine";
 import type { NpcKind } from "@/engine/npc";
 import { TILE } from "@/engine/terrain";
 import { drawProp } from "@/render/props";
@@ -63,8 +70,11 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
     // scrolled — which is what interiors are.
     const viewW = Math.min(VIEW_TILES_X, route.width);
     const viewH = Math.min(VIEW_TILES_Y, route.height);
-    const camX = clamp(state.x - Math.floor(viewW / 2), 0, route.width - viewW);
-    const camY = clamp(state.y - Math.floor(viewH / 2), 0, route.height - viewH);
+    // From the engine, because the small map's fog is filled in from the same
+    // answer: what the camera shows and what you are recorded as having seen
+    // are one fact, and computing it twice is two facts that agree until they
+    // do not.
+    const { x: camX, y: camY } = sightCorner(route, state.x, state.y);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -79,20 +89,6 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
         ctx.fillStyle = tileColor(route.biome, tile, x, y);
         ctx.fillRect(px, py, TILE_PX, TILE_PX);
         decorate(ctx, tile, px, py, x, y);
-      }
-    }
-
-    // What you cannot see. The outer rings are dark without Flash, which is
-    // the whole of what that tool is for.
-    if (!canSee(state, route)) {
-      for (let row = 0; row < viewH; row++) {
-        for (let col = 0; col < viewW; col++) {
-          const far =
-            Math.abs(camX + col - state.x) + Math.abs(camY + row - state.y) > DARK_RADIUS;
-          if (!far) continue;
-          ctx.fillStyle = "#0b0e13";
-          ctx.fillRect(col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
-        }
       }
     }
 
@@ -194,6 +190,31 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       }
     }
 
+    // What you cannot see. The outer bands are dark without Flash, which is
+    // the whole of what that tool is for.
+    //
+    // Painted **last**, over everything, and that is the fix rather than a
+    // detail. It used to go on straight after the floor, so it hid the ground
+    // and then the trainers, the people, the creatures, the signs and the
+    // items on the floor were all drawn on top of it — every one of them
+    // clearly lit, floating on a black square. The dark concealed the one
+    // thing on a route that was never a surprise and revealed everything that
+    // was.
+    if (!canSee(state, route)) {
+      for (let row = 0; row < viewH; row++) {
+        for (let col = 0; col < viewW; col++) {
+          const far =
+            Math.abs(camX + col - state.x) + Math.abs(camY + row - state.y) > DARK_RADIUS;
+          if (!far) continue;
+          ctx.fillStyle = "#0b0e13";
+          ctx.fillRect(col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
+        }
+      }
+    }
+
+    // You, after the dark, because you are the one thing that is never hidden
+    // from you. Your own tile is inside the lit radius by definition, so this
+    // is belt and braces rather than an exception.
     person(
       ctx,
       (state.x - camX) * TILE_PX + TILE_PX / 2,
@@ -215,10 +236,6 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       aria-label={`Map of ${route.label}`}
     />
   );
-}
-
-function clamp(value: number, low: number, high: number): number {
-  return Math.max(low, Math.min(high, value));
 }
 
 function inView(x: number, y: number, camX: number, camY: number, w: number, h: number): boolean {

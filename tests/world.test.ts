@@ -449,6 +449,63 @@ describe("which way the gates face", () => {
     }
   });
 
+  it("W25: a route is something to find your way through, not walk across", () => {
+    // The complaint this guards, in one number.
+    //
+    // A room is carved *inset* from its cell, and that inset is the wall
+    // between it and its neighbours. Five biomes were written with an inset of
+    // nought, which carves the whole cell: adjacent rooms merged, and their
+    // routes came out as one open field eighty cells across. On top of that
+    // every gate was joined to the middle of the map with a corridor five wide,
+    // straight through whatever the maze had drawn. Between them you could walk
+    // in one side of any route and out of the other as though a path had been
+    // cleared, and the maze underneath was scenery.
+    //
+    // Measured as how far you actually walk between two gaps in the wall
+    // against how far apart they are. One means a straight line. Before this
+    // was fixed the median across a world was 1.00 to 1.14 — that is, *most
+    // routes were a straight line*. It is about 1.8 now.
+    //
+    // The threshold is well under what it measures, because this is a property
+    // of a generator and not a fixed number: it should fail when routes stop
+    // being mazes, not when a seed deals a slightly tidier world.
+    for (const seed of ["A1", "B2", "C3"]) {
+      const world = testWorld(seed);
+      const ratios: number[] = [];
+
+      for (const route of outdoorRoutes(world)) {
+        // Open ground, as a share of the map. A field is the failure mode; a
+        // route that is two thirds walkable has no walls left worth the name.
+        const open = route.tiles.filter(walkable).length / route.tiles.length;
+        expect(open, `${seed}: ${route.id} is an open field`).toBeLessThan(0.72);
+
+        if (route.gates.length < 2) continue;
+
+        for (let a = 0; a < route.gates.length; a++) {
+          const from = insideOf(route.gates[a], route);
+          const steps = walkFrom(route, from);
+
+          for (let b = a + 1; b < route.gates.length; b++) {
+            const to = insideOf(route.gates[b], route);
+            const walk = steps[to.y * route.width + to.x];
+            const line = Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
+            if (walk > 0 && line > 0) ratios.push(walk / line);
+          }
+        }
+      }
+
+      ratios.sort((a, b) => a - b);
+      expect(ratios.length, `${seed}: nothing to measure`).toBeGreaterThan(50);
+
+      const median = ratios[Math.floor(ratios.length / 2)];
+      expect(median, `${seed}: the median route is a straight walk through`).toBeGreaterThan(1.4);
+
+      // And it is not one heroic maze carrying a world of fields.
+      const straight = ratios.filter((ratio) => ratio < 1.15).length;
+      expect(straight / ratios.length, `${seed}: too many ways straight through`).toBeLessThan(0.3);
+    }
+  });
+
   it("W24: every room a route carves can be reached, given the right tools", () => {
     // The whole point of carving a maze over a spanning tree rather than
     // scattering obstacles: connectivity is structural. If this ever fails,
@@ -489,3 +546,49 @@ describe("which way the gates face", () => {
     }
   });
 });
+
+/** The walkable tile just inside a gap in the wall. */
+function insideOf(
+  gate: { x: number; y: number },
+  route: { width: number; height: number },
+): { x: number; y: number } {
+  return {
+    x: gate.x === 0 ? 1 : gate.x === route.width - 1 ? route.width - 2 : gate.x,
+    y: gate.y === 0 ? 1 : gate.y === route.height - 1 ? route.height - 2 : gate.y,
+  };
+}
+
+/**
+ * How many steps each tile is from here, with every tool.
+ *
+ * With the tools rather than without: a bush is meant to stop you, and a route
+ * whose two gates are far apart *because of a boulder* is not the thing being
+ * measured.
+ */
+function walkFrom(
+  route: { width: number; height: number; tiles: number[] },
+  from: { x: number; y: number },
+): Int32Array {
+  const steps = new Int32Array(route.width * route.height).fill(-1);
+  steps[from.y * route.width + from.x] = 0;
+  const queue = [from];
+
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    for (const [dx, dy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ]) {
+      const x = at.x + dx;
+      const y = at.y + dy;
+      if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
+      if (steps[y * route.width + x] >= 0) continue;
+      if (!passable(route.tiles[y * route.width + x], () => true)) continue;
+      steps[y * route.width + x] = steps[at.y * route.width + at.x] + 1;
+      queue.push({ x, y });
+    }
+  }
+  return steps;
+}

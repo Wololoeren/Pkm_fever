@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         446 tests, including the replay property everything rests on
+tests/         460 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -165,7 +165,7 @@ memorised the original to notice.
 
 ### The world
 
-**Fifty places** on an irregular lattice around one town, and further out means
+**Fifty places and four towns** on an irregular lattice, and further out means
 higher levels and rarer things. Hearth is 40x28; the routes beyond it are
 **88x68**, four times the area they were and far past what fits on a screen, so
 the camera follows you and stops at the edges.
@@ -183,6 +183,21 @@ are left — that pass is what turns a tree into somewhere you can walk *round*.
 The fifty are dealt out of **twenty kinds** by tier: four of each of the five
 most ordinary places, three of the next five, two, then one. You should meet a
 meadow four times over and a Crystal Vault once ever.
+
+The towns are cells of that lattice too — Hearth at the origin and three more
+founded out in the world, each with a Poké Center, a Mart and somebody's front
+room. Hearth keeps the daycare, because breeding being in one place is what
+makes going back there mean something.
+
+Where they stand is two rules together, because either alone gets it wrong.
+Each is taken from **its own third of the distance from home**, so there is one
+on the way out, one further and one near the rim; choosing purely by how far
+apart they are put all three on the rim and left six hops of the middle with
+nowhere to heal. And within its third each is the candidate **furthest from
+every town already chosen**, and never closer than three hops to one, which is
+what stops two of them ending up neighbours. No dead ends either: a town you
+can only enter and leave by the one road is somewhere you visit once by
+mistake.
 
 Three numbers a route carries, which used to be one number doing three jobs:
 
@@ -206,6 +221,17 @@ gives long winding corridors and real dead ends rather than the stubby ones a
 random-edge maze produces, plus a handful of extra joins so that a wrong turn
 is a detour instead of something you must retrace in full. Every room is on the
 tree, so connectivity is structural rather than hoped for.
+
+A room is carved **inset** from its cell, and that inset *is* the wall between
+it and its neighbours — so an inset of nought carves the whole cell and two
+rooms simply merge. Five biomes were written that way and their routes came out
+as one open field eighty cells across; on top of that every gate was joined to
+the middle of the map with a corridor five wide, straight through whatever the
+maze had drawn. Between them you could walk in one side of any route and out of
+the other as though a path had been cleared. The inset now has a floor of one
+and a doorway a ceiling of five, and nothing is cut to the middle at all: how
+far you actually walk between two gaps in the wall, against how far apart they
+are, went from 1.0 to about 1.8. `W25` holds it there.
 
 Each biome is a different place to *walk* through, not just a different
 palette. Meadow is wide and looped and forgiving, because it is the one you
@@ -270,12 +296,48 @@ have I not walked yet". So the dots sit where the places are and the lines are
 the crossings that exist, which makes it a drawing of the world rather than a
 diagram of it.
 
-Neither carries a word. Fifty names in a 176px square would be ink rather than
-answer: the places are told apart by the colour of the ones you have walked,
-the crossings you have taken are drawn brighter than the ones you have not, and
-hovering a dot names it. Unwalked places are drawn but empty — the shape of
-the world is not a secret, only what is in it. Standing indoors lights up the
-town you are indoors in, because a door is not a journey.
+Over the pair, the name of where you are. The header at the top of the page
+says it too, but the header is a long way from the picture and the picture is
+what you are reading when you want to know.
+
+Neither map carries any other word. Fifty names in a 176px square would be ink
+rather than answer: the places are told apart by the colour of the ones you
+have walked, towns are marked out from routes, the crossings you have taken are
+drawn brighter than the ones you have not, and hovering a dot names it. Unwalked
+places are drawn but empty — the *shape* of the world is not a secret, only
+what is in it. Standing indoors lights up the town you are indoors in, because
+a door is not a journey.
+
+### Fog
+
+The small map of the route you are on is a **memory, not a satellite**. It drew
+the whole route before, so arriving somewhere new meant already knowing the way
+through it.
+
+What you have looked at is folded in the engine, not kept beside it: it has to
+survive a save, a save is a log of inputs, and so anything that survives one has
+to be a fold over them — the same reason the roamers' positions are state. It
+is folded once, centrally, so that every way of arriving somewhere reveals what
+you can see from it, including the ones nobody remembers to think about: a door,
+a border, Fly, an Escape Rope, waking up in a Center after everything fainted.
+
+A route is 88x68 and there are fifty of them, so it is a bitset in hexadecimal
+over blocks of four tiles rather than a list of coordinates: ninety-four
+characters a route against the eighteen thousand numbers the readable version
+would have cost. Blocks also make it look like a map — fog that retreats a tile
+at a time reads as a torch, and this is not a torch.
+
+One look is about a twelfth of a route, so mapping a place takes a dozen good
+vantage points and a walk between them. In the dark it is the few tiles around
+you, which makes Flash worth having twice over: it lights the route, and it is
+the difference between mapping a place in one walk and mapping it in ten.
+
+And the dark **conceals**. It is painted over everything now rather than
+straight after the floor, which is where it used to go — so the ground was
+hidden and then the trainers, the people, the creatures, the signs and the items
+on the floor were all drawn on top of it, every one of them clearly lit and
+floating on a black square. The dark hid the one thing on a route that was never
+a surprise and revealed everything that was.
 
 ### Testing shortcuts
 

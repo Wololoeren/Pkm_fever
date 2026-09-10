@@ -58,8 +58,14 @@ describe("where people stand", () => {
     for (const seed of ["A1", "B2", "C3"]) {
       const world = testWorld(seed);
       const placed = [...world.npcs.values()].flat();
-      // The roster plus a leader for every gym, which the world adds itself.
-      expect(placed.length).toBe(NPCS.length + GYMS.length);
+      // The roster, plus a leader for every gym, plus the staff the world
+      // duplicates: there is a nurse in every Poké Center and a shopkeeper
+      // behind every Mart counter, and there are four towns.
+      const rooms = (role: string) =>
+        [...world.routes.values()].filter((route) => route.role === role).length;
+      const staff = rooms("centre") - 1 + (rooms("mart") - 1);
+      expect(staff, `${seed}: no staff was duplicated`).toBeGreaterThan(0);
+      expect(placed.length).toBe(NPCS.length + GYMS.length + staff);
 
       for (const who of placed) {
         const route = world.routes.get(who.route)!;

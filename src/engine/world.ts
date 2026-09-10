@@ -8,10 +8,10 @@ import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
 import { GYMS, gym, type GymSpec } from "./gyms";
 import {
   bandOf,
-  BEARINGS,
+  copyOf,
   HUB,
   opposite,
-  copyOf,
+  OUTER_TOWNS,
   planWorld,
   type Bearing,
   type PlanNode,
@@ -479,8 +479,44 @@ interface Duty {
  */
 export const CUP_LABEL = "The Cup";
 
+/**
+ * The towns, in the order the plan founds them.
+ *
+ * Four, and only the first is home. Hearth keeps the daycare, because breeding
+ * being in one place is what makes going back there mean something; the other
+ * three get a Center, a Mart and somebody's front room, which is what a town
+ * has to have to be worth the walk.
+ *
+ * Where each one *is* comes from the plan and not from here — they are cells on
+ * the lattice, chosen for being as far from each other as the world allows, so
+ * a name cannot promise a place. See `OUTER_TOWNS` in layout.ts.
+ */
+const TOWNS: readonly { id: string; name: string; roles: InteriorRole[] }[] = [
+  { id: HUB, name: "Hearth", roles: ["daycare", "centre", "mart", "house"] },
+  { id: "town-1", name: "Highcross", roles: ["centre", "mart", "house"] },
+  { id: "town-2", name: "Willowmere", roles: ["centre", "mart", "house"] },
+  { id: "town-3", name: "Cinderhold", roles: ["centre", "mart", "house"] },
+];
+
 /** How coarse the maze is. Eight tiles a cell over 88x68 gives 10x8 rooms. */
 const CELL = 8;
+
+/**
+ * The thinnest wall a room may keep, and the widest doorway one may have.
+ *
+ * Both exist because the maze was not a maze. A room is carved inset from its
+ * cell, and the inset *is* the wall between it and its neighbours — so an inset
+ * of nought carves the whole cell and the two rooms simply merge. Five of the
+ * twenty biomes were written `[0, 0]`, which made their routes one open field
+ * eighty cells across: you walked in one side and out the other without ever
+ * meeting a wall, and the maze plan underneath decided nothing at all.
+ *
+ * The profiles are retuned to respect these, and these are here so that a new
+ * biome written in a hurry cannot bring the field back. `X8` holds the data to
+ * the same numbers, so the two cannot drift apart quietly.
+ */
+const MIN_INSET = 1;
+const MOST_CORRIDOR = CELL - 3;
 
 /**
  * A route, with a gap in its wall on every side that has a neighbour.
@@ -505,7 +541,13 @@ function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; i
 
   // Further out is tighter: the outer rings close in without needing a profile
   // of their own, and the first ring of a biome stays the friendly version.
-  const corridor = Math.max(2, profile.corridor - Math.floor(ring / 3));
+  // Capped as well as floored: a doorway wider than five leaves less than
+  // three tiles of wall along the edge two rooms share, which stops reading as
+  // a wall with a door in it and starts reading as a wall with a hole.
+  const corridor = Math.min(
+    MOST_CORRIDOR,
+    Math.max(2, profile.corridor - Math.floor(ring / 3)),
+  );
   const plan = maze(rng, cols, rows, Math.max(2, profile.loops - ring));
 
   const centreOf = (cx: number, cy: number) => ({
@@ -593,7 +635,10 @@ function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; i
   // Rooms first, then the ways between them.
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
-      const inset = intBetween(rng, profile.roomInset[0], profile.roomInset[1]);
+      const inset = Math.max(
+        MIN_INSET,
+        intBetween(rng, profile.roomInset[0], profile.roomInset[1]),
+      );
       carve(
         grid,
         originX + cx * CELL + inset,
@@ -665,12 +710,23 @@ function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; i
   // Flowers are walkable, so they can never close anything.
   speckle(grid, rng, TILE.FLOWER, profile.clutter, [profile.ground]);
 
-  // The ways through: one per neighbour, and each joined to the middle, so a
-  // three-way place is a junction rather than three corridors that happen to
-  // share a map.
+  // The ways through: a short tunnel from each gap in the wall into the room
+  // behind it, and nothing else.
+  //
+  // Each of those rooms is a room of the maze, and the maze is a spanning tree
+  // with a handful of extra joins, so they are already connected to each other
+  // and to everywhere else. Nothing more needs cutting — and cutting more is
+  // exactly the mistake this replaced.
+  //
+  // Every gate used to be joined to the middle of the map as well, on the
+  // reasoning that a place with three neighbours should be a junction rather
+  // than three corridors sharing a map. It made every route four wide corridors
+  // meeting in the centre, straight through whatever the maze had drawn: you
+  // walked in one side and out the other as though a path had been cleared,
+  // and the maze underneath was scenery you never had to enter. A junction is
+  // what the maze is *for*; it does not need one bulldozed through it.
   for (const way of ways) {
     carveLine(grid, way.approach, way.room, corridor, profile.ground);
-    carveLine(grid, way.room, heart, corridor, profile.ground);
     grid.set(way.wall.x, way.wall.y, TILE.PATH);
   }
 
@@ -848,11 +904,6 @@ function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; i
  * and every return from ring one used to arrive at the same gap in town.
  */
 function wireBorders(routes: Map<string, Route>, plan: WorldPlan): void {
-  const town = routes.get(HUB_ID);
-  if (!town) return;
-
-  const gaps = townExits(town.width, town.height);
-
   for (const node of plan.nodes) {
     const here = routes.get(node.id);
     if (!here) continue;
@@ -861,30 +912,15 @@ function wireBorders(routes: Map<string, Route>, plan: WorldPlan): void {
       const gate = here.gates.find((each) => each.bearing === link.bearing);
       if (!gate) continue;
 
-      // Out of town, or in from it. The town's gap is on the wall facing this
-      // way, which is the *opposite* bearing: a place north of town is reached
-      // through town's north wall, and its own gate back is on its south side.
-      if (link.to === HUB) {
-        const wall = opposite(link.bearing);
-        const gap = gaps[wall];
-        here.borders.push({
-          x: gate.x,
-          y: gate.y,
-          to: town.id,
-          at: townArrival(town.width, town.height, wall),
-        });
-        town.borders.push({
-          x: gap.x,
-          y: gap.y,
-          to: here.id,
-          at: insideOf(gate, here.width, here.height),
-        });
-        continue;
-      }
-
-      // Place to place. Only this side of the crossing is written here; the
-      // other side is written when the walk reaches that node's own links,
-      // and the two agree because the plan's links are symmetric.
+      // Only this side of the crossing is written here; the other side is
+      // written when the walk reaches that node's own links, and the two agree
+      // because the plan's links are symmetric.
+      //
+      // A town used to be a special case in here, because a town was not a
+      // node. It is one now, and the arithmetic that joined a route to Hearth
+      // turned out to be the arithmetic that joins anything to anything: a
+      // gate pairs with the gate on the wall facing it. Three more towns cost
+      // this function nothing at all.
       const there = routes.get(link.to);
       const back = there?.gates.find((each) => each.bearing === opposite(link.bearing));
       if (!there || !back) continue;
@@ -1031,15 +1067,22 @@ export interface PickupSpec {
  * change to the town — every candidate tile is checked by walking the map
  * without it.
  */
-function reachableCount(route: Route, blocked: Set<string>): number {
+/**
+ * Every tile you could walk to from the way in, **with no tools at all**.
+ *
+ * On foot rather than with the tools, and that is the point of it: somebody
+ * standing behind a bush is somebody you cannot talk to until you have Cut, and
+ * a person is not a reward for a badge. A boulder is allowed to gate an item in
+ * a pocket; it is not allowed to gate a conversation.
+ */
+function reachedFrom(route: Route, blocked: Set<string>): Uint8Array {
   const seen = new Uint8Array(route.width * route.height);
   const start = route.entry;
-  if (blocked.has(`${start.x},${start.y}`)) return 0;
-  if (!walkable(route.tiles[start.y * route.width + start.x])) return 0;
+  if (blocked.has(`${start.x},${start.y}`)) return seen;
+  if (!walkable(route.tiles[start.y * route.width + start.x])) return seen;
 
   const queue = [start];
   seen[start.y * route.width + start.x] = 1;
-  let reached = 1;
 
   for (let head = 0; head < queue.length; head++) {
     const here = queue[head];
@@ -1057,10 +1100,17 @@ function reachableCount(route: Route, blocked: Set<string>): number {
       const index = y * route.width + x;
       if (seen[index] || !walkable(route.tiles[index])) continue;
       seen[index] = 1;
-      reached++;
       queue.push({ x, y });
     }
   }
+
+  return seen;
+}
+
+function reachableCount(route: Route, blocked: Set<string>): number {
+  const seen = reachedFrom(route, blocked);
+  let reached = 0;
+  for (let at = 0; at < seen.length; at++) reached += seen[at];
 
   return reached;
 }
@@ -1106,7 +1156,9 @@ function nearestSpot(
   for (const prop of route.props) {
     if (!PROPS[prop.kind].walkable) solid.add(`${prop.x},${prop.y}`);
   }
-  const baseline = reachableCount(route, solid);
+  const reached = reachedFrom(route, solid);
+  let baseline = 0;
+  for (let at = 0; at < reached.length; at++) baseline += reached[at];
 
   // Bounded: a spiral that can cross a whole 88x68 route is a spiral that
   // will, on the one seed where the first thousand tiles all fail.
@@ -1122,6 +1174,13 @@ function nearestSpot(
 
         const tile = route.tiles[y * route.width + x];
         if (!walkable(tile) || hidesEncounters(tile)) continue;
+        // Somewhere you can actually get to on foot. `wouldSever` below asks
+        // whether standing here *breaks* the route; this asks whether you could
+        // ever have arrived, which is a different question and was not being
+        // asked at all. A Quarryman ended up in a pocket of the slag behind a
+        // boulder, with a gift for anybody who had already earned the badge
+        // that would let them reach him.
+        if (reached[y * route.width + x] !== 1) continue;
         if (propBlocks(route, x, y)) continue;
         if (route.doors.some((door) => door.x === x && door.y === y)) continue;
         if (route.borders.some((border) => border.x === x && border.y === y)) continue;
@@ -1207,15 +1266,39 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
     ),
   ];
 
-  for (const entry of roster) {
+  /**
+   * One of the roster, expanded to one of them in every building of the kind.
+   *
+   * Only for the people marked `staff`, which is the nurse and the shopkeeper.
+   * With one town this did nothing; with four it is the difference between
+   * three Centers you can heal at and three rooms with a bed in them.
+   *
+   * The first keeps its plain id, so `nurse` is still the nurse in Hearth and
+   * a save that remembers talking to her still does. The rest are named after
+   * the town they stand in.
+   */
+  const staffed: NpcPlacement[] = roster.flatMap((entry) => {
+    if (entry.where.at !== "interior" || !entry.where.staff) return [entry];
+    const where = entry.where;
+
+    const rooms = [...routes.values()].filter((route) => route.role === where.role);
+    return rooms.map((room, index) => ({
+      ...entry,
+      id: index === 0 ? entry.id : `${entry.id}@${room.parent ?? room.id}`,
+      where: { ...where, roomId: room.id },
+    }));
+  });
+
+  for (const entry of staffed) {
     const target = (() => {
       switch (entry.where.at) {
         case "town":
           return { route: routes.get(HUB_ID), wish: { x: entry.where.x, y: entry.where.y } };
         case "interior": {
           const role = entry.where.role;
-          const room =
-            role === "house"
+          const room = entry.where.roomId
+            ? routes.get(entry.where.roomId)
+            : role === "house"
               ? houses[(entry.where.index ?? 0) % Math.max(1, houses.length)]
               : [...routes.values()].find((route) => route.role === role);
           return room ? { route: room, wish: { x: Math.floor(room.width / 2), y: 3 } } : null;
@@ -1695,7 +1778,18 @@ export function townArrival(
   };
 }
 
-function buildTown(): { town: Route; interiors: Route[] } {
+/**
+ * A town, laid out by hand rather than generated.
+ *
+ * It is the first thing anybody sees and its buildings have jobs, so a die has
+ * no business in it. What varies between the four is the name, which cell it
+ * sits in, how far out it is, which of its four walls has a road through it,
+ * and which buildings it keeps.
+ */
+function buildTown(node: PlanNode, spec: (typeof TOWNS)[number]): {
+  town: Route;
+  interiors: Route[];
+} {
   const grid = new Grid(TOWN_WIDTH, TOWN_HEIGHT, TILE.MEADOW);
   const midY = Math.floor(TOWN_HEIGHT / 2);
   const midX = Math.floor(TOWN_WIDTH / 2);
@@ -1712,20 +1806,26 @@ function buildTown(): { town: Route; interiors: Route[] } {
   const doors: Door[] = [];
   const signs: Sign[] = [];
   const interiors: Route[] = [];
-  const plots: { x: number; y: number; role: InteriorRole; label: string }[] = [
-    { x: 5, y: midY - 9, role: "daycare", label: "Daycare" },
-    { x: 24, y: midY - 9, role: "centre", label: "Poké Center" },
-    { x: 7, y: midY + 4, role: "mart", label: "Mart" },
-    { x: 26, y: midY + 4, role: "house", label: "A house" },
-  ];
+  // The four corners of the crossroads, and which building stands in which.
+  // A town with three buildings leaves one corner to the garden.
+  const corners: Record<InteriorRole, { x: number; y: number; label: string }> = {
+    daycare: { x: 5, y: midY - 9, label: "Daycare" },
+    centre: { x: 24, y: midY - 9, label: "Poké Center" },
+    mart: { x: 7, y: midY + 4, label: "Mart" },
+    house: { x: 26, y: midY + 4, label: "A house" },
+    gym: { x: 5, y: midY - 9, label: "Gym" },
+    cup: { x: 5, y: midY - 9, label: CUP_LABEL },
+  };
+
+  const plots = spec.roles.map((role) => ({ role, ...corners[role] }));
 
   for (const plot of plots) {
     const door = building(grid, plot.x, plot.y, 6, 5, [TILE.MEADOW, TILE.FLOWER]);
     if (!door) continue;
 
-    const id = `${HUB_ID}:${plot.role}${plot.x}`;
+    const id = `${spec.id}:${plot.role}${plot.x}`;
     const back = { x: door.x, y: door.y + 1 };
-    const inside = buildInterior(id, HUB_ID, plot.role, plot.label, back, rngFor("furnish", id));
+    const inside = buildInterior(id, spec.id, plot.role, plot.label, back, rngFor("furnish", id));
     doors.push({ x: door.x, y: door.y, to: id, at: inside.entry });
     // What the sign says is the building's job, not its name: "Daycare" is
     // useful from across the square, "A house" is at least honest.
@@ -1750,11 +1850,13 @@ function buildTown(): { town: Route; interiors: Route[] } {
   // puts you — and a road inward from each, so a gap in the wall reads as
   // somewhere a road goes rather than a hole.
   //
-  // Four gaps now rather than twenty, and all four sit where the crossroads
-  // already ends, so the roads are one tile long and the loop is nearly a
-  // formality. Kept anyway: it is what guarantees the gap tile itself is
-  // paved, and it will still do the right thing if the town is ever redrawn.
-  for (const exit of Object.values(townExits(TOWN_WIDTH, TOWN_HEIGHT))) {
+  // Only the walls that have somewhere on the other side of them. Cutting all
+  // four regardless left up to three gaps that went nowhere: a hole in the
+  // trees you could stand in, with nothing beyond it.
+  const ways = node.links.map((link) => link.bearing);
+  const gaps = townExits(TOWN_WIDTH, TOWN_HEIGHT);
+
+  for (const exit of ways.map((bearing) => gaps[bearing])) {
     grid.set(exit.x, exit.y, TILE.PATH);
 
     const inward =
@@ -1772,13 +1874,17 @@ function buildTown(): { town: Route; interiors: Route[] } {
 
   return {
     town: {
-      id: HUB_ID,
+      id: spec.id,
       kind: "town",
       biome: "hearth",
+      // A town is never graded: nothing lives in it and nothing fights you in
+      // it, so there is no curve for it to sit on. How far out it is, is
+      // `depth`, and that is a real number even for a town three hops from
+      // anywhere.
       ring: 0,
-      depth: 0,
+      depth: node.depth,
       nth: 0,
-      cell: { x: 0, y: 0 },
+      cell: { ...node.cell },
       width: TOWN_WIDTH,
       height: TOWN_HEIGHT,
       tiles: grid.tiles,
@@ -1786,12 +1892,9 @@ function buildTown(): { town: Route; interiors: Route[] } {
       doors,
       signs,
       props: [],
-      gates: BEARINGS.map((bearing) => ({
-        bearing,
-        ...townExits(TOWN_WIDTH, TOWN_HEIGHT)[bearing],
-      })),
+      gates: ways.map((bearing) => ({ bearing, ...gaps[bearing] })),
       borders: [],
-      label: "Hearth",
+      label: spec.name,
     },
     interiors,
   };
@@ -2086,9 +2189,31 @@ function placeCritters(
       // ring that sprawls around the middle of the map may close neatly a few
       // tiles off it — pinewood's rooms are the tightest in the game and it
       // was the one route that kept producing eight-hundred-tile rambles.
-      const centres = [middle, { x: middle.x - 8, y: middle.y - 6 }];
+      // A grid of centres, tried from the middle of the map outward, because a
+      // loop only has to fit *somewhere* on an eighty-eight by sixty-eight
+      // route and there is no reason it has to be the middle.
+      //
+      // Two centres were enough while the routes were half-open fields. Once
+      // the maze became a real maze, a ring of waypoints joined by the
+      // shortest walk between them started wandering: one seed produced a loop
+      // of eight hundred and sixteen tiles, which is a four-hundred-step chase.
+      // Twelve centres and four radii is forty-eight tries, it stops at the
+      // first one under the cap, and it only runs for the four roamers in a
+      // world.
+      const centres: { x: number; y: number }[] = [];
+      for (let gy = 1; gy <= 3; gy++) {
+        for (let gx = 1; gx <= 4; gx++) {
+          centres.push({
+            x: Math.round((route.width * gx) / 5),
+            y: Math.round((route.height * gy) / 4),
+          });
+        }
+      }
+      const from = (at: { x: number; y: number }) =>
+        Math.abs(at.x - middle.x) + Math.abs(at.y - middle.y);
+      centres.sort((a, b) => from(a) - from(b));
 
-      for (const radius of [14, 10, 7, 5]) {
+      for (const radius of [14, 11, 8, 6]) {
         for (const centre of centres) {
           const tried = roamPath(
             route,
@@ -2230,10 +2355,6 @@ export function generateWorld(
 ): World {
   const routes = new Map<string, Route>();
 
-  const hearth = buildTown();
-  routes.set(hearth.town.id, hearth.town);
-  for (const room of hearth.interiors) routes.set(room.id, room);
-
   /**
    * The shape of the world, before anything is built on it.
    *
@@ -2241,10 +2362,23 @@ export function generateWorld(
    * how far out each one is, and which of its four sides has a neighbour. A
    * route cannot be carved until its gates are known, and a gym cannot be
    * assigned until it is known which marsh is the nearest one.
+   *
+   * It grows the fifty routes *and* the four towns, because a town is a cell
+   * like any other and the towns have to be spread over the lattice by the
+   * same graph the routes are joined by.
    */
-  const plan = planWorld(rngFor(seed, "plan"), placesWanted());
+  const plan = planWorld(rngFor(seed, "plan"), placesWanted() + OUTER_TOWNS);
 
   for (const node of plan.nodes) {
+    if (node.kind === "town") {
+      const spec = TOWNS.find((each) => each.id === node.id);
+      if (!spec) continue;
+      const built = buildTown(node, spec);
+      routes.set(built.town.id, built.town);
+      for (const room of built.interiors) routes.set(room.id, room);
+      continue;
+    }
+
     // Which copy of its biome this is, straight off its name — the plan
     // numbers them by distance from town for exactly this reason.
     const nth = copyOf(node.id);

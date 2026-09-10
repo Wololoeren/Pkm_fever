@@ -315,6 +315,29 @@ export interface GameState {
   steps: Record<string, number>;
   /** The next encounter slot to serve, per route. */
   nextSlot: Record<string, number>;
+  /**
+   * Which parts of each route you have laid eyes on.
+   *
+   * The small map is a memory rather than a satellite: it shows the ground you
+   * have actually walked past, and the rest of the route stays dark until you
+   * go and look. This is what it remembers.
+   *
+   * Stored rather than derived, and in the state rather than beside it. It has
+   * to survive a save, a save is a log of inputs, and so anything that has to
+   * survive one must be a fold over them — the same reason `roamers` is here.
+   * It is folded once, centrally, in `applyInput`: every way of arriving
+   * somewhere reveals what you can see from it, including the ones nobody
+   * remembers to think about (a door, a border, Fly, an Escape Rope, waking up
+   * in a Center after everything fainted).
+   *
+   * A route is 88x68, which is 5,984 tiles, and there are fifty of them. So
+   * this is a *bitset in hexadecimal over blocks of `FOG` tiles* rather than a
+   * list of coordinates: three hundred and seventy-four bits a route, ninety-
+   * four characters, against the eighteen thousand numbers the readable version
+   * would have cost. Blocks also make the map look like a map — fog that
+   * retreats a tile at a time reads as a torch, and this is not a torch.
+   */
+  seen: Record<string, string>;
   party: Individual[];
   box: Individual[];
   nextUid: number;
@@ -478,7 +501,10 @@ export function initialState(world: World): GameState {
   const hub = world.routes.get(HUB_ID);
   if (!hub) throw new Error("world has no hub");
 
-  return {
+  // Wrapped so the town you open your eyes in is already on the map. Every
+  // other reveal happens in `applyInput`; this is the one that has no input
+  // behind it.
+  return look(world, {
     tick: 0,
     phase: "starter",
     route: HUB_ID,
@@ -486,6 +512,7 @@ export function initialState(world: World): GameState {
     y: hub.entry.y,
     steps: {},
     nextSlot: {},
+    seen: {},
     party: [],
     box: [],
     nextUid: 1,
@@ -511,7 +538,7 @@ export function initialState(world: World): GameState {
     roamers: {},
     met: [],
     cheated: false,
-  };
+  });
 }
 
 function trainerIdOf(battle: BattleState | null): string | null {
@@ -558,7 +585,19 @@ function restored(individual: Individual): Individual {
   return { ...restorePp(atFullHealth(individual)), status: null, sleepTurns: 0 };
 }
 
+/**
+ * One input, and then the map remembers where it left you.
+ *
+ * The reveal is folded here rather than in `move`, because moving is only one
+ * of the ways to end up somewhere new: a door, a border, Fly, an Escape Rope,
+ * a warp, and waking up in a Center with everything fainted are the others.
+ * Six places to remember to call something is six places to forget.
+ */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
+  return look(world, applyOne(world, state, input));
+}
+
+function applyOne(world: World, state: GameState, input: Input): GameState {
   switch (input.t) {
     case "pickStarter":
       return pickStarter(world, state, input.index);
@@ -1775,6 +1814,130 @@ function applyTool(world: World, state: GameState, itemId: string, dir: Directio
 /** Whether the whole of a route is visible, or only what is close. */
 export function canSee(state: GameState, route: Route): boolean {
   return route.ring < DARK_FROM_RING || hasItem(state.bag, "hm-flash");
+}
+
+/**
+ * How coarse the small map's fog is, in tiles a side.
+ *
+ * Four, so a block is eight pixels on a map drawn at two pixels a tile: big
+ * enough to read as a region of the route rather than a pixel, small enough
+ * that a corridor you have walked shows as a corridor.
+ */
+export const FOG = 4;
+
+function fogCols(route: Route): number {
+  return Math.ceil(route.width / FOG);
+}
+
+/**
+ * Whether this tile is on the map you have drawn for yourself.
+ *
+ * Interiors are exempt: a room is one screen and you have seen all of it the
+ * moment you are standing in it, so fogging one would only ever hide the door
+ * you came in through.
+ */
+export function hasSeen(state: GameState, route: Route, x: number, y: number): boolean {
+  if (route.kind === "interior") return true;
+
+  const bits = state.seen[route.id];
+  if (!bits) return false;
+
+  const block = Math.floor(y / FOG) * fogCols(route) + Math.floor(x / FOG);
+  const nibble = bits.charCodeAt(bits.length - 1 - (block >> 2));
+  if (Number.isNaN(nibble)) return false;
+
+  // Hex, read from the least significant end so the string can be stored
+  // without leading zeroes.
+  const value =
+    nibble >= 97 ? nibble - 87 : nibble >= 65 ? nibble - 55 : nibble >= 48 ? nibble - 48 : 0;
+  return (value & (1 << (block & 3))) !== 0;
+}
+
+/**
+ * The corner of the route on screen, worked out the way the camera works it
+ * out: centred on you, and stopped at the edges of the world.
+ *
+ * In the engine rather than in the canvas because it is the answer to "what can
+ * you see from here", which decides what the map remembers as well as what gets
+ * painted. Two copies of that arithmetic would be two answers.
+ */
+export function sightCorner(route: Route, x: number, y: number): { x: number; y: number } {
+  const wide = Math.min(SIGHT_TILES_X, route.width);
+  const tall = Math.min(SIGHT_TILES_Y, route.height);
+  return {
+    x: Math.max(0, Math.min(x - Math.floor(wide / 2), route.width - wide)),
+    y: Math.max(0, Math.min(y - Math.floor(tall / 2), route.height - tall)),
+  };
+}
+
+/**
+ * How many tiles of a route you take in from one spot.
+ *
+ * This is the camera as well: the window shows exactly what you can see, which
+ * is why the number lives here and `render/tiles.ts` reads it rather than
+ * keeping its own. A route is 88x68 and would be 2,288 pixels wide drawn whole,
+ * which is both too wide for the page and too much of a place to take in at
+ * once.
+ */
+export const SIGHT_TILES_X = 23;
+export const SIGHT_TILES_Y = 17;
+
+/**
+ * Puts whatever you can see from where you are standing onto your map.
+ *
+ * In the dark that is the few tiles around you, which is what makes Flash a
+ * tool worth having twice over: it lights the route *and* it is the difference
+ * between mapping a place in one walk and mapping it in ten.
+ */
+function look(world: World, state: GameState): GameState {
+  const route = world.routes.get(state.route);
+  if (!route || route.kind === "interior") return state;
+
+  const cols = fogCols(route);
+  const rows = Math.ceil(route.height / FOG);
+  const bits = new Uint8Array(cols * rows);
+
+  // What is already known, unpacked.
+  const known = state.seen[route.id] ?? "";
+  for (let block = 0; block < bits.length; block++) {
+    if (hasSeen(state, route, (block % cols) * FOG, Math.floor(block / cols) * FOG)) bits[block] = 1;
+  }
+
+  const dark = !canSee(state, route);
+  if (dark) {
+    for (let dy = -DARK_RADIUS; dy <= DARK_RADIUS; dy++) {
+      for (let dx = -DARK_RADIUS; dx <= DARK_RADIUS; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) > DARK_RADIUS) continue;
+        const x = state.x + dx;
+        const y = state.y + dy;
+        if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
+        bits[Math.floor(y / FOG) * cols + Math.floor(x / FOG)] = 1;
+      }
+    }
+  } else {
+    const corner = sightCorner(route, state.x, state.y);
+    const wide = Math.min(SIGHT_TILES_X, route.width);
+    const tall = Math.min(SIGHT_TILES_Y, route.height);
+    for (let y = corner.y; y < corner.y + tall; y++) {
+      for (let x = corner.x; x < corner.x + wide; x++) {
+        bits[Math.floor(y / FOG) * cols + Math.floor(x / FOG)] = 1;
+      }
+    }
+  }
+
+  // Packed back to hex, four blocks a character, most significant first so the
+  // string has no leading zeroes to keep in step.
+  let out = "";
+  for (let nibble = Math.ceil(bits.length / 4) - 1; nibble >= 0; nibble--) {
+    let value = 0;
+    for (let bit = 0; bit < 4; bit++) {
+      if (bits[nibble * 4 + bit]) value |= 1 << bit;
+    }
+    if (value !== 0 || out.length > 0) out += value.toString(16);
+  }
+  if (out === "") out = "0";
+
+  return out === known ? state : { ...state, seen: { ...state.seen, [route.id]: out } };
 }
 
 /** Rings this far out are dark without Flash. */
@@ -3192,6 +3355,13 @@ export function stateHash(state: GameState): string {
     state.y,
     counters(state.steps),
     counters(state.nextSlot),
+    // In the hash because it is state, folded from the inputs like everything
+    // else here. Nothing reads it but the map, and a claim that two logs
+    // produce the same state should not have an exception in it.
+    Object.keys(state.seen)
+      .sort()
+      .map((id) => `${id}=${state.seen[id]}`)
+      .join(","),
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
     state.nextUid,

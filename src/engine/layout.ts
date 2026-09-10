@@ -51,7 +51,21 @@ export function opposite(bearing: Bearing): Bearing {
   return bearing === "n" ? "s" : bearing === "s" ? "n" : bearing === "e" ? "w" : "e";
 }
 
+/** What sits in a cell: somewhere to walk through, or somewhere to rest. */
+export type PlaceKind = "route" | "town";
+
 export interface PlanNode {
+  /**
+   * A town, or a route.
+   *
+   * The origin is a town and always was; what changed is that it is now a node
+   * in this list like any other rather than a thing beside it. Three more towns
+   * are chosen out on the lattice, and a town is a cell with buildings in it
+   * instead of grass — so everything that joins one place to another (the
+   * bearings, the borders, the region map, the depth) works on all four without
+   * knowing which kind it has.
+   */
+  kind: PlaceKind;
   /**
    * `biome-nth`, so the four meadows are meadow-1 through meadow-4 **in order
    * of distance from town**.
@@ -78,8 +92,14 @@ export interface PlanNode {
 }
 
 export interface WorldPlan {
-  /** The town's cell. Always the origin, and always `depth` 0. */
-  hub: { cell: { x: number; y: number }; links: { bearing: Bearing; to: string }[] };
+  /**
+   * Every place in the world: the fifty routes and the four towns, the origin
+   * among them.
+   *
+   * The origin used to sit outside this list in a `hub` field of its own,
+   * which meant every walk over the graph had a special case in it for the one
+   * cell that was not a node. It is a node.
+   */
   nodes: readonly PlanNode[];
   /** The deepest anything gets, for scaling everything that scales. */
   maxDepth: number;
@@ -96,6 +116,27 @@ const MOST_LINKS = 4;
  * added until the count is at or below this.
  */
 const BLIND_ENDS = 6;
+
+/**
+ * How many towns the world holds besides the one you start in, and how far
+ * apart they have to be.
+ *
+ * Three, and **at least three hops from each other and from home** — which is
+ * to say with at least two routes in between, so no two towns are ever within
+ * sight of one another and reaching the next one is a journey rather than a
+ * step. A town every other cell would make the whole map a rest stop and the
+ * distances meaningless.
+ */
+export const OUTER_TOWNS = 3;
+export const TOWNS_APART = 3;
+
+/**
+ * How far out a town may be founded.
+ *
+ * Not in the first ring: somewhere to heal one hop from the town you started
+ * in is somewhere nobody will ever walk to.
+ */
+const TOWN_FROM = 3;
 
 /**
  * Builds the plan.
@@ -119,6 +160,9 @@ const BLIND_ENDS = 6;
  *   enough jitter that it is a tendency rather than a ring.
  */
 export function planWorld(rng: Rng, count: number): WorldPlan {
+  // `count` is how many places to *grow*, and three of them will be towns
+  // rather than routes, so the caller asks for the routes it wants plus the
+  // towns. See `placesWanted` in biomes.ts and `OUTER_TOWNS` above.
   const key = (x: number, y: number) => `${x},${y}`;
 
   // ------------------------------------------------------------------ grow
@@ -210,41 +254,135 @@ export function planWorld(rng: Rng, count: number): WorldPlan {
   // cannot go, so it is worth being certain rather than confident.
   const reachable = order.filter((cell) => depth.has(key(cell.x, cell.y)));
 
-  const places = dealBiomes(rng, reachable.map((cell) => depth.get(key(cell.x, cell.y))!));
+  // ------------------------------------------------------------------ found
+  //
+  // Three towns, spread over the lattice and over the *journey*.
+  //
+  // Two rules together, because either alone gets it wrong. Each town is taken
+  // from its own third of the distance from home, so there is one on the way
+  // out, one further, and one near the rim: picking purely by how far apart
+  // they are put all three of them on the rim, and the middle of the world —
+  // six hops of it — had nowhere to heal. And within its third each is the
+  // candidate *furthest from every town already chosen*, which is what keeps
+  // two of them from ending up neighbours.
+  //
+  // Only candidates at least `TOWNS_APART` from everything chosen are
+  // considered, and if a third has none, the search widens to the whole map
+  // rather than giving up the separation. Measured over five seeds, the third
+  // is never empty and the separation is never the thing that gives.
+  //
+  // Dead ends are not eligible either. A town you can only enter and leave by
+  // the one road is somewhere you visit once by mistake.
+  const deepest = Math.max(TOWN_FROM, ...[...depth.values()]);
+  const between = hops(links, reachable.map((cell) => key(cell.x, cell.y)).concat(key(0, 0)));
+  const eligible = shuffle(
+    rng,
+    reachable.filter(
+      (cell) =>
+        depth.get(key(cell.x, cell.y))! >= TOWN_FROM &&
+        (links.get(key(cell.x, cell.y))?.size ?? 0) >= 2,
+    ),
+  );
 
-  const byCell = new Map<string, string>();
-  reachable.forEach((cell, index) => byCell.set(key(cell.x, cell.y), places[index]));
+  const towns = [key(0, 0)];
+  const span = (deepest - TOWN_FROM + 1) / OUTER_TOWNS;
 
-  const nodes: PlanNode[] = reachable.map((cell, index) => {
+  for (let band = 0; band < OUTER_TOWNS; band++) {
+    const low = TOWN_FROM + Math.floor(band * span);
+    const high = band === OUTER_TOWNS - 1 ? deepest : TOWN_FROM + Math.floor((band + 1) * span) - 1;
+
+    const pick = (inBand: boolean) => {
+      let best: string | null = null;
+      let furthest = -1;
+      for (const cell of eligible) {
+        const at = key(cell.x, cell.y);
+        if (towns.includes(at)) continue;
+        const how = depth.get(at)!;
+        if (inBand && (how < low || how > high)) continue;
+        const nearest = Math.min(...towns.map((town) => between.get(town)?.get(at) ?? Infinity));
+        if (nearest < TOWNS_APART) continue;
+        if (nearest > furthest) {
+          furthest = nearest;
+          best = at;
+        }
+      }
+      return best;
+    };
+
+    const found = pick(true) ?? pick(false);
+    if (found) towns.push(found);
+  }
+
+  const townAt = new Map<string, string>();
+  towns.slice(1).forEach((at, index) => townAt.set(at, `town-${index + 1}`));
+  townAt.set(key(0, 0), HUB);
+
+  // Biomes are dealt only to what is left, so a town does not take a meadow's
+  // place in the world's twenty kinds.
+  const wilds = reachable.filter((cell) => !townAt.has(key(cell.x, cell.y)));
+  const places = dealBiomes(rng, wilds.map((cell) => depth.get(key(cell.x, cell.y))!));
+
+  const byCell = new Map<string, string>(townAt);
+  wilds.forEach((cell, index) => byCell.set(key(cell.x, cell.y), places[index]));
+
+  const cells = [{ x: 0, y: 0 }, ...reachable.map((cell) => ({ x: cell.x, y: cell.y }))];
+
+  const nodes: PlanNode[] = cells.map((cell) => {
     const here = key(cell.x, cell.y);
+    const id = byCell.get(here)!;
+    const town = townAt.has(here);
     return {
-      id: places[index],
-      biome: places[index].slice(0, places[index].lastIndexOf("-")),
+      id,
+      kind: town ? "town" : "route",
+      // A town's palette, which is not one of the twenty.
+      biome: town ? "hearth" : id.slice(0, id.lastIndexOf("-")),
       cell: { x: cell.x, y: cell.y },
       depth: depth.get(here)!,
       links: BEARINGS.flatMap((bearing) => {
         const [dx, dy] = STEP[bearing];
-        const other = key(cell.x + dx, cell.y + dy);
-        if (!links.get(here)?.has(other)) return [];
-        const to = other === key(0, 0) ? HUB : byCell.get(other);
-        return to ? [{ bearing, to }] : [];
+        const to = byCell.get(key(cell.x + dx, cell.y + dy));
+        if (!to || !links.get(here)?.has(key(cell.x + dx, cell.y + dy))) return [];
+        return [{ bearing, to }];
       }),
     };
   });
 
-  const hubLinks = BEARINGS.flatMap((bearing) => {
-    const [dx, dy] = STEP[bearing];
-    const other = key(dx, dy);
-    if (!links.get(key(0, 0))?.has(other)) return [];
-    const to = byCell.get(other);
-    return to ? [{ bearing, to }] : [];
-  });
-
   return {
-    hub: { cell: { x: 0, y: 0 }, links: hubLinks },
     nodes,
     maxDepth: Math.max(1, ...nodes.map((node) => node.depth)),
   };
+}
+
+/**
+ * How many hops between every pair of cells.
+ *
+ * A breadth-first walk from each, which is fifty-three walks over fifty-three
+ * cells and therefore free. It exists so the towns can be spread by *graph*
+ * distance rather than by how far apart they look on the lattice: two cells one
+ * apart as the crow flies can be five hops if the wall between them is closed,
+ * and it is the walking that matters.
+ */
+function hops(
+  links: Map<string, Set<string>>,
+  cells: readonly string[],
+): Map<string, Map<string, number>> {
+  const out = new Map<string, Map<string, number>>();
+
+  for (const start of cells) {
+    const seen = new Map<string, number>([[start, 0]]);
+    const queue = [start];
+    for (let head = 0; head < queue.length; head++) {
+      const at = queue[head];
+      for (const next of links.get(at) ?? []) {
+        if (seen.has(next)) continue;
+        seen.set(next, seen.get(at)! + 1);
+        queue.push(next);
+      }
+    }
+    out.set(start, seen);
+  }
+
+  return out;
 }
 
 /** What the town is called in a plan's links. */

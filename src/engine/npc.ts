@@ -108,7 +108,27 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
   /** Which map, and roughly where on it. */
   where:
     | { at: "town"; x: number; y: number }
-    | { at: "interior"; role: "centre" | "mart" | "daycare" | "house"; index?: number }
+    | {
+        at: "interior";
+        role: "centre" | "mart" | "daycare" | "house";
+        index?: number;
+        /**
+         * There is one of these in *every* building of the kind.
+         *
+         * For the two people whose job is the building itself: a Center with
+         * no nurse in it is a room with a bed, and a Mart with nobody behind
+         * the counter is a room. There are four towns, so there are four
+         * nurses and four shopkeepers, and the roster says so once rather
+         * than four times.
+         *
+         * Everybody else indoors is a person who happens to be inside, and
+         * there is one of them. Four commissioners handing out the same job in
+         * four towns would be one job and three redundant people.
+         */
+        staff?: true;
+        /** Which room, filled in when the roster is expanded. */
+        roomId?: string;
+      }
     /**
      * Out on a route: which biome, and which copy of it counted outward from
      * town.
@@ -143,7 +163,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "nurse",
     name: "Nurse",
     kind: "heal",
-    where: { at: "interior", role: "centre" },
+    where: { at: "interior", role: "centre", staff: true },
     lines: [
       "You look like you have been walking a while.",
       "There. All of them, back on their feet — and it costs nothing, before you ask. It never has.",
@@ -153,7 +173,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "clerk",
     name: "Shopkeeper",
     kind: "hint",
-    where: { at: "interior", role: "mart" },
+    where: { at: "interior", role: "mart", staff: true },
     lines: [
       "Balls are cheap, and the good ones are not.",
       "A Great Ball is worth half again what an ordinary one is, and an Ultra twice. Whether that is worth three times the money depends entirely on what is standing in front of you.",

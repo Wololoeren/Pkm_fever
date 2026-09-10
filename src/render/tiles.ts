@@ -1,17 +1,20 @@
+import { SIGHT_TILES_X, SIGHT_TILES_Y } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
 
 /** How big one tile is drawn. The engine has no idea this number exists. */
 export const TILE_PX = 26;
 
 /**
- * How many tiles the camera shows.
+ * How many tiles the camera shows: exactly what you can see.
  *
- * Routes are 44x34 now, which at 26px would be a 1144px map — too wide for the
- * page and too much of a place to see at once anyway. The window is what makes
- * a bigger world feel bigger rather than merely more zoomed out.
+ * Re-exported rather than declared, because "how much of a route you take in
+ * from one spot" is a rule about the game and not about the screen — it decides
+ * what the small map remembers as well as what gets painted, and those two
+ * must not be able to disagree. The number and the reasoning live in the
+ * engine; this is the name the render layer knows it by.
  */
-export const VIEW_TILES_X = 23;
-export const VIEW_TILES_Y = 17;
+export const VIEW_TILES_X = SIGHT_TILES_X;
+export const VIEW_TILES_Y = SIGHT_TILES_Y;
 
 interface BiomePalette {
   /** Trodden ground. */

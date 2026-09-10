@@ -375,6 +375,12 @@ export function play(world: World, count: number, salt = "walk"): { inputs: Inpu
         else if (die <= 2) candidates.push({ t: "ball" });
         for (let i = 0; i < 4; i++) candidates.push({ t: "fight", moveIndex: intBelow(rng, 4) });
         candidates.push({ t: "fight", moveIndex: 0 });
+        // What the battle menu offers a creature with nothing left, and the
+        // reason this fixture could stall: with every move dry, every `fight`
+        // is refused and there was nothing else on the list, so the walker sat
+        // in one battle until it ran out of attempts. It surfaced when routes
+        // became real mazes and the walk got long enough to empty a move.
+        candidates.push({ t: "struggle" });
       }
     } else {
       candidates.push(...walkCandidates(world, state, rng));

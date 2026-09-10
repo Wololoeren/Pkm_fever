@@ -108,7 +108,7 @@ const SETTLED: BiomeSpec[] = [
     blurb: "Open and forgiving. Wide ways, plenty of loops, grass everywhere.",
     types: ["normal", "grass", "bug", "flying", "fairy"],
     profile: {
-      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 5, roomInset: [0, 1],
+      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [1, 1],
       loops: 14, grass: 650, pools: 2, clutter: 40,
     },
   },
@@ -130,7 +130,7 @@ const SETTLED: BiomeSpec[] = [
     blurb: "Broken rather than dense. Wide rooms, little cover, nothing to drink.",
     types: ["fire", "rock", "ground", "steel"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.SAND, corridor: 6, roomInset: [0, 0],
+      wall: TILE.ROCK, ground: TILE.SAND, corridor: 5, roomInset: [1, 1],
       loops: 10, grass: 250, pools: 0, clutter: 55,
     },
   },
@@ -141,7 +141,7 @@ const SETTLED: BiomeSpec[] = [
     blurb: "Water does the walling. The way through is the dry ground between pools.",
     types: ["water", "poison", "ground", "bug"],
     profile: {
-      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [0, 2],
+      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [1, 2],
       loops: 8, grass: 600, pools: 7, clutter: 25,
     },
   },
@@ -163,7 +163,7 @@ const WILD: BiomeSpec[] = [
     blurb: "The coldest. Ice walls, almost nothing growing, and three still pools.",
     types: ["ice", "water", "dragon"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.SAND, corridor: 4, roomInset: [0, 1],
+      wall: TILE.ROCK, ground: TILE.SAND, corridor: 4, roomInset: [1, 2],
       loops: 6, grass: 180, pools: 3, clutter: 30,
     },
   },
@@ -176,7 +176,7 @@ const WILD: BiomeSpec[] = [
     profile: {
       // Water walls: the most interesting thing a biome can be made of. Before
       // Surf this is a handful of connected spits; after it, open sea.
-      wall: TILE.WATER, ground: TILE.SAND, corridor: 5, roomInset: [0, 1],
+      wall: TILE.WATER, ground: TILE.SAND, corridor: 4, roomInset: [1, 1],
       loops: 12, grass: 300, pools: 0, clutter: 20,
     },
   },
@@ -187,7 +187,7 @@ const WILD: BiomeSpec[] = [
     blurb: "The widest. You can see across it, and there is nothing to see.",
     types: ["ground", "rock", "dragon"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.SAND, corridor: 7, roomInset: [0, 0],
+      wall: TILE.ROCK, ground: TILE.SAND, corridor: 5, roomInset: [1, 1],
       loops: 16, grass: 130, pools: 1, clutter: 45,
     },
   },
@@ -220,7 +220,7 @@ const WILD: BiomeSpec[] = [
     blurb: "The most open. Twenty ways round everything and nowhere to hide.",
     types: ["electric", "normal", "flying"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.MEADOW, corridor: 7, roomInset: [0, 0],
+      wall: TILE.ROCK, ground: TILE.MEADOW, corridor: 5, roomInset: [1, 2],
       loops: 20, grass: 500, pools: 0, clutter: 15,
     },
   },
@@ -231,7 +231,7 @@ const WILD: BiomeSpec[] = [
     blurb: "The most barren. Almost nothing lives here, and what does is strange.",
     types: ["psychic", "steel", "fairy"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.SAND, corridor: 4, roomInset: [0, 0],
+      wall: TILE.ROCK, ground: TILE.SAND, corridor: 4, roomInset: [1, 2],
       loops: 8, grass: 140, pools: 2, clutter: 40,
     },
   },
@@ -242,7 +242,7 @@ const WILD: BiomeSpec[] = [
     blurb: "Burnt ground and standing heat. Everything here is already scarred.",
     types: ["fire", "fighting", "dark"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.SAND, corridor: 5, roomInset: [0, 1],
+      wall: TILE.ROCK, ground: TILE.SAND, corridor: 4, roomInset: [1, 1],
       loops: 9, grass: 350, pools: 0, clutter: 50,
     },
   },
@@ -264,7 +264,7 @@ const WILD: BiomeSpec[] = [
     blurb: "The other archipelago, and the drowned one. Twelve pools and rising.",
     types: ["water", "steel", "dark"],
     profile: {
-      wall: TILE.WATER, ground: TILE.MEADOW, corridor: 4, roomInset: [0, 2],
+      wall: TILE.WATER, ground: TILE.MEADOW, corridor: 3, roomInset: [1, 2],
       loops: 7, grass: 400, pools: 12, clutter: 25,
     },
   },
@@ -286,7 +286,7 @@ const WILD: BiomeSpec[] = [
     blurb: "Cracked flat and white. The most cluttered ground in the world.",
     types: ["ground", "water", "steel"],
     profile: {
-      wall: TILE.ROCK, ground: TILE.SAND, corridor: 6, roomInset: [0, 0],
+      wall: TILE.ROCK, ground: TILE.SAND, corridor: 5, roomInset: [1, 2],
       loops: 14, grass: 150, pools: 4, clutter: 85,
     },
   },
@@ -297,7 +297,7 @@ const WILD: BiomeSpec[] = [
     blurb: "Cultivated by somebody, a long time ago, and still growing to plan.",
     types: ["fairy", "psychic", "grass"],
     profile: {
-      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [0, 1],
+      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 4, roomInset: [1, 2],
       loops: 11, grass: 600, pools: 2, clutter: 80,
     },
   },
@@ -310,7 +310,7 @@ const WILD: BiomeSpec[] = [
     profile: {
       // The only biome floored with trodden path rather than anything growing:
       // it reads as a place that was made rather than one that grew.
-      wall: TILE.ROCK, ground: TILE.PATH, corridor: 5, roomInset: [0, 1],
+      wall: TILE.ROCK, ground: TILE.PATH, corridor: 4, roomInset: [1, 2],
       loops: 8, grass: 260, pools: 1, clutter: 55,
     },
   },
@@ -321,7 +321,7 @@ const WILD: BiomeSpec[] = [
     blurb: "A bog that froze and thawed and froze. Nine pools of it, none inviting.",
     types: ["ice", "poison", "water"],
     profile: {
-      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 3, roomInset: [0, 2],
+      wall: TILE.TREE, ground: TILE.MEADOW, corridor: 3, roomInset: [1, 1],
       loops: 6, grass: 520, pools: 9, clutter: 30,
     },
   },

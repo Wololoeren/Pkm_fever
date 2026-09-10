@@ -211,6 +211,22 @@ describe("they are actually different places", () => {
       expect(clutter, `${spec.id} clutter`).toBeGreaterThanOrEqual(0);
       expect(roomInset[0], `${spec.id} inset`).toBeLessThanOrEqual(roomInset[1]);
 
+      // The inset *is* the wall between a room and its neighbours, so nought
+      // carves the whole cell and the two rooms merge. Five biomes were
+      // written `[0, 0]` and their routes came out as one open field.
+      //
+      // And it is exactly one at the near end, never two. A room inset two into
+      // an eight-tile cell is four across, and a building is five by four — so
+      // a biome whose rooms are *all* inset two is a biome where a gym hall
+      // cannot be built, which is how six of these were caught. Rolling from
+      // one means about half the rooms of any route can take a roof.
+      expect(roomInset[0], `${spec.id} inset`).toBe(1);
+      expect(roomInset[1], `${spec.id} inset`).toBeLessThanOrEqual(2);
+
+      // And a doorway wider than five leaves under three tiles of wall along
+      // the edge two rooms share, which reads as a hole rather than a door.
+      expect(corridor, `${spec.id} corridor`).toBeLessThanOrEqual(5);
+
       // Walls have to be something you cannot simply walk through, or the maze
       // is a field.
       expect(walkable(spec.profile.wall), `${spec.id} wall`).toBe(false);

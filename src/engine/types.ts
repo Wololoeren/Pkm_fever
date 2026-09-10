@@ -14,7 +14,7 @@ import { BIOME_IDS } from "./biomes";
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 18;
+export const ENGINE_VERSION = 19;
 
 // ------------------------------------------------------------------ stats
 
