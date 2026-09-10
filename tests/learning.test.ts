@@ -160,7 +160,7 @@ describe("growing into a move", () => {
     });
     const holding: GameState = { ...state, party: [mine], bag: { ...state.bag, rarecandy: 1 } };
 
-    expect(itemRefusal(holding, "rarecandy", 0)).toBeNull();
+    expect(itemRefusal(world, holding, "rarecandy", 0)).toBeNull();
     const after = applyInput(world, holding, { t: "useItem", item: "rarecandy", index: 0 });
 
     expect(after.party[0].level).toBe(7);
@@ -251,7 +251,7 @@ describe("machines", () => {
   });
 
   it("T2: a machine refuses the species that will not take it", () => {
-    const { state } = started("TM1");
+    const { world, state } = started("TM1");
 
     // Something every machine list disagrees about, found from the data rather
     // than assumed: one species that takes it and one that does not.
@@ -264,12 +264,12 @@ describe("machines", () => {
     const can = { ...held, party: [creature("pidgey", { uid: 1, moves: ["tackle"] })] };
     const cannot = { ...held, party: [creature("magikarp", { uid: 1, moves: ["splash"] })] };
 
-    expect(itemRefusal(can, `tm-${moveId}`, 0)).toBeNull();
-    expect(itemRefusal(cannot, `tm-${moveId}`, 0)).toMatch(/will not take/);
+    expect(itemRefusal(world, can, `tm-${moveId}`, 0)).toBeNull();
+    expect(itemRefusal(world, cannot, `tm-${moveId}`, 0)).toMatch(/will not take/);
 
     // And it will not teach the same move twice.
     const knows = { ...held, party: [creature("pidgey", { uid: 1, moves: [moveId!] })] };
-    expect(itemRefusal(knows, `tm-${moveId}`, 0)).toBe("it already knows that");
+    expect(itemRefusal(world, knows, `tm-${moveId}`, 0)).toBe("it already knows that");
   });
 
   it("T3: room teaches at once, a full set asks", () => {

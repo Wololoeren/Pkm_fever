@@ -27,7 +27,15 @@ import {
 } from "./dex";
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
-import { awardExp, expForLevel, MAX_LEVEL, MOVE_SLOTS } from "./progression";
+import { effortSpent, gainEffort } from "./effort";
+import {
+  awardExp,
+  evolutionByItem,
+  expForLevel,
+  forgottenMoves,
+  MAX_LEVEL,
+  MOVE_SLOTS,
+} from "./progression";
 import { pickAbilities, rollAbilities } from "./abilities";
 import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
@@ -49,7 +57,7 @@ import {
   isContender,
 } from "./cup";
 import { hash32, intBelow, intBetween, rngFor } from "./rng";
-import { clampIvs, computeStats, IV_MAX } from "./stats";
+import { clampIvs, computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type StatTable } from "./types";
 import { variant } from "./variants";
 import {
@@ -257,7 +265,17 @@ export type Notice =
   | { t: "released"; name: string }
   | { t: "appraised"; name: string; tier: number; money: number; glitter: number }
   | { t: "lured"; item: string; until: number }
-  | { t: "taught"; name: string; learned: string; forgot: string | null };
+  | { t: "taught"; name: string; learned: string; forgot: string | null }
+  /**
+   * Changed into something else outside a battle.
+   *
+   * Its own notice rather than a `used`, because the screen wants to show it:
+   * levelling into an evolution gets the whole twenty-second reveal, and a
+   * stone doing the same thing should not be a line of small text. Both halves
+   * are carried for the same reason the battle event carries both — the
+   * creature has already changed by the time anything reads this.
+   */
+  | { t: "evolved"; from: string; to: string };
 
 export interface GameState {
   tick: number;
@@ -518,7 +536,7 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
     case "reorderParty":
       return reorderParty(state, input.from, input.to);
     case "useItem":
-      return applyItem(state, input.item, input.index);
+      return applyItem(world, state, input.item, input.index);
     case "buyItem":
       return buyItem(world, state, input.item, input.count);
     case "sellItem":
@@ -1081,7 +1099,12 @@ function reorderParty(state: GameState, from: number, to: number): GameState {
  * just the verdict, and a panel that derives one separately will eventually
  * derive a different one.
  */
-export function itemRefusal(state: GameState, itemId: string, index: number): string | null {
+export function itemRefusal(
+  world: World,
+  state: GameState,
+  itemId: string,
+  index: number,
+): string | null {
   if (state.phase !== "field") return "not right now";
   if (!isItem(itemId)) return "no such item";
   if (!hasItem(state.bag, itemId)) return "you have none";
@@ -1090,6 +1113,11 @@ export function itemRefusal(state: GameState, itemId: string, index: number): st
   // all — asking a lure which creature it is for is asking the wrong question.
   const spec = item(itemId);
   if (spec.lure) return lureLeft(state, itemId) > 0 ? "that one is already burning" : null;
+
+  // A repel is asked exactly what a lure is asked, because it is the same
+  // record. An Escape Rope is asked where you are standing instead.
+  if (spec.repel) return lureLeft(state, itemId) > 0 ? "that one is still working" : null;
+  if (spec.escape) return inTown(world, state) ? "you are already in town" : null;
 
   const target = state.party[index];
   if (!target) return "nobody there";
@@ -1102,6 +1130,35 @@ export function itemRefusal(state: GameState, itemId: string, index: number): st
       return `a ${speciesById(target.speciesId).name} will not take that one`;
     }
     return null;
+  }
+
+  // A stone works on the creature in front of it or on nothing at all, and
+  // saying which is the whole of what makes a shelf of twenty-two navigable.
+  if (spec.evolves) {
+    return evolutionByItem(target, spec.name)
+      ? null
+      : `a ${speciesById(target.speciesId).name} has no use for that`;
+  }
+
+  // Effort in both directions, refused for the cap it would run into rather
+  // than silently doing nothing. `gainEffort` enforces the caps; this only
+  // explains them.
+  if (spec.effort) {
+    const here = target.evs[spec.effort.stat];
+    if (spec.effort.delta > 0) {
+      if (here >= EV_MAX_PER_STAT) return "that stat holds all the effort it can";
+      if (effortSpent(target.evs) >= EV_MAX_TOTAL) return "it has spent every point it has";
+      return null;
+    }
+    return here <= 0 ? "there is no effort there to take back out" : null;
+  }
+
+  if (spec.natureId) {
+    return target.natureId === spec.natureId ? "it already has that nature" : null;
+  }
+
+  if (spec.relearn) {
+    return forgottenMoves(target).length ? null : "there is nothing it has grown past";
   }
 
   if (spec.kind !== "medicine") return `the ${spec.name} is not used on a creature`;
@@ -1117,8 +1174,8 @@ export function itemRefusal(state: GameState, itemId: string, index: number): st
   return spec.heals ? "it is already well" : "nothing to cure";
 }
 
-function applyItem(state: GameState, itemId: string, index: number): GameState {
-  const refusal = itemRefusal(state, itemId, index);
+function applyItem(world: World, state: GameState, itemId: string, index: number): GameState {
+  const refusal = itemRefusal(world, state, itemId, index);
   if (refusal) throw new IllegalInput(refusal);
 
   const spec = item(itemId);
@@ -1139,6 +1196,31 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
       lures: { ...burning, [itemId]: until },
       notice: { t: "lured", item: itemId, until },
     };
+  }
+
+  // A repel shares the lure's record exactly, so "is the grass quiet" and
+  // "is anything being drawn" are answered from one place and can never
+  // disagree about what move it is.
+  if (spec.repel) {
+    const until = state.tick + 1 + spec.repel;
+    const burning = Object.fromEntries(
+      Object.entries(state.lures).filter(([, ends]) => ends > state.tick),
+    );
+    return {
+      ...state,
+      tick: state.tick + 1,
+      bag: removeItem(state.bag, itemId),
+      lures: { ...burning, [itemId]: until },
+      notice: { t: "lured", item: itemId, until },
+    };
+  }
+
+  // Through the same landing `fly` uses, so there is one place that decides
+  // where you end up standing — but not through `fly` itself, which wants a
+  // wing you may not have. A rope is not a wing.
+  if (spec.escape) {
+    const home = landAt(world, { ...state, bag: removeItem(state.bag, itemId) }, HUB_ID);
+    return { ...home, notice: { t: "used", item: itemId, on: "the walk home" } };
   }
 
   const party = [...state.party];
@@ -1165,6 +1247,91 @@ function applyItem(state: GameState, itemId: string, index: number): GameState {
         : withOffers(state, [{ uid: target.uid, moveId: spec.teaches }]),
       notice: room
         ? { t: "taught", name: speciesById(target.speciesId).name, learned: spec.teaches, forgot: null }
+        : null,
+    };
+  }
+
+  // A stone. Straight to the new species, with the scene to go with it —
+  // levelling into one gets a twenty-second reveal and there is no reason a
+  // stone should be a line of small text.
+  if (spec.evolves) {
+    const into = evolutionByItem(target, spec.name);
+    if (!into) throw new IllegalInput("that does nothing to this one");
+
+    // Health is kept as a proportion, exactly as levelling into an evolution
+    // keeps it: a stone is not a free potion, and a Magikarp on one hit point
+    // should come out of it a Gyarados on very few.
+    const before = maxHp(target);
+    const grown: Individual = { ...target, speciesId: into };
+    const after = maxHp(grown);
+    party[index] = { ...grown, hp: Math.max(1, Math.round((target.hp * after) / Math.max(1, before))) };
+
+    return {
+      ...state,
+      tick: state.tick + 1,
+      party,
+      bag: removeItem(state.bag, itemId),
+      notice: { t: "evolved", from: target.speciesId, to: into },
+    };
+  }
+
+  // Effort, in whichever direction. Through `gainEffort` going up so the caps
+  // are enforced in the one place that owns them; taken straight off going
+  // down, because there is no cap on having less.
+  if (spec.effort) {
+    const { stat, delta } = spec.effort;
+    const evs =
+      delta > 0
+        ? gainEffort(target.evs, { stats: [stat], amount: delta })
+        : { ...target.evs, [stat]: Math.max(0, target.evs[stat] + delta) };
+
+    // Health is a stat like any other, so moving its effort moves the bar. The
+    // proportion is kept rather than the number, for the same reason an
+    // evolution keeps it.
+    const grown: Individual = { ...target, evs };
+    const after = maxHp(grown);
+    party[index] = { ...grown, hp: Math.min(after, Math.max(1, Math.round((target.hp * after) / Math.max(1, max)))) };
+
+    return {
+      ...state,
+      tick: state.tick + 1,
+      party,
+      bag: removeItem(state.bag, itemId),
+      notice: { t: "used", item: itemId, on: speciesById(target.speciesId).name },
+    };
+  }
+
+  if (spec.natureId) {
+    party[index] = { ...target, natureId: spec.natureId };
+    return {
+      ...state,
+      tick: state.tick + 1,
+      party,
+      bag: removeItem(state.bag, itemId),
+      notice: { t: "used", item: itemId, on: speciesById(target.speciesId).name },
+    };
+  }
+
+  // A Heart Scale offers back the first thing it has grown past, through the
+  // same queue a level-up uses. Which means the choice of what to forget is
+  // asked in one place, in the same words, and a replay makes it the same way.
+  if (spec.relearn) {
+    const back = forgottenMoves(target);
+    if (!back.length) throw new IllegalInput("there is nothing it has grown past");
+
+    const room = target.moves.length < MAX_MOVES;
+    party[index] = room ? alignPp({ ...target, moves: [...target.moves, back[0]] }, target) : target;
+
+    return {
+      ...state,
+      tick: state.tick + 1,
+      party,
+      bag: removeItem(state.bag, itemId),
+      pendingMoves: room
+        ? state.pendingMoves
+        : withOffers(state, [{ uid: target.uid, moveId: back[0] }]),
+      notice: room
+        ? { t: "taught", name: speciesById(target.speciesId).name, learned: back[0], forgot: null }
         : null,
     };
   }
@@ -1217,6 +1384,22 @@ export function activeLures(state: GameState): ItemSpec[] {
 /** How many moves this lure has left, or zero. */
 export function lureLeft(state: GameState, id: string): number {
   return Math.max(0, (state.lures[id] ?? 0) - state.tick);
+}
+
+/**
+ * The repel still working, and how long it has, or null.
+ *
+ * The strongest one burning rather than the sum, because two repels at once is
+ * not twice the quiet — and the same record holds both, so a player who lit
+ * a Max Repel over a Repel gets the longer of the two rather than a surprise.
+ */
+export function activeRepel(state: GameState): { item: string; left: number } | null {
+  const burning = Object.entries(state.lures)
+    .filter(([id, until]) => until > state.tick && isItem(id) && item(id).repel)
+    .map(([id, until]) => ({ item: id, left: until - state.tick }))
+    .sort((a, b) => b.left - a.left);
+
+  return burning[0] ?? null;
 }
 
 /** Whether a lure would come to this appearance. */
@@ -1476,8 +1659,22 @@ export function flyRefusal(world: World, state: GameState, id: string): string |
 function fly(world: World, state: GameState, id: string): GameState {
   const refusal = flyRefusal(world, state, id);
   if (refusal) throw new IllegalInput(refusal);
+  return landAt(world, state, id);
+}
 
-  const route = world.routes.get(id)!;
+/**
+ * Put down somewhere else, with no opinion about whether you were allowed to.
+ *
+ * Split out from `fly` so an Escape Rope can borrow the landing without
+ * borrowing the requirement: a rope is not a wing, and routing it through
+ * `fly` meant a player with no HM Fly could not use one — which is not what
+ * an escape rope is for. What the two share is where you end up standing, and
+ * that is the part worth having in one place.
+ */
+function landAt(world: World, state: GameState, id: string): GameState {
+  const route = world.routes.get(id);
+  if (!route) throw new IllegalInput("no such place");
+
   return {
     ...state,
     tick: state.tick + 1,
@@ -2381,6 +2578,12 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   const stepped = (state.steps[state.route] ?? 0) + 1;
   const steps = { ...state.steps, [state.route]: stepped };
   if (!encounterTriggers(world.seed, state.route, stepped)) return { ...moved, steps };
+
+  // A repel. Checked after the roll and before the creature is built, which is
+  // the one ordering that keeps its promise: the step is spent, the roll is
+  // spent, and `nextSlot` — the census — is not. Whatever is waiting in that
+  // grass is still waiting, in the same order, when the repel runs out.
+  if (activeRepel(state)) return { ...moved, steps };
 
   // Nothing able to fight means nothing to fight with, so the grass stays
   // quiet rather than starting a battle that cannot be played.

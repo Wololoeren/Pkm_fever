@@ -91,12 +91,12 @@ describe("using things", () => {
     const { world, state } = started();
     const full: GameState = { ...state, bag: addItem(state.bag, "potion") };
 
-    expect(itemRefusal(full, "potion", 0)).toBe("it is already well");
+    expect(itemRefusal(world, full, "potion", 0)).toBe("it is already well");
     expect(() => applyInput(world, full, { t: "useItem", item: "potion", index: 0 })).toThrow();
 
     // And on nobody at all.
-    expect(itemRefusal(full, "potion", 5)).toBe("nobody there");
-    expect(itemRefusal(state, "potion", 0)).toBe("you have none");
+    expect(itemRefusal(world, full, "potion", 5)).toBe("nobody there");
+    expect(itemRefusal(world, state, "potion", 0)).toBe("you have none");
   });
 
   it("I8: a revive is for the fallen, and a potion is not", () => {
@@ -107,15 +107,15 @@ describe("using things", () => {
       party: [{ ...state.party[0], hp: 0 }],
     };
 
-    expect(itemRefusal(down, "potion", 0)).toBe("it has fainted");
-    expect(itemRefusal(down, "revive", 0)).toBeNull();
+    expect(itemRefusal(world, down, "potion", 0)).toBe("it has fainted");
+    expect(itemRefusal(world, down, "revive", 0)).toBeNull();
 
     const back = applyInput(world, down, { t: "useItem", item: "revive", index: 0 });
     expect(back.party[0].hp).toBeGreaterThan(0);
     // Still carrying one, so the refusal is about the target rather than the
     // bag — the bag is checked first, which is the more immediate truth.
     expect(countOf(back.bag, "revive")).toBe(1);
-    expect(itemRefusal(back, "revive", 0)).toBe("it is still standing");
+    expect(itemRefusal(world, back, "revive", 0)).toBe("it is still standing");
   });
 
   it("I9: a rare candy is one level, and stops at the ceiling", () => {
@@ -130,13 +130,13 @@ describe("using things", () => {
     expect(grown.party[0].level).toBe(21);
 
     const capped: GameState = { ...ready, party: [creature("machop", { uid: 1, level: 100 })] };
-    expect(itemRefusal(capped, "rarecandy", 0)).toBe("it cannot grow further");
+    expect(itemRefusal(world, capped, "rarecandy", 0)).toBe("it cannot grow further");
   });
 
   it("I10: things that are not medicine are not used on creatures", () => {
-    const { state } = started();
+    const { world, state } = started();
     const holding: GameState = { ...state, bag: addItem(state.bag, "nugget") };
-    expect(itemRefusal(holding, "nugget", 0)).toContain("not used on a creature");
+    expect(itemRefusal(world, holding, "nugget", 0)).toContain("not used on a creature");
   });
 });
 

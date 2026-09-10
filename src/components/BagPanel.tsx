@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   activeLures,
+  activeRepel,
   flyRefusal,
   itemRefusal,
   lureLeft,
@@ -31,6 +32,9 @@ import { displayName } from "@/lib/narrate";
 const TABS: { kind: ItemKind; label: string }[] = [
   { kind: "medicine", label: "Medicine" },
   { kind: "ball", label: "Balls" },
+  { kind: "field", label: "Field" },
+  { kind: "stone", label: "Stones" },
+  { kind: "tonic", label: "Tonics" },
   { kind: "hm", label: "Tools" },
   { kind: "tm", label: "Machines" },
   { kind: "rod", label: "Rods" },
@@ -80,14 +84,16 @@ export function BagPanel({
   if (!bagEntries(state.bag).length) return <p className="muted">Your bag is empty.</p>;
 
   const burning = activeLures(state);
+  const quiet = activeRepel(state);
 
   return (
     <div className="bag">
-      {burning.length ? (
+      {burning.length || quiet ? (
         <p className="good">
-          {burning
-            .map((spec) => `${spec.name} — ${lureLeft(state, spec.id)} moves`)
-            .join(" · ")}
+          {[
+            ...burning.map((spec) => `${spec.name} — ${lureLeft(state, spec.id)} moves`),
+            ...(quiet ? [`${item(quiet.item).name} — ${quiet.left} moves of quiet`] : []),
+          ].join(" · ")}
         </p>
       ) : null}
 
@@ -127,7 +133,7 @@ export function BagPanel({
               spec.field === "clear" ||
               spec.field === "travel";
             const burning = spec.kind === "lure" ? lureLeft(state, id) : 0;
-            const why = spec.kind === "lure" ? itemRefusal(state, id, 0) : null;
+            const why = spec.kind === "lure" || spec.repel || spec.escape ? itemRefusal(world, state, id, 0) : null;
 
             return (
               <button
@@ -215,7 +221,7 @@ export function BagPanel({
           <h4>Use the {item(selected).name} on…</h4>
           <div className="items">
             {state.party.map((creature, index) => {
-              const refusal = itemRefusal(state, selected, index);
+              const refusal = itemRefusal(world, state, selected, index);
               return (
                 <button
                   key={creature.uid}

@@ -1,4 +1,4 @@
-import { learnset, species as speciesById } from "./dex";
+import { learnableAt, learnset, species as speciesById } from "./dex";
 import { alignPp } from "./pp";
 import { computeStats } from "./stats";
 import type { Individual } from "./types";
@@ -113,8 +113,55 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
   };
 }
 
+/**
+ * What this stone would turn this creature into, or null.
+ *
+ * The relation lives in the manifest — sixty-seven evolutions, each naming
+ * its item as a display string — so this matches on the name the item carries
+ * rather than on a table kept beside it. That is why the stones in items.ts
+ * are generated from the same place: two lists would be two lists to keep in
+ * step, and the manifest is the one that can be rebuilt.
+ *
+ * A species with two doors behind one stone (Pikachu and its two Raichus)
+ * resolves the same way `evolutionAt` does: `evolvesTo` is sorted by id at
+ * build time, so the first is the first on every machine.
+ */
+export function evolutionByItem(individual: Individual, itemName: string): string | null {
+  const options = speciesById(individual.speciesId).evolvesTo.filter(
+    (step) => step.method === "useItem" && step.item === itemName,
+  );
+  return options[0]?.id ?? null;
+}
+
+/**
+ * Moves it once had the level for and does not know.
+ *
+ * Not "moves it forgot" — nothing is recorded when a move is dropped, and
+ * nothing needs to be. A creature that has passed level twenty knows what its
+ * species learns at twenty or it does not, and the difference between those
+ * two is the whole list. Derived, like quest progress and everything else, so
+ * a moveset rearranged in town changes the answer immediately.
+ */
+export function forgottenMoves(individual: Individual): string[] {
+  return learnableAt(individual.speciesId, individual.level)
+    .filter((moveId) => !individual.moves.includes(moveId))
+    .sort();
+}
+
+/**
+ * Whether this creature has anywhere left to grow.
+ *
+ * Any method counts, not just the ones the game acts on: a Happiny that could
+ * only ever evolve by holding an Oval Stone is still not a finished creature,
+ * and Eviolite asks exactly this question.
+ */
+export function canStillEvolve(individual: Individual): boolean {
+  return speciesById(individual.speciesId).evolvesTo.length > 0;
+}
+
 /** The species this creature should become, if any. Level-up evolutions only;
- * item and friendship evolutions arrive with the item system. */
+ * a stone asks `evolutionByItem` instead, and friendship is on the deferred
+ * list in docs/items-deferred.md because there is no friendship. */
 export function evolutionAt(individual: Individual): string | null {
   const options = speciesById(individual.speciesId).evolvesTo.filter(
     (evolution) => evolution.method === "level" && evolution.level > 0 && individual.level >= evolution.level,

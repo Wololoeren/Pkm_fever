@@ -338,13 +338,13 @@ describe("lures", () => {
     let state = started("LURE2").state;
     state = { ...state, bag: { ...state.bag, "lure-shiny": 1 } };
 
-    expect(itemRefusal(state, "lure-shiny", 0)).toBeNull();
+    expect(itemRefusal(world, state, "lure-shiny", 0)).toBeNull();
     const lit = applyInput(world, state, { t: "useItem", item: "lure-shiny", index: 0 });
 
     expect(countOf(lit.bag, "lure-shiny")).toBe(0);
     expect(lureLeft(lit, "lure-shiny")).toBe(LURE_MOVES);
     // Lighting the same one twice would be paying twice for one window.
-    expect(itemRefusal({ ...lit, bag: { "lure-shiny": 1 } }, "lure-shiny", 0)).toBe(
+    expect(itemRefusal(world, { ...lit, bag: { "lure-shiny": 1 } }, "lure-shiny", 0)).toBe(
       "that one is already burning",
     );
 

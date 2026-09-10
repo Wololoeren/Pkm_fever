@@ -1,6 +1,6 @@
 import { rollAbilities } from "./abilities";
-import { STARTER_TYPES, startersOfType } from "./dex";
-import { MACHINE_ITEMS } from "./items";
+import { ALL_SPECIES, STARTER_TYPES, startersOfType } from "./dex";
+import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { CUP_BIOME, CUP_IDS, CUP_RING } from "./cup";
 import { GYMS, gym } from "./gyms";
@@ -1226,6 +1226,18 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
 const ANY_MACHINE = "*machine";
 
 /**
+ * A stone nobody stocks, rather than any one of them.
+ *
+ * Ten of the twenty-two stones open more than one door and are on the Mart
+ * shelf; the other twelve open exactly one, and a shop row for "the thing that
+ * turns a Poltchageist into a Sinistcha" is a row nobody reads. Those are
+ * found. Which means they are the only way those twelve species can ever
+ * change, so they had to come from somewhere — an item evolution with no
+ * item in the world is a species with a locked door and no key cut.
+ */
+const ANY_STONE = "*stone";
+
+/**
  * Which machines this far out may hold.
  *
  * The list is ranked by the power of what it teaches, and a route may hold
@@ -1255,8 +1267,31 @@ const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
   { item: "ultraball", weight: 2 },
   { item: "lure-shiny", weight: 2 },
   { item: ANY_MACHINE, weight: 12 },
+  { item: ANY_STONE, weight: 4 },
+  { item: "heartscale", weight: 4 },
+  { item: "repel", weight: 4 },
   { item: "nugget", weight: 1 },
 ];
+
+/**
+ * The stones worth finding, in a stable order.
+ *
+ * The specialists: the ones that open exactly one door. Defined by how many
+ * doors rather than by price, which is the mistake this replaced — it read
+ * `price === 0`, every stone was then given a price, and the list silently
+ * became empty, so the drop table resolved this family to `undefined` and the
+ * world scattered items that did not exist. Door count is a fact about the
+ * bestiary; a price is a decision somebody can change on a whim.
+ */
+const FOUND_STONES: readonly string[] = ITEMS.filter((spec) => {
+  if (!spec.evolves) return false;
+  const doors = ALL_SPECIES.filter((entry) =>
+    entry.evolvesTo.some((step) => step.method === "useItem" && step.item === spec.name),
+  ).length;
+  return doors === 1;
+})
+  .map((spec) => spec.id)
+  .sort();
 
 /**
  * Items on the floor, placed once when the world is made.
@@ -1308,12 +1343,30 @@ function placePickups(
       route.id,
       chosen.map((at, index) => {
         const rolled = weighted(rng, PICKUP_TABLE, (row) => row.weight).item;
-        const reachable = rolled === ANY_MACHINE ? machinesUpTo(route.ring, rings) : null;
+
+        // The two sentinels stand for a family rather than a thing. Machines
+        // are gated by distance, because the list is ranked by what it teaches
+        // and Hyper Beam belongs at the far end of the world; the odd stones
+        // are not, because there is no ranking to gate them by — a Cracked
+        // Pot is not a better item than a Sweet Apple, it is a different door.
+        const family =
+          rolled === ANY_MACHINE
+            ? machinesUpTo(route.ring, rings)
+            : rolled === ANY_STONE
+              ? FOUND_STONES
+              : null;
+
+        // An empty family would resolve to `undefined` and scatter items that
+        // do not exist, which is what happened the first time this shipped.
+        // Falling back to the roll itself keeps the world well-formed even if
+        // a family is emptied by a change somewhere else entirely.
+        const drawn = family?.length ? family[intBelow(rng, family.length)] : null;
+
         return {
           id: `${route.id}:${index}`,
           x: at.x,
           y: at.y,
-          item: reachable ? reachable[intBelow(rng, reachable.length)] : rolled,
+          item: drawn ?? (family ? "pokeball" : rolled),
         };
       }),
     );

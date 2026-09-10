@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { buyRefusal, sellRefusal, type GameState, type Input } from "@/engine/engine";
-import { bagEntries, countOf, item, MART_STOCK } from "@/engine/items";
+import { bagEntries, countOf, item, MART_STOCK, type ItemKind } from "@/engine/items";
 import type { World } from "@/engine/world";
 
 /**
@@ -13,6 +13,49 @@ import type { World } from "@/engine/world";
  * the engine will accept — and a row that is greyed out says why in the same
  * words the refusal would have used.
  */
+/**
+ * The shelves, in the order somebody actually reaches for them.
+ *
+ * The stock used to be one flat list, which was fine at fifteen rows. It is
+ * seventy-three now — ten stones, twelve tonics, twenty-five mints — and
+ * twenty-five near-identical mints at the top of a single grid buries the
+ * potions underneath them. Same fix the bag already had, and the labels are
+ * the bag's labels so one thing is called one thing in both places.
+ *
+ * Derived from what is actually priced rather than listed: a kind nobody
+ * stocks does not get an empty shelf, and a new priced kind cannot go missing
+ * from the shop by being forgotten here.
+ */
+const SHELF_ORDER: readonly ItemKind[] = [
+  "medicine",
+  "ball",
+  "field",
+  "stone",
+  "tonic",
+  "rod",
+  "lure",
+  "breeding",
+  "treasure",
+  "hm",
+  "tm",
+  "key",
+];
+
+const SHELF_LABEL: Record<ItemKind, string> = {
+  medicine: "Medicine",
+  ball: "Balls",
+  field: "Field",
+  stone: "Stones",
+  tonic: "Tonics",
+  rod: "Rods",
+  lure: "Lures",
+  breeding: "Breeding",
+  treasure: "Valuables",
+  hm: "Tools",
+  tm: "Machines",
+  key: "Keys",
+};
+
 export function MartPanel({
   world,
   state,
@@ -23,6 +66,12 @@ export function MartPanel({
   onInput: (input: Input) => void;
 }) {
   const [count, setCount] = useState(1);
+  const [shelf, setShelf] = useState<ItemKind | null>(null);
+
+  // What is on the shelves at all, in reading order.
+  const shelves = SHELF_ORDER.filter((kind) => MART_STOCK.some((spec) => spec.kind === kind));
+  const open = shelf && shelves.includes(shelf) ? shelf : shelves[0];
+  const stock = MART_STOCK.filter((spec) => spec.kind === open);
 
   return (
     <div className="mart">
@@ -44,8 +93,27 @@ export function MartPanel({
       </div>
 
       <h4>For sale</h4>
+
+      <div className="tabs" role="tablist">
+        {shelves.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            role="tab"
+            aria-selected={kind === open}
+            className={kind === open ? "tab on" : "tab"}
+            onClick={() => setShelf(kind)}
+          >
+            {SHELF_LABEL[kind]}
+            <span className="tabCount">
+              {MART_STOCK.filter((spec) => spec.kind === kind).length}
+            </span>
+          </button>
+        ))}
+      </div>
+
       <div className="items">
-        {MART_STOCK.map((spec) => {
+        {stock.map((spec) => {
           // Equipment is one and done, so the counter does not apply to it.
           const wanted = spec.stacks ? count : 1;
           const refusal = buyRefusal(world, state, spec.id, wanted);

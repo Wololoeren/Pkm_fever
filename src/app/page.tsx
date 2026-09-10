@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BattleView } from "@/components/BattleView";
 import { CheatMenu } from "@/components/CheatMenu";
+import { EvolutionScene } from "@/components/EvolutionScene";
 import { Inspect } from "@/components/Inspect";
 import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
@@ -21,7 +22,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -76,6 +77,16 @@ export default function Page() {
   const [autosave, setAutosave] = useState<SaveFile | null>(null);
   const [pvp, setPvp] = useState(false);
   const [cheats, setCheats] = useState(false);
+  /**
+   * The evolution notice whose reveal has already been sat through.
+   *
+   * The notice object itself rather than a boolean, so nothing has to reset
+   * it: every notice is a fresh object, so the next stone is a different
+   * object and shows its own scene. The battle's version of this keys on the
+   * turn instead, because a battle can produce several and they arrive in the
+   * same object.
+   */
+  const [seenEvolution, setSeenEvolution] = useState<Notice | null>(null);
   /** uid of whatever is being looked at, or null. */
   const [inspecting, setInspecting] = useState<number | null>(null);
 
@@ -443,6 +454,14 @@ export default function Page() {
         <section className="panel">
           <p className="muted">{INDOORS_NOTE[here!.role ?? "house"] ?? INDOORS_NOTE.house}</p>
         </section>
+      ) : null}
+
+      {state.notice?.t === "evolved" && seenEvolution !== state.notice ? (
+        <EvolutionScene
+          from={state.notice.from}
+          to={state.notice.to}
+          onDone={() => setSeenEvolution(state.notice)}
+        />
       ) : null}
 
       {cheats ? (

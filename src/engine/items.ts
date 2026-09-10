@@ -1,4 +1,6 @@
-import { MACHINE_MOVES, move as moveById } from "./dex";
+import { ALL_SPECIES, MACHINE_MOVES, move as moveById } from "./dex";
+import { NATURES } from "./natures";
+import type { StatId } from "./types";
 import { chroma, CHROMA_IDS } from "./variants";
 
 /**
@@ -14,7 +16,22 @@ import { chroma, CHROMA_IDS } from "./variants";
  * I have" had two different answers depending on what you asked about.
  */
 
-export type ItemKind = "ball" | "medicine" | "rod" | "breeding" | "treasure" | "hm" | "key" | "lure" | "tm";
+export type ItemKind =
+  | "ball"
+  | "medicine"
+  | "rod"
+  | "breeding"
+  | "treasure"
+  | "hm"
+  | "key"
+  | "lure"
+  | "tm"
+  /** Used on a creature to change it into another one. */
+  | "stone"
+  /** Used on a creature to move a number on its stat screen. */
+  | "tonic"
+  /** Used on the world rather than on a creature. */
+  | "field";
 
 export interface ItemSpec {
   id: string;
@@ -59,6 +76,40 @@ export interface ItemSpec {
   lure?: LureSpec;
   /** Machines: the move it teaches. */
   teaches?: string;
+  /**
+   * Stones: that this is one. *Which* species it changes is not listed here.
+   *
+   * The manifest already carries every item evolution — sixty-eight of them,
+   * each naming the item as a display string — and `species.ts` says in as
+   * many words that it kept them "so that the item system does not need the
+   * manifest regenerated to arrive". So the relation is read from there,
+   * matched on `name`, and a stone knows nothing about what it is for. Listing
+   * twenty-two stones against sixty-eight species here would be a second copy
+   * of a table the manifest already has, free to disagree with it.
+   */
+  evolves?: true;
+  /**
+   * Tonics: what it does to one stat's effort, and which stat.
+   *
+   * Positive for a vitamin, negative for the berries that take it back out
+   * again. Both go through `gainEffort`'s caps, so nothing here can mint an
+   * illegal creature.
+   */
+  effort?: { stat: StatId; delta: number };
+  /** Mints: the nature it settles on. */
+  natureId?: string;
+  /**
+   * Repels: how many moves of quiet grass it buys.
+   *
+   * The same shape as a lure, and for the same reason: an expiry written down
+   * once beats a counter decremented on every step. A repel is a lure run
+   * backwards, so it lives in the same record.
+   */
+  repel?: number;
+  /** Escape Rope: that using it puts you back in town. */
+  escape?: true;
+  /** Heart Scale: that it offers back a move the creature has grown past. */
+  relearn?: true;
 }
 
 /**
@@ -522,12 +573,223 @@ const GLITTER: ItemSpec = {
   consumed: true,
 };
 
+
+/**
+ * The stones, read off the manifest rather than listed.
+ *
+ * Every item evolution the bestiary carries names its item as a display
+ * string, so the set of stones that exist is exactly the set of names those
+ * evolutions mention — twenty-two of them, covering sixty-seven species. Hand
+ * a different bestiary to the build script and the shelf restocks itself.
+ *
+ * Priced by how many doors it opens, and *all* of them priced. The first cut
+ * left the twelve one-door stones off the shelf entirely, to be found instead
+ * — which read well and was wrong: with twelve of them sharing one slot in the
+ * drop table, a given one turned up in fewer than one world in twelve, so the
+ * only way a Sinistea could ever become a Polteageist was a die roll made
+ * before the player existed. A locked door with no key cut is worse than a
+ * boring shop row, and the shop has shelves now, so the row is not even
+ * boring.
+ *
+ * The specialist ones cost double. A Fire Stone is on every shelf in every
+ * game ever made; a Masterpiece Teacup is a thing you go in asking for.
+ */
+const STONE_PRICE = 2100;
+const SPECIALIST_STONE_PRICE = 4200;
+
+function stoneItems(): ItemSpec[] {
+  const opens = new Map<string, string[]>();
+  for (const entry of ALL_SPECIES) {
+    for (const step of entry.evolvesTo) {
+      if (step.method !== "useItem" || !step.item) continue;
+      const already = opens.get(step.item) ?? [];
+      // A species can have two doors behind one stone — Pikachu takes a
+      // Thunder Stone to either Raichu — and naming it twice reads as a bug.
+      if (!already.includes(entry.name)) opens.set(step.item, [...already, entry.name]);
+    }
+  }
+
+  return [...opens.entries()]
+    .sort(([a, one], [b, two]) => two.length - one.length || a.localeCompare(b))
+    .map(([name, who]) => {
+      const common = who.length > 1;
+      const price = common ? STONE_PRICE : SPECIALIST_STONE_PRICE;
+      return {
+        id: `stone-${name.toLowerCase().replace(/[^a-z0-9]+/g, "")}`,
+        name,
+        kind: "stone" as const,
+        price,
+        sell: Math.floor(price / 2),
+        blurb:
+          who.length > 3
+            ? `Changes ${who.slice(0, 3).join(", ")} and ${who.length - 3} more. Spent when it works.`
+            : `Changes ${who.join(" and ")}. Spent when it works.`,
+        stacks: true,
+        evolves: true as const,
+      };
+    });
+}
+
+const STONES: ItemSpec[] = stoneItems();
+
+/**
+ * The vitamins, and the berries that undo them.
+ *
+ * Effort is the one stat input a player controls completely, and until now the
+ * only way to move it was to go and fight the right thing — which meant a
+ * misspent creature was misspent for good. Ten points a bottle in one
+ * direction and ten a berry in the other makes the 510 budget something you
+ * can change your mind about, which is what makes spending it a decision
+ * rather than a risk.
+ *
+ * Both go through `gainEffort`, so the per-stat 252 and the total 510 are
+ * enforced in one place and no bottle can mint an illegal creature.
+ */
+const EFFORT_STEP = 10;
+
+const VITAMINS: { id: string; name: string; stat: StatId; what: string }[] = [
+  { id: "hpup", name: "HP Up", stat: "hp", what: "health" },
+  { id: "protein", name: "Protein", stat: "atk", what: "attack" },
+  { id: "iron", name: "Iron", stat: "def", what: "defence" },
+  { id: "calcium", name: "Calcium", stat: "spa", what: "special attack" },
+  { id: "zinc", name: "Zinc", stat: "spd", what: "special defence" },
+  { id: "carbos", name: "Carbos", stat: "spe", what: "speed" },
+];
+
+/** One berry per stat, named as the games name them. */
+const EFFORT_BERRIES: { id: string; name: string; stat: StatId; what: string }[] = [
+  { id: "pomeg", name: "Pomeg Berry", stat: "hp", what: "health" },
+  { id: "kelpsy", name: "Kelpsy Berry", stat: "atk", what: "attack" },
+  { id: "qualot", name: "Qualot Berry", stat: "def", what: "defence" },
+  { id: "hondew", name: "Hondew Berry", stat: "spa", what: "special attack" },
+  { id: "grepa", name: "Grepa Berry", stat: "spd", what: "special defence" },
+  { id: "tamato", name: "Tamato Berry", stat: "spe", what: "speed" },
+];
+
+const TONICS: ItemSpec[] = [
+  ...VITAMINS.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    kind: "tonic" as const,
+    price: 1400,
+    sell: 700,
+    blurb: `Ten points of ${entry.what} effort. Stops at the cap, like everything else.`,
+    stacks: true,
+    effort: { stat: entry.stat, delta: EFFORT_STEP },
+  })),
+  ...EFFORT_BERRIES.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    kind: "tonic" as const,
+    price: 600,
+    sell: 300,
+    blurb: `Takes ten points of ${entry.what} effort back out, to spend somewhere else.`,
+    stacks: true,
+    effort: { stat: entry.stat, delta: -EFFORT_STEP },
+  })),
+];
+
+/**
+ * The mints: twenty-five of them, one per nature.
+ *
+ * Natures here are additive vectors rather than multipliers, which makes a
+ * mint unusually honest — it moves a stat screen by exactly twenty-four
+ * points in one direction and twenty-four in the other, and the screen says
+ * so. The five neutral natures get a mint too, because "take this creature's
+ * nature off it" is a thing somebody will want and there is no reason to make
+ * them hunt for which of the five is the neutral one.
+ *
+ * Priced above a vitamin. A nature is the one thing breeding cannot reliably
+ * aim at without a Talisman, so a mint is the shortcut and shortcuts cost.
+ */
+const MINTS: ItemSpec[] = NATURES.map((entry) => ({
+  id: `mint-${entry.id}`,
+  name: `${entry.name} Mint`,
+  kind: "tonic" as const,
+  price: 4800,
+  sell: 2400,
+  blurb:
+    entry.plus && entry.minus
+      ? `Settles a nature on ${entry.plus} over ${entry.minus}, whatever it was born with.`
+      : "Settles a flat nature, favouring nothing and giving nothing up.",
+  stacks: true,
+  natureId: entry.id,
+}));
+
+/**
+ * The things used on the world rather than on a creature.
+ *
+ * A repel is a lure run backwards and shares its machinery exactly: an expiry
+ * written down when it is lit, swept when the next one is, and never a counter
+ * decremented on every step. Which means the answer to "is the grass quiet"
+ * is derived from the same record that answers "is anything being drawn", and
+ * the two can never disagree about what move it is.
+ */
+const FIELD_ITEMS: ItemSpec[] = [
+  {
+    id: "repel",
+    name: "Repel",
+    kind: "field",
+    price: 400,
+    sell: 200,
+    blurb:
+      "Two hundred moves of quiet grass. The census is untouched: whatever is waiting out there is still waiting, in the same order.",
+    stacks: true,
+    repel: 200,
+  },
+  {
+    id: "superrepel",
+    name: "Super Repel",
+    kind: "field",
+    price: 700,
+    sell: 350,
+    blurb: "Five hundred moves of quiet grass.",
+    stacks: true,
+    repel: 500,
+  },
+  {
+    id: "maxrepel",
+    name: "Max Repel",
+    kind: "field",
+    price: 900,
+    sell: 450,
+    blurb: "A thousand moves of quiet grass.",
+    stacks: true,
+    repel: 1000,
+  },
+  {
+    id: "escaperope",
+    name: "Escape Rope",
+    kind: "field",
+    price: 550,
+    sell: 275,
+    blurb: "Back to Hearth from wherever you are standing, without the walk.",
+    stacks: true,
+    escape: true,
+  },
+  {
+    id: "heartscale",
+    name: "Heart Scale",
+    kind: "field",
+    price: 0,
+    sell: 900,
+    blurb:
+      "Offers back one move a creature grew past. Everything a level-up ever taught it is still in there somewhere.",
+    stacks: true,
+    relearn: true,
+  },
+];
+
 export const ITEMS: readonly ItemSpec[] = [
   ...ITEM_LIST,
   ...TOOLS,
   ...KEYS,
   ...BREEDING_ITEMS,
   GLITTER,
+  ...STONES,
+  ...TONICS,
+  ...MINTS,
+  ...FIELD_ITEMS,
   ...MACHINES,
 ];
 
