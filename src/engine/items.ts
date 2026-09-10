@@ -1,4 +1,5 @@
 import { ALL_SPECIES, MACHINE_MOVES, move as moveById } from "./dex";
+import { HELD_ITEMS } from "./carry";
 import { NATURES } from "./natures";
 import type { StatId } from "./types";
 import { chroma, CHROMA_IDS } from "./variants";
@@ -31,7 +32,11 @@ export type ItemKind =
   /** Used on a creature to move a number on its stat screen. */
   | "tonic"
   /** Used on the world rather than on a creature. */
-  | "field";
+  | "field"
+  /** Given to a creature to carry, and it does something while carried. */
+  | "hold"
+  /** The same, but eaten and gone the moment it does it. */
+  | "berry";
 
 export interface ItemSpec {
   id: string;
@@ -780,6 +785,35 @@ const FIELD_ITEMS: ItemSpec[] = [
   },
 ];
 
+/**
+ * The things a creature carries, folded in from carry.ts.
+ *
+ * What each one *does* lives there, beside the vocabulary the battle reads;
+ * what it costs and what shelf it sits on lives here, beside every other
+ * thing a bag can hold. Two files, one catalogue, and neither has to know the
+ * other's job: items.ts never imports the battle, and carry.ts never needs a
+ * price.
+ *
+ * Berries are their own kind rather than "medicine you hold", because the bag
+ * has to sort them apart: a Potion is a thing you use and an Oran Berry is a
+ * thing you give to somebody to keep.
+ */
+const HOLDABLE: ItemSpec[] = HELD_ITEMS.map((entry) => ({
+  id: entry.id,
+  name: entry.name,
+  kind: entry.id.startsWith("berry-") ? ("berry" as const) : ("hold" as const),
+  price: entry.price,
+  // Half, like everything else with a price; the ones nobody stocks are worth
+  // something at the counter anyway, because they are found.
+  sell: entry.price > 0 ? Math.floor(entry.price / 2) : 400,
+  blurb: entry.blurb,
+  // Held items stack in the bag: two Leftovers is two creatures with
+  // Leftovers, which is not the same claim as "a second rod is not twice the
+  // rod". Only one can be held at a time, and that is enforced on the
+  // creature rather than on the bag.
+  stacks: true,
+}));
+
 export const ITEMS: readonly ItemSpec[] = [
   ...ITEM_LIST,
   ...TOOLS,
@@ -790,6 +824,7 @@ export const ITEMS: readonly ItemSpec[] = [
   ...TONICS,
   ...MINTS,
   ...FIELD_ITEMS,
+  ...HOLDABLE,
   ...MACHINES,
 ];
 

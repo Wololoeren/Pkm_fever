@@ -75,7 +75,79 @@ export type AbilityEffect =
   /** Recoil never applies to it. */
   | { t: "reckless" }
   /** Normal and Fighting reach Ghost. */
-  | { t: "reach" };
+  | { t: "reach" }
+  // -------------------------------------------------------------------------
+  // The shapes below arrived with held items. Nothing forbids an ability from
+  // using one — the vocabulary is shared on purpose — but none does yet,
+  // and every one of them is here because an item asked a question the battle
+  // was not already asking.
+  // -------------------------------------------------------------------------
+  /** Its own attacks that are super effective are multiplied. The mirror of
+   * `cushion`, which scales them coming the other way. */
+  | { t: "sharp"; mille: number }
+  /** The *other* side's accuracy against it is multiplied. Not `aim`, which
+   * is about its own. */
+  | { t: "graze"; mille: number }
+  /**
+   * A share of its maximum, at the end of every turn.
+   *
+   * One over `share`, healed. `only` narrows it to a list of types and turns
+   * it into damage for everything else, which is the whole of what separates
+   * Black Sludge from Leftovers.
+   */
+  | { t: "tick"; share: number; only?: readonly string[] }
+  /** A share of the damage it just dealt, healed back. */
+  | { t: "siphon"; share: number }
+  /** A share of its own maximum, paid every time it attacks. */
+  | { t: "toll"; share: number }
+  /** Whatever damages it with a move of this category loses a share of its
+   * own maximum. Not contact — the manifest carries no contact flag, so the
+   * only honest version of this is the one that reads a category. */
+  | { t: "barb"; share: number; category: "physical" | "special" }
+  /** This often, in per-mille, it moves first regardless of speed. */
+  | { t: "gamble"; mille: number }
+  /** At the end of the turn, it gives itself this. */
+  | { t: "afflict"; status: StatusId }
+  /** Taking a super-effective hit raises these stages. */
+  | { t: "policy"; stats: readonly StageStat[]; delta: number }
+  /** It cannot use status moves at all. */
+  | { t: "silent" }
+  /** One move only, for as long as it stays out. */
+  | { t: "locked" }
+  /** Experience it earns is multiplied. */
+  | { t: "study"; mille: number }
+  /** Money won from a trainer is multiplied. */
+  | { t: "purse"; mille: number }
+  /** It will not evolve, by any road. */
+  | { t: "anchor" }
+  /** Effort it earns is multiplied, and which stat it is steered into. */
+  | { t: "regimen"; mille: number; stat?: StageStat | "hp" }
+  /** Inherited stat slots, for a pairing — the Heirloom's shape, as an item
+   * something can carry rather than one applied to the daycare. */
+  | { t: "lineage"; slots: number }
+  /**
+   * Health back, once, when it falls below one over `below` of its maximum.
+   *
+   * `share` heals one over that many of its maximum; `amount` heals a flat
+   * number. Exactly one of the two, because an Oran Berry is ten points and a
+   * Sitrus Berry is a quarter, and expressing the flat one as a share would
+   * make it a different item on every creature.
+   */
+  | { t: "snack"; below: number; share?: number; amount?: number }
+  /** A stage, once, when it falls below one over `below` of its maximum. */
+  | { t: "pinch"; below: number; stat: StageStat; delta: number }
+  /** Clears a condition the moment it lands. Without `status`, any of them. */
+  | { t: "cure"; status?: StatusId }
+  /**
+   * One super-effective hit of these types is multiplied, and that is that.
+   *
+   * Not `ward`, which scales a type *always* and is what Thick Fat and
+   * Heatproof are. The eighteen resist berries are the other thing: they wait
+   * for the hit that was going to hurt, take the edge off that one, and are
+   * gone. Expressing them as `ward` made them permanent halves that were
+   * never spent, which is two bugs wearing one shape.
+   */
+  | { t: "soften"; types: readonly string[]; mille: number };
 
 /** When a `power` effect applies. */
 export type PowerWhen =
@@ -88,10 +160,23 @@ export type PowerWhen =
   /** Below a third of its maximum health, and the move matches `type`. */
   | "cornered"
   /** It is the last to move this turn. */
-  | "late";
+  | "late"
+  /** The move matches `type`, whatever its health. Every type-enhancing item
+   * is this shape, which is why they needed no new question asked. */
+  | "typed"
+  /** The move is physical. */
+  | "physical"
+  /** The move is special. */
+  | "special";
 
 /** When a `stat` effect applies. */
-export type StatWhen = "always" | "statused" | "hurt";
+export type StatWhen =
+  | "always"
+  | "statused"
+  | "hurt"
+  /** It still has somewhere to evolve to. Eviolite's question, and the reason
+   * "fully evolved" is asked of the bestiary rather than stored. */
+  | "unfinished";
 
 /** Attack and Special Attack together are "offence"; the rest are their own. */
 export type StatKey = StageStat | "offence";

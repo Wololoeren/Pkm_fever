@@ -1,3 +1,4 @@
+import { heldEffects } from "./carry";
 import { learnableAt, learnset, species as speciesById } from "./dex";
 import { alignPp } from "./pp";
 import { computeStats } from "./stats";
@@ -127,10 +128,25 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
  * build time, so the first is the first on every machine.
  */
 export function evolutionByItem(individual: Individual, itemName: string): string | null {
+  if (heldAnchors(individual)) return null;
+
   const options = speciesById(individual.speciesId).evolvesTo.filter(
     (step) => step.method === "useItem" && step.item === itemName,
   );
   return options[0]?.id ?? null;
+}
+
+/**
+ * Whether what it is carrying refuses to let it change.
+ *
+ * The Everstone, asked in this file rather than at the two call sites, because
+ * there are two roads to an evolution and an item that blocked one of them
+ * would be an item that half works. A stone used on an anchored creature is
+ * refused with a reason; a level-up simply does not evolve it, which is what
+ * the stone is for in the games that have it.
+ */
+function heldAnchors(individual: Individual): boolean {
+  return heldEffects(individual.heldItem).some((effect) => effect.t === "anchor");
 }
 
 /**
@@ -163,6 +179,8 @@ export function canStillEvolve(individual: Individual): boolean {
  * a stone asks `evolutionByItem` instead, and friendship is on the deferred
  * list in docs/items-deferred.md because there is no friendship. */
 export function evolutionAt(individual: Individual): string | null {
+  if (heldAnchors(individual)) return null;
+
   const options = speciesById(individual.speciesId).evolvesTo.filter(
     (evolution) => evolution.method === "level" && evolution.level > 0 && individual.level >= evolution.level,
   );

@@ -12,7 +12,7 @@ import type { Gender } from "./gender";
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 13;
+export const ENGINE_VERSION = 14;
 
 // ------------------------------------------------------------------ stats
 
@@ -123,6 +123,23 @@ export interface Individual {
    * placeholder.
    */
   abilities: string[];
+  /**
+   * What it is carrying, or null.
+   *
+   * One item, and it belongs to the creature rather than to the bag — which
+   * is what makes a held item a decision. The bag is where things wait; this
+   * is where one of them is doing something.
+   *
+   * Kept as an id rather than a spec for the same reason `moves` and
+   * `abilities` are ids: the save is a log of inputs replayed through the
+   * rules, and an embedded copy of an item's numbers would be a second
+   * version of the catalogue that a rules change could not reach.
+   *
+   * A berry taken during a battle sets this to null on the creature *inside*
+   * the battle, and the party comes back out of the battle, so it is gone
+   * afterwards without anything having to carry the news across.
+   */
+  heldItem: string | null;
   /** Nickname, or null to display the species name. */
   nickname: string | null;
   /** Which egg produced it, or null for a wild catch. Breeding reads this. */

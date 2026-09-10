@@ -9,6 +9,8 @@ import {
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
 import { abilitiesOf, type AbilityEffect } from "./abilities";
+import { heldEffects, isConsumedOnUse } from "./carry";
+import { canStillEvolve } from "./progression";
 import { hasVariableDamage, variableDamage, type DamageContext } from "./moves";
 import { anyPp, hasPp, ppLeft, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
 import { intBelow, rngFor } from "./rng";
@@ -70,6 +72,15 @@ export type BattleEvent =
   /** Something a creature can do that its species cannot. */
   | { t: "ability"; side: SideIndex; abilityId: string }
   /**
+   * Something it is *carrying* did that.
+   *
+   * A separate event from `ability`, because the two read differently and a
+   * player needs to be able to tell them apart: an ability is a fact about
+   * the creature and an item is a decision you made. `spent` says the item is
+   * gone, which is the whole difference between a berry and a Choice Band.
+   */
+  | { t: "item"; side: SideIndex; itemId: string; spent: boolean }
+  /**
    * A move whose damage depends on the battle, in a battle where it comes to
    * nothing. Endeavor against something weaker, Counter with nothing to
    * counter. Its own event, because "it failed" and "it hit for zero" are
@@ -120,6 +131,15 @@ export interface Combatant {
   /** Which of them is out. */
   active: number;
   stages: Stages;
+  /**
+   * The one move a Choice item has committed this side to, or null.
+   *
+   * On the side rather than on the creature, because it is a fact about *this
+   * appearance* rather than about the creature: switching out clears it, which
+   * is the whole cost-and-escape of the Choice items. Storing it on the
+   * Individual would follow the creature into the box.
+   */
+  locked?: string | null;
 }
 
 export interface BattleState {
@@ -186,13 +206,36 @@ const NO_STAGES: Stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
  * callbacks. A closed set of questions is a battle whose behaviour can still
  * be read off one file.
  */
+/**
+ * Everything about this creature that answers one question.
+ *
+ * Its abilities *and* what it is holding, folded into one list, because a held
+ * item is an ability you can take off — see the header of carry.ts. This one
+ * function is why sixty-odd held items cost the battle about a dozen new
+ * questions instead of sixty: a Charcoal is `power` with a type on it, a Scope
+ * Lens is `luck`, an Assault Vest is `stat`, and every one of those questions
+ * was already being asked here.
+ *
+ * Abilities first, deliberately. Where two answers to one question compound
+ * they compound in a fixed order, so a Choice Band on something with Huge
+ * Power lands the same way on every machine.
+ */
 function effects<K extends AbilityEffect["t"]>(
   creature: Individual,
   kind: K,
 ): Extract<AbilityEffect, { t: K }>[] {
-  return abilitiesOf(creature.abilities)
-    .map((spec) => spec.effect)
-    .filter((effect): effect is Extract<AbilityEffect, { t: K }> => effect.t === kind);
+  const mine = abilitiesOf(creature.abilities).map((spec) => spec.effect);
+  const carried = heldEffects(creature.heldItem);
+  return [...mine, ...carried].filter(
+    (effect): effect is Extract<AbilityEffect, { t: K }> => effect.t === kind,
+  );
+}
+
+/** What it is holding, if that is what answered. For the log to name it. */
+function whichItem(creature: Individual, kind: AbilityEffect["t"]): string | null {
+  return heldEffects(creature.heldItem).some((effect) => effect.t === kind)
+    ? creature.heldItem
+    : null;
 }
 
 /** Whether a creature carries any ability answering this question. */
@@ -203,6 +246,25 @@ function has(creature: Individual, kind: AbilityEffect["t"]): boolean {
 /** The ability id behind a shape, for the log to name it. */
 function whichAbility(creature: Individual, kind: AbilityEffect["t"]): string | null {
   return abilitiesOf(creature.abilities).find((spec) => spec.effect.t === kind)?.id ?? null;
+}
+
+/**
+ * Notes that a held item did something, and spends it if it is the spending
+ * kind.
+ *
+ * One place, so "the log said so" and "it is gone" cannot come apart — which
+ * is the specific way a consumable goes wrong: a berry that logs and stays, or
+ * one that vanishes silently. Nothing has to carry the news out of the battle,
+ * because the party *is* `sides[0].team`.
+ */
+function usedItem(turn: Turn, side: SideIndex, kind: AbilityEffect["t"]): void {
+  const creature = active(turn, side);
+  const itemId = whichItem(creature, kind);
+  if (!itemId) return;
+
+  const spent = isConsumedOnUse(itemId);
+  if (spent) setActive(turn, side, { ...active(turn, side), heldItem: null });
+  turn.events.push({ t: "item", side, itemId, spent });
 }
 
 /** Multiplying by per-mille, kept in integers like everything else. */
@@ -246,8 +308,8 @@ export function startBattle(
     tag,
     turn: 0,
     sides: [
-      { team: ours.map((creature) => ({ ...creature })), active: ourActive, stages: { ...NO_STAGES } },
-      { team: theirs.map((creature) => ({ ...creature })), active: 0, stages: { ...NO_STAGES } },
+      { team: ours.map((creature) => ({ ...creature })), active: ourActive, stages: { ...NO_STAGES }, locked: null },
+      { team: theirs.map((creature) => ({ ...creature })), active: 0, stages: { ...NO_STAGES }, locked: null },
     ],
     awaitingSwitch: [false, false],
     outcome: null,
@@ -288,7 +350,10 @@ function effectiveStat(individual: Individual, stat: StageStat, stage: number): 
     const applies =
       effect.when === "always" ||
       (effect.when === "statused" && individual.status !== null) ||
-      (effect.when === "hurt" && individual.hp * 2 <= maxHp(individual));
+      (effect.when === "hurt" && individual.hp * 2 <= maxHp(individual)) ||
+      // Eviolite. "Fully evolved" is not a flag in the bestiary, it is the
+      // absence of any door at all, so the question is asked of the data.
+      (effect.when === "unfinished" && canStillEvolve(individual));
     if (!applies) continue;
 
     const named = effect.stat === "offence" ? stat === "atk" || stat === "spa" : effect.stat === stat;
@@ -371,10 +436,55 @@ function landDamage(
     amount = Math.max(0, defender.hp - 1);
     const named = whichAbility(defender, "endure");
     if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
+    // A Focus Sash does the same job and is spent doing it, which is the whole
+    // difference between it and Sturdy.
+    usedItem(turn, other(side), "endure");
   }
 
   const dealt = applyDamage(turn, other(side), amount);
   turn.events.push({ t: "damage", side: other(side), amount: dealt, quarters, crit });
+
+  // The resist berry that took the edge off this one, spent now the blow is
+  // known to have landed.
+  if (quarters > 4) {
+    for (const effect of effects(defender, "soften")) {
+      if (effect.types.includes(move.type)) usedItem(turn, other(side), "soften");
+    }
+  }
+
+  // Shell Bell: a share of what it just dealt, back. Read off `dealt` rather
+  // than off `wanted`, so a blow that was trimmed by Sturdy or clamped by the
+  // target's remaining health heals what actually landed.
+  for (const effect of effects(attacker, "siphon")) {
+    const back = Math.max(1, Math.floor(dealt / effect.share));
+    const room = maxHp(attacker) - active(turn, side).hp;
+    if (room <= 0 || dealt <= 0) continue;
+    setActive(turn, side, { ...active(turn, side), hp: active(turn, side).hp + Math.min(room, back) });
+    usedItem(turn, side, "siphon");
+  }
+
+  // Jaboca and Rowap: the attacker pays for having swung. By category rather
+  // than by contact, because the manifest carries no contact flag — see the
+  // shape's own comment.
+  if (dealt > 0) {
+    for (const effect of effects(active(turn, other(side)), "barb")) {
+      if (effect.category !== move.category) continue;
+      const bite = Math.max(1, Math.floor(maxHp(attacker) / effect.share));
+      applyDamage(turn, side, bite);
+      turn.events.push({ t: "recoil", side, amount: bite });
+      usedItem(turn, other(side), "barb");
+    }
+  }
+
+  // Weakness Policy: hit where it hurts and it hits back harder.
+  if (quarters > 4 && dealt > 0 && !isFainted(active(turn, other(side)))) {
+    for (const effect of effects(active(turn, other(side)), "policy")) {
+      const boosts: Boosts = {};
+      for (const stat of effect.stats) boosts[stat] = effect.delta;
+      applyBoosts(turn, other(side), boosts);
+      usedItem(turn, other(side), "policy");
+    }
+  }
 
   // What the counter family answers. Only move damage, and only this turn.
   if (move.category === "physical") turn.taken[other(side)].physical += dealt;
@@ -568,6 +678,11 @@ function damageFor(
       (effect.when === "weak" && power > 0 && power <= 60) ||
       (effect.when === "costly" && move.recoil !== null) ||
       (effect.when === "late" && turn.movingLast === side) ||
+      // The eighteen type-enhancing items: the same shape as a cornered
+      // ability with the health condition taken off.
+      (effect.when === "typed" && effect.type === move.type) ||
+      (effect.when === "physical" && move.category === "physical") ||
+      (effect.when === "special" && move.category === "special") ||
       (effect.when === "cornered" &&
         effect.type === move.type &&
         attacker.hp * 3 <= maxHp(attacker));
@@ -581,6 +696,15 @@ function damageFor(
   // sit after the multiplier rather than beside it.
   if (quarters > 4) {
     for (const effect of effects(defender, "cushion")) value = scaled(value, effect.mille);
+    // Expert Belt, on the other side of the same verdict.
+    for (const effect of effects(attacker, "sharp")) value = scaled(value, effect.mille);
+    // A resist berry, which is the one thing here that only ever fires once.
+    // Noted rather than spent: `damageFor` is arithmetic and must stay so, or
+    // a berry would be eaten by a blow that then missed. `landDamage` spends
+    // it, where the blow is known to have landed.
+    for (const effect of effects(defender, "soften")) {
+      if (effect.types.includes(move.type)) value = scaled(value, effect.mille);
+    }
   }
   if (quarters < 4) {
     for (const effect of effects(attacker, "pierce")) value = scaled(value, effect.mille);
@@ -646,6 +770,13 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   // asleep, frozen or fully paralysed never got the move off, and charging it
   // for a turn it did not have is how a battle quietly becomes unwinnable.
   // Struggle costs nothing, because it is what having nothing costs you.
+  // Committed, if it is holding something that commits it. Written when the
+  // move actually goes off rather than when it was chosen, so a turn spent
+  // asleep does not lock anything in.
+  if (has(attacker, "locked") && !struggling) {
+    turn.battle.sides[side].locked = moveId;
+  }
+
   if (!struggling) {
     const slot = attacker.moves.indexOf(moveId);
     if (slot >= 0) setActive(turn, side, spendPp(attacker, slot));
@@ -707,6 +838,12 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   if (attacker.abilities.includes("hustle") && move.category === "physical") {
     accuracy = scaled(accuracy, 800);
   }
+  // Bright Powder, which is the target's business rather than the attacker's.
+  // Applied after `aim` so No Guard still cannot miss: an unmissable move is
+  // unmissable, and a powder does not make it a coin flip.
+  for (const effect of effects(active(turn, other(side)), "graze")) {
+    accuracy = scaled(accuracy, effect.mille);
+  }
 
   if (!unmissable && accuracy > 0 && !chance(turn, `${side}-acc`, accuracy)) {
     turn.events.push({ t: "miss", side });
@@ -759,6 +896,22 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
   }
 
+  // A Life Orb's share of its own health, paid for having attacked at all.
+  //
+  // A share of its *maximum* rather than of the damage, which is why it is not
+  // recoil and why Rock Head does not waive it: recoil is the cost of a move,
+  // and this is the cost of the orb. Paid only when the move actually did
+  // something, so a miss is free — the orb takes a cut, and there is nothing
+  // to take a cut of.
+  if (dealt > 0) {
+    for (const effect of effects(active(turn, side), "toll")) {
+      const holder = active(turn, side);
+      const cost = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(holder) / effect.share)));
+      if (cost > 0) turn.events.push({ t: "recoil", side, amount: cost });
+      usedItem(turn, side, "toll");
+    }
+  }
+
   // Struggle's own cost, which is a share of the user's own health rather
   // than of the damage it dealt. The manifest cannot say so — Showdown
   // computes it in a script — so it is named here, the way moves.ts names the
@@ -792,6 +945,91 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   }
 }
 
+/**
+ * Flame Orb and Toxic Orb: the holder gives itself something.
+ *
+ * Through `applyStatus`, so a Water Veil ignores its own Flame Orb and a Fire
+ * type cannot be burned by one — every road to a condition goes down the one
+ * predicate, which is what stops an item quietly overruling an immunity.
+ */
+function afflictSelf(turn: Turn, side: SideIndex): void {
+  const creature = active(turn, side);
+  if (creature.status) return;
+
+  for (const effect of effects(creature, "afflict")) {
+    applyStatus(turn, side, effect.status, `${side}-orb`);
+    if (active(turn, side).status === effect.status) usedItem(turn, side, "afflict");
+  }
+}
+
+/**
+ * Leftovers and Black Sludge, at the end of the turn.
+ *
+ * `only` is what makes one item two: a Black Sludge is Leftovers for a poison
+ * type and a slow bleed for anything else, and expressing that as a list of
+ * types who like it beats two nearly identical shapes.
+ */
+function tickHealth(turn: Turn, side: SideIndex): void {
+  for (const effect of effects(active(turn, side), "tick")) {
+    const creature = active(turn, side);
+    const step = Math.max(1, Math.floor(maxHp(creature) / effect.share));
+    const welcome =
+      !effect.only || speciesById(creature.speciesId).types.some((type) => effect.only!.includes(type));
+
+    if (welcome) {
+      const room = maxHp(creature) - creature.hp;
+      if (room <= 0) continue;
+      setActive(turn, side, { ...creature, hp: creature.hp + Math.min(room, step) });
+      turn.events.push({ t: "heal", side, amount: Math.min(room, step) });
+    } else {
+      const bite = applyDamage(turn, side, step);
+      turn.events.push({ t: "recoil", side, amount: bite });
+    }
+    usedItem(turn, side, "tick");
+  }
+}
+
+/**
+ * The berries that wait for a moment and then take it.
+ *
+ * Checked at the end of the turn rather than the instant health crosses the
+ * line, which is a deliberate simplification and the honest one to make: the
+ * alternative is a check inside every path that can reduce health, and a berry
+ * that fires on four of five such paths is worse than one that always fires a
+ * beat late. The log says when it happened either way.
+ */
+function eatBerry(turn: Turn, side: SideIndex): void {
+  // A condition it is carrying the answer to.
+  for (const effect of effects(active(turn, side), "cure")) {
+    const creature = active(turn, side);
+    if (!creature.status) continue;
+    if (effect.status && effect.status !== creature.status) continue;
+    setActive(turn, side, { ...creature, status: null, sleepTurns: 0 });
+    usedItem(turn, side, "cure");
+  }
+
+  // Health, when it has fallen far enough.
+  for (const effect of effects(active(turn, side), "snack")) {
+    const creature = active(turn, side);
+    if (creature.hp * effect.below >= maxHp(creature)) continue;
+
+    const back = effect.amount ?? Math.max(1, Math.floor(maxHp(creature) / (effect.share ?? 4)));
+    const room = maxHp(creature) - creature.hp;
+    if (room <= 0) continue;
+    setActive(turn, side, { ...creature, hp: creature.hp + Math.min(room, back) });
+    turn.events.push({ t: "heal", side, amount: Math.min(room, back) });
+    usedItem(turn, side, "snack");
+  }
+
+  // A stage, when things are going badly.
+  for (const effect of effects(active(turn, side), "pinch")) {
+    const creature = active(turn, side);
+    if (creature.hp * effect.below >= maxHp(creature)) continue;
+    applyBoosts(turn, side, { [effect.stat]: effect.delta });
+    usedItem(turn, side, "pinch");
+  }
+}
+
 /** Burn and poison, at the end of the turn. */
 function residual(turn: Turn, side: SideIndex): void {
   const creature = active(turn, side);
@@ -822,12 +1060,20 @@ export function aiAction(state: BattleState, side: SideIndex = 1): BattleAction 
 
   const active = activeOf(state, side);
   if (!active.moves.length) return { t: "pass" };
-  // Out of everything, like anybody else would be.
-  if (!anyPp(active)) return { t: "struggle" };
+  // Out of everything, or holding something that has taken everything else
+  // off the menu. Either way there is one thing left to do.
+  if (!anyPp(active) || !hasLegalMove(state, side)) return { t: "struggle" };
 
   // Only from what it can actually still use. Picking blind and then being
   // refused would leave the other side taking a free turn every time.
-  const usable = active.moves.map((_, at) => at).filter((at) => hasPp(active, at));
+  // Only from what it can actually still use, and only what it is allowed to:
+  // an Assault Vest or a Choice item narrows the menu, and picking outside it
+  // and being refused would hand the other side a free turn every time.
+  const usable = active.moves
+    .map((_, at) => at)
+    .filter((at) => hasPp(active, at) && actionRefusal(state, side, { t: "fight", moveIndex: at }) === null);
+  if (!usable.length) return { t: "struggle" };
+
   const roll = intBelow(rngFor(state.seed, state.tag, state.turn + 1, `ai${side}`), usable.length);
   return { t: "fight", moveIndex: usable[roll] };
 }
@@ -856,6 +1102,22 @@ function firstMover(turn: Turn, moveA: string | null, moveB: string | null): Sid
   const priorityA = priorityOf(turn, 0, moveA);
   const priorityB = priorityOf(turn, 1, moveB);
   if (priorityA !== priorityB) return priorityA > priorityB ? 0 : 1;
+
+  // Quick Claw, inside the priority bracket rather than above it: a claw does
+  // not beat a Quick Attack, it beats being slow. Side 0 is asked first and
+  // only one can win, so two claws cannot both fire.
+  for (const side of [0, 1] as SideIndex[]) {
+    for (const effect of effects(active(turn, side), "gamble")) {
+      if (roll(turn, `${side}-claw`) * 1000 >= effect.mille) continue;
+      turn.events.push({
+        t: "item",
+        side,
+        itemId: active(turn, side).heldItem ?? "",
+        spent: false,
+      });
+      return side;
+    }
+  }
 
   const speedA = effectiveStat(active(turn, 0), "spe", turn.battle.sides[0].stages.spe);
   const speedB = effectiveStat(active(turn, 1), "spe", turn.battle.sides[1].stages.spe);
@@ -1006,6 +1268,19 @@ export function resolveTurn(
     if (!isFainted(active(turn, side))) residual(turn, side);
   }
 
+  // What a held item does at the end of a turn, in a fixed order so two of
+  // them on opposite sides always resolve the same way: the thing that hurts
+  // you, then the thing that mends you, then the berry that answers either.
+  for (const side of [0, 1] as SideIndex[]) {
+    if (isFainted(active(turn, side))) continue;
+    afflictSelf(turn, side);
+    tickHealth(turn, side);
+  }
+  for (const side of [0, 1] as SideIndex[]) {
+    if (isFainted(active(turn, side))) continue;
+    eatBerry(turn, side);
+  }
+
   settle(turn, rules);
   return finish(turn, caught, ballsUsed);
 }
@@ -1020,12 +1295,19 @@ export function resolveTurn(
 function chosenMove(turn: Turn, side: SideIndex, action: BattleAction): string | null {
   if (action.t === "fight") return moveIdFor(turn, side, action.moveIndex);
   if (action.t !== "struggle") return null;
-  if (anyPp(active(turn, side))) throw new IllegalAction("it still has moves to use");
+  // Asked the same way the refusal asks it, so the menu and the engine cannot
+  // disagree about whether there was anything else to do.
+  if (hasLegalMove(turn.battle, side)) throw new IllegalAction("it still has moves to use");
   return STRUGGLE;
 }
 
 function cloneSide(side: Combatant): Combatant {
-  return { team: side.team.map((creature) => ({ ...creature })), active: side.active, stages: { ...side.stages } };
+  return {
+    team: side.team.map((creature) => ({ ...creature })),
+    active: side.active,
+    stages: { ...side.stages },
+    locked: side.locked ?? null,
+  };
 }
 
 function moveIdFor(turn: Turn, side: SideIndex, index: number): string {
@@ -1037,16 +1319,48 @@ function moveIdFor(turn: Turn, side: SideIndex, index: number): string {
 
 /** Why this action would be refused, or null. One predicate, two callers: the
  * battle menu greys a button for exactly what resolveTurn would throw on. */
+/**
+ * Whether this side has any move it is both able and allowed to use.
+ *
+ * "Able" used to be the whole question, and PP was the only thing that could
+ * take a move away — so `anyPp` was a complete answer and Struggle was gated
+ * on it. Held items broke that. An Assault Vest refuses every status move; a
+ * Choice item refuses every move but one, and that one can run out of PP. Both
+ * can leave a creature with a full tank and nothing it may legally do, which
+ * is a battle that cannot be won, lost or left — exactly the hole Struggle
+ * exists to fill, reached by a road Struggle was not watching.
+ */
+function hasLegalMove(state: BattleState, side: SideIndex): boolean {
+  const creature = activeOf(state, side);
+  return creature.moves.some(
+    (_move, at) => actionRefusal(state, side, { t: "fight", moveIndex: at }) === null,
+  );
+}
+
 export function actionRefusal(state: BattleState, side: SideIndex, action: BattleAction): string | null {
   if (state.outcome) return "the battle is over";
   const creature = activeOf(state, side);
 
   if (action.t === "fight") {
     if (action.moveIndex < 0 || action.moveIndex >= creature.moves.length) return "no such move";
-    return hasPp(creature, action.moveIndex) ? null : "no uses left in that one";
+    if (!hasPp(creature, action.moveIndex)) return "no uses left in that one";
+
+    const moveId = creature.moves[action.moveIndex];
+
+    // An Assault Vest buys a defence with every status move it has.
+    if (moveById(moveId).category === "status" && has(creature, "silent")) {
+      return "it will not use a status move while it wears that";
+    }
+
+    // A Choice item: one move, until it leaves.
+    const locked = state.sides[side].locked;
+    if (locked && locked !== moveId && has(creature, "locked")) {
+      return `it is locked into ${moveById(locked).name}`;
+    }
+    return null;
   }
   if (action.t === "struggle") {
-    return anyPp(creature) ? "it still has moves to use" : null;
+    return hasLegalMove(state, side) ? "it still has moves to use" : null;
   }
   return null;
 }
@@ -1079,7 +1393,13 @@ function onLeaving(turn: Turn, side: SideIndex): void {
 }
 
 /** Intimidate, when somebody new is standing there. */
+/** A fresh appearance is a fresh choice: the lock goes with the creature. */
+function clearLock(turn: Turn, side: SideIndex): void {
+  turn.battle.sides[side].locked = null;
+}
+
 function onArriving(turn: Turn, side: SideIndex): void {
+  clearLock(turn, side);
   const arriving = active(turn, side);
   for (const effect of effects(arriving, "arrival")) {
     // Scrappy is immune to it, as it is in the games.
@@ -1125,13 +1445,30 @@ function settle(turn: Turn, rules: BattleRules): void {
   if (rules.awardsExp && down.includes(1) && !down.includes(0)) {
     const loser = active(turn, 1);
     const victor = active(turn, 0);
-    const amount = expYield(loser);
+
+    // A Lucky Egg. Applied to the yield rather than to the total, so the
+    // number in the log is the number that was awarded.
+    let amount = expYield(loser);
+    for (const effect of effects(victor, "study")) amount = scaled(amount, effect.mille);
+
     const growth = awardExp(victor, amount);
 
     // Effort before the event is pushed, so the numbers a log replays are the
     // numbers the screen showed. Same award as experience: whatever was
     // standing when the other one fell.
-    const yielded = effortYield(loser.speciesId);
+    //
+    // A Macho Brace multiplies what is earned and can steer it: `stat` names
+    // one, and without it the brace simply doubles whatever the loser was
+    // going to teach. Through `gainEffort` either way, so the caps hold.
+    const base = effortYield(loser.speciesId);
+    let yielded = base;
+    for (const effect of effects(victor, "regimen")) {
+      yielded = {
+        stats: effect.stat ? [effect.stat] : yielded.stats,
+        amount: scaled(yielded.amount, effect.mille),
+      };
+    }
+
     const before = growth.individual.evs;
     const evs = gainEffort(before, yielded);
     setActive(turn, 0, { ...growth.individual, evs });

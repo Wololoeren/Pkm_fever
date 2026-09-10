@@ -2,6 +2,7 @@
 
 import { maxHp } from "@/engine/battle";
 import { abilitiesOf } from "@/engine/abilities";
+import { item } from "@/engine/items";
 import { maxPp, ppLeft } from "@/engine/pp";
 import { expForLevel, MAX_LEVEL } from "@/engine/progression";
 import { species as speciesById } from "@/engine/dex";
@@ -106,6 +107,25 @@ export function AbilityTags({ creature }: { creature: Individual }) {
         </span>
       ))}
     </>
+  );
+}
+
+/**
+ * What it is carrying, if anything.
+ *
+ * Renders to nothing when it is carrying nothing, for the same reason
+ * `AbilityTags` does: a row that says "holding: nothing" on every card is a
+ * row nobody reads twice. The title carries the blurb, because the whole
+ * question a player has about a held item is what it is doing.
+ */
+export function HeldTag({ creature }: { creature: Individual }) {
+  if (!creature.heldItem) return null;
+  const spec = item(creature.heldItem);
+
+  return (
+    <span className="tag held" title={spec.blurb}>
+      {spec.name}
+    </span>
   );
 }
 
@@ -230,6 +250,7 @@ export function PartyStrip({
                 <PpTotal creature={creature} />
                 {creature.status ? <span className={`tag st-${creature.status}`}>{creature.status.toUpperCase()}</span> : null}
                 <VariantTag variantId={creature.variantId} />
+                <HeldTag creature={creature} />
                 <AbilityTags creature={creature} />
               </div>
             </div>

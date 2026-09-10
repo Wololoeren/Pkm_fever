@@ -281,5 +281,27 @@ function score(entry: MoveEntry, base: StatTable): number {
   return power * accuracy * weight;
 }
 
+/**
+ * What each of them carries.
+ *
+ * One item apiece, named per contender rather than rolled, because a held item
+ * is the one part of a build that is a *decision* — the IVs, the effort and the
+ * nature are all what a serious breeder produces, and the item is what they
+ * chose to do with it. Rolling them would make five identical statements about
+ * five people.
+ *
+ * Each is picked to say something about its holder. Bastion is a wall and
+ * carries the thing that makes walls outlast you; the Sovereign carries the
+ * one that simply hits harder and pays for it, because she does not need to
+ * outlast anybody.
+ */
+export const CUP_HOLDS: Record<string, string> = {
+  "cup-bastion": "hold-leftovers",
+  "cup-oracle": "hold-choicespecs",
+  "cup-umbra": "hold-expertbelt",
+  "cup-halo": "berry-sitrus",
+  "cup-sovereign": "hold-lifeorb",
+};
+
 /** How many abilities everybody in this house has. */
 export const CUP_ABILITIES = 2;

@@ -57,6 +57,8 @@ export function creature(
     pp?: number[];
     /** None unless a test is about one. */
     abilities?: string[];
+    /** Nothing unless a test is about what it is carrying. */
+    heldItem?: string | null;
   } = {},
 ): Individual {
   const level = options.level ?? 50;
@@ -76,6 +78,7 @@ export function creature(
     moves: options.moves ?? ["tackle"],
     pp: options.pp ?? fullPp(options.moves ?? ["tackle"]),
     abilities: options.abilities ?? [],
+    heldItem: options.heldItem ?? null,
     nickname: null,
     traded: false,
     parents: null,

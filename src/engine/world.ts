@@ -293,6 +293,7 @@ export function fishAt(
     // Rolled after gender, for the same reason gender was added last: every
     // draw above these was made before they existed.
     abilities: rollAbilities(rng),
+    heldItem: null,
     nickname: null,
     traded: false,
     parents: null,
@@ -1238,6 +1239,16 @@ const ANY_MACHINE = "*machine";
 const ANY_STONE = "*stone";
 
 /**
+ * A berry, rather than any one berry.
+ *
+ * Thirty-odd of them, and most are worth nothing at a counter, so the floor is
+ * where they belong: a berry is the sort of thing you find in long grass, and
+ * a shop row for each of eighteen resist berries is eighteen rows nobody
+ * reads. The priced ones are on the shelf as well.
+ */
+const ANY_BERRY = "*berry";
+
+/**
  * Which machines this far out may hold.
  *
  * The list is ranked by the power of what it teaches, and a route may hold
@@ -1268,6 +1279,7 @@ const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
   { item: "lure-shiny", weight: 2 },
   { item: ANY_MACHINE, weight: 12 },
   { item: ANY_STONE, weight: 4 },
+  { item: ANY_BERRY, weight: 10 },
   { item: "heartscale", weight: 4 },
   { item: "repel", weight: 4 },
   { item: "nugget", weight: 1 },
@@ -1283,6 +1295,11 @@ const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
  * world scattered items that did not exist. Door count is a fact about the
  * bestiary; a price is a decision somebody can change on a whim.
  */
+/** Every berry, in a stable order. */
+const FOUND_BERRIES: readonly string[] = ITEMS.filter((spec) => spec.kind === "berry")
+  .map((spec) => spec.id)
+  .sort();
+
 const FOUND_STONES: readonly string[] = ITEMS.filter((spec) => {
   if (!spec.evolves) return false;
   const doors = ALL_SPECIES.filter((entry) =>
@@ -1354,7 +1371,9 @@ function placePickups(
             ? machinesUpTo(route.ring, rings)
             : rolled === ANY_STONE
               ? FOUND_STONES
-              : null;
+              : rolled === ANY_BERRY
+                ? FOUND_BERRIES
+                : null;
 
         // An empty family would resolve to `undefined` and scatter items that
         // do not exist, which is what happened the first time this shipped.
@@ -1861,6 +1880,7 @@ export function wildAt(
     // Both filled by the caller, which runs them through `withMoves`.
     pp: [],
     abilities,
+    heldItem: null,
     nickname: null,
     traded: false,
     parents: null,

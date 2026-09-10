@@ -3,6 +3,7 @@ import { gendersPair, rollGender } from "./gender";
 import { isItem, item as itemSpec } from "./items";
 import { NATURE_IDS } from "./natures";
 import { inheritAbilities } from "./abilities";
+import { heldEffects } from "./carry";
 import { fullPp } from "./pp";
 import { intBelow, intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
@@ -210,6 +211,7 @@ export function breed(
     moves: movesAtLevel(speciesId, 1),
     pp: fullPp(movesAtLevel(speciesId, 1)),
     abilities,
+    heldItem: null,
     nickname: null,
     traded: false,
     parents: [first.uid, second.uid],
@@ -491,7 +493,9 @@ function inheritIvs(
   applied: readonly BreedingItem[],
 ): StatTable {
   const [low, high] = mutationRange(applied.includes("catalyst"));
-  const mutated = new Set<StatId>(shuffle(rng, STAT_IDS).slice(0, mutatedSlots(applied)));
+  const mutated = new Set<StatId>(
+    shuffle(rng, STAT_IDS).slice(0, mutatedSlots(applied, [first, second])),
+  );
 
   const ivs = {} as StatTable;
   for (const stat of STAT_IDS) {
@@ -505,8 +509,26 @@ function inheritIvs(
   return clampIvs(ivs);
 }
 
-function mutatedSlots(applied: readonly BreedingItem[]): number {
-  return applied.includes("heirloom") ? INHERITED_SLOTS_WITH_HEIRLOOM : INHERITED_SLOTS;
+/**
+ * How many stat slots mutate, given what the pairing has going for it.
+ *
+ * Two roads to the same number now: the Heirloom applied to the daycare, and a
+ * Destiny Knot *carried by one of the pair*. Whichever gives more wins rather
+ * than the two adding, because five of six slots is already most of them and a
+ * seventh does not exist — so a player holding both has not wasted one, they
+ * have brought a spare.
+ */
+function mutatedSlots(applied: readonly BreedingItem[], pair: readonly (Individual | null)[] = []): number {
+  const fromItems = applied.includes("heirloom") ? INHERITED_SLOTS_WITH_HEIRLOOM : INHERITED_SLOTS;
+
+  let fromHeld = INHERITED_SLOTS;
+  for (const parent of pair) {
+    for (const effect of heldEffects(parent?.heldItem ?? null)) {
+      if (effect.t === "lineage") fromHeld = Math.max(fromHeld, effect.slots);
+    }
+  }
+
+  return Math.max(fromItems, fromHeld);
 }
 
 /**

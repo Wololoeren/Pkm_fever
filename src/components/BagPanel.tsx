@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   activeLures,
   activeRepel,
+  holdRefusal,
   flyRefusal,
   itemRefusal,
   lureLeft,
@@ -12,6 +13,7 @@ import {
   type Input,
 } from "@/engine/engine";
 import type { World } from "@/engine/world";
+import { holdOf } from "@/engine/carry";
 import { bagEntries, item, type ItemKind } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 
@@ -33,6 +35,8 @@ const TABS: { kind: ItemKind; label: string }[] = [
   { kind: "medicine", label: "Medicine" },
   { kind: "ball", label: "Balls" },
   { kind: "field", label: "Field" },
+  { kind: "hold", label: "Held" },
+  { kind: "berry", label: "Berries" },
   { kind: "stone", label: "Stones" },
   { kind: "tonic", label: "Tonics" },
   { kind: "hm", label: "Tools" },
@@ -214,6 +218,40 @@ export function BagPanel({
                   </button>
                 );
               })}
+          </div>
+        </>
+      ) : selected && holdOf(selected) ? (
+        <>
+          {/* A held item is given rather than used, so the verb changes and so
+              does the refusal it asks. Whoever is already carrying something
+              says so on the card, because handing this one over hands that one
+              back and the player should be able to see what they are trading. */}
+          <h4>Give the {item(selected).name} to…</h4>
+          <div className="items">
+            {state.party.map((creature, index) => {
+              const refusal = holdRefusal(world, state, index, selected);
+              const carrying = creature.heldItem ? item(creature.heldItem).name : null;
+              return (
+                <button
+                  key={creature.uid}
+                  type="button"
+                  className="itemCard"
+                  disabled={Boolean(refusal)}
+                  title={refusal ?? undefined}
+                  onClick={() => {
+                    onInput({ t: "holdItem", index, item: selected });
+                    setChosen(null);
+                  }}
+                >
+                  <span className="itemName">
+                    {displayName(creature)} · Lv{creature.level}
+                  </span>
+                  <span className="muted itemBlurb">
+                    {refusal ?? (carrying ? `Swap for its ${carrying}` : "Give it")}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </>
       ) : selected ? (

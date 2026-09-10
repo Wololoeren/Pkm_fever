@@ -17,6 +17,20 @@ import { generateWorld, type World } from "@/engine/world";
  * them got fixed.
  */
 
+/**
+ * The held items the probe tries. The two restrictive ones and a couple that
+ * change how a turn resolves, rather than all sixty — the point is to reach
+ * the states that can lock up, not to enumerate the shelf.
+ */
+const PROBE_HOLDS: readonly string[] = [
+  "hold-assaultvest",
+  "hold-choiceband",
+  "hold-choicescarf",
+  "hold-lifeorb",
+  "hold-focussash",
+  "berry-lum",
+];
+
 function uiCandidates(world: World, state: GameState, rng: () => number): Input[] {
   const out: Input[] = [];
   if (state.phase === "starter") {
@@ -24,6 +38,19 @@ function uiCandidates(world: World, state: GameState, rng: () => number): Input[
     return out;
   }
   if (state.phase === "battleEnd") return [{ t: "continue" }];
+  if (state.phase === "field") {
+    // Held items, offered on every field step. The restrictions two of them
+    // carry are the only things in this game besides PP that can take a move
+    // off the menu, and both can take *every* move off it — an Assault Vest
+    // on something that knows only status moves, or a Choice item committed to
+    // a move that then runs dry. Struggle was gated on `anyPp`, which stopped
+    // being the whole question the moment these existed, so the probe has to
+    // be able to reach them or it is guarding yesterday's hole.
+    for (const id of PROBE_HOLDS) {
+      out.push({ t: "holdItem", index: 0, item: id });
+      out.push({ t: "holdItem", index: 0, item: null });
+    }
+  }
   if (state.phase === "battle") {
     const b = state.battle!;
     if (b.awaitingSwitch[0]) {
@@ -61,7 +88,14 @@ describe("deadlock probe", () => {
 
     for (const seed of ["PKMFEVER1", "AAAA1", "ZZZZ9", "TOURNEY7", "GRASS42"]) {
       const world = generateWorld(DEFAULT_WORLD, seed, ALL_SPECIES);
-      let state = initialState(world);
+      // The probe has to be able to afford them, or every `holdItem` it tries
+      // is refused for "you have none" and the states they open are never
+      // reached. This is a fixture, not a gift: nothing else reads the bag.
+      let state: GameState = initialState(world);
+      state = {
+        ...state,
+        bag: { ...state.bag, ...Object.fromEntries(PROBE_HOLDS.map((id) => [id, 9])) },
+      };
       let turnsInBattle = 0;
 
       for (let step = 0; step < 60000; step++) {

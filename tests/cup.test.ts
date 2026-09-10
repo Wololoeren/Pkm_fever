@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { maxHp } from "@/engine/battle";
+import { holdOf } from "@/engine/carry";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import {
   contender as cupSpec,
@@ -9,6 +10,7 @@ import {
   cupMoveset,
   cupNature,
   CUP_ABILITIES,
+  CUP_HOLDS,
   CUP_BIOME,
   CUP_IDS,
   CUP_RING,
@@ -188,6 +190,29 @@ describe("what the five bring", () => {
 
       // Six distinct: a team that lost a slot to the dice is a team of five.
       expect(new Set(team.map((one) => one.speciesId)).size, spec.id).toBe(CUP_SIZE);
+    }
+  });
+
+  it("C3b: each of them carries one real item, and it is the same one every seed", () => {
+    // Named rather than rolled, so five people are five statements. The guard
+    // is that the names are real: a typo in this table is an item that does
+    // nothing, on a creature nobody can inspect, and `holdOf` returning null
+    // is silent. `hold-sitrus` was exactly that typo — the berry is
+    // `berry-sitrus`.
+    for (const spec of CUP_ROSTER) {
+      const held = CUP_HOLDS[spec.id];
+      expect(held, `${spec.id} carries nothing`).toBeTruthy();
+      expect(holdOf(held), `${spec.id} carries ${held}, which does nothing`).toBeTruthy();
+    }
+
+    for (const seed of ["alpha", "bravo", "charlie"]) {
+      const world = testWorld(seed);
+      const state = initialState(world);
+      for (const spec of CUP_ROSTER) {
+        for (const one of cupTeam(world, state, spec.id)) {
+          expect(one.heldItem, `${seed}/${spec.id}`).toBe(CUP_HOLDS[spec.id]);
+        }
+      }
     }
   });
 

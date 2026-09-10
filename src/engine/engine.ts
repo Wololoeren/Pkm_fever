@@ -37,6 +37,7 @@ import {
   MOVE_SLOTS,
 } from "./progression";
 import { pickAbilities, rollAbilities } from "./abilities";
+import { heldEffects, holdOf } from "./carry";
 import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
@@ -52,6 +53,7 @@ import {
   cupMoveset,
   cupNature,
   CUP_ABILITIES,
+  CUP_HOLDS,
   CUP_POOL,
   CUP_SIZE,
   isContender,
@@ -209,6 +211,15 @@ export type Input =
    * rearranged since, and forgetting the wrong move is not undoable.
    */
   | { t: "learnMove"; uid: number; moveId: string; forget: string | null }
+  /**
+   * Giving a creature something to carry, or taking it back.
+   *
+   * `item` of null takes whatever it has. Nothing is destroyed either way: an
+   * item handed over leaves the bag and an item taken back returns to it, so
+   * the two together are a move rather than a spend — which is what makes
+   * trying a Choice Band on something a decision you can walk back.
+   */
+  | { t: "holdItem"; index: number; item: string | null }
   /** Claiming a finished quest. */
   | { t: "claimQuest"; id: string }
   /** Using a tool on whatever is in the way in this direction. */
@@ -275,7 +286,9 @@ export type Notice =
    * are carried for the same reason the battle event carries both — the
    * creature has already changed by the time anything reads this.
    */
-  | { t: "evolved"; from: string; to: string };
+  | { t: "evolved"; from: string; to: string }
+  | { t: "given"; item: string; on: string }
+  | { t: "took"; item: string; on: string };
 
 export interface GameState {
   tick: number;
@@ -555,6 +568,8 @@ export function applyInput(world: World, state: GameState, input: Input): GameSt
       return npcSell(world, state, input.index, input.take, input.confirm);
     case "learnMove":
       return learnMove(state, input.uid, input.moveId, input.forget);
+    case "holdItem":
+      return setHeld(world, state, input.index, input.item);
     case "claimQuest":
       return claimQuest(world, state, input.id);
     case "useTool":
@@ -635,6 +650,7 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
         status: null,
         sleepTurns: 0,
         moves: [],
+        heldItem: null,
         nickname: null,
         traded: false,
         parents: null,
@@ -1005,6 +1021,7 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
       status: null,
       sleepTurns: 0,
       moves: [],
+      heldItem: null,
       nickname: null,
       traded: false,
       parents: null,
@@ -1364,6 +1381,78 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
     bag: removeItem(state.bag, itemId),
     pendingMoves: withOffers(state, offered),
     notice: { t: "used", item: itemId, on: speciesById(next.speciesId).name },
+  };
+}
+
+/**
+ * Why this one cannot be handed over, or null.
+ *
+ * One predicate, two callers. The two interesting refusals are both about
+ * *place*: swapping what a creature carries in the middle of a battle would be
+ * a free action nothing else in this game has, and the daycare reads what its
+ * pair is holding when the egg is made, so a creature deposited with a Destiny
+ * Knot has already committed it.
+ */
+export function holdRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  itemId: string | null,
+): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+
+  const target = state.party[index];
+  if (!target) return "nobody there";
+
+  if (itemId === null) {
+    return target.heldItem ? null : "it is not carrying anything";
+  }
+
+  if (!isItem(itemId)) return "no such item";
+  if (!hasItem(state.bag, itemId)) return "you have none";
+
+  const spec = item(itemId);
+  if (!holdOf(itemId)) return `nothing happens while it holds ${spec.name}`;
+  if (target.heldItem === itemId) return "it is already carrying that";
+
+  return null;
+}
+
+/**
+ * Hands one over, or takes it back.
+ *
+ * A swap is both at once: what it was carrying goes back in the bag and the
+ * new one comes out, so nothing is ever destroyed by changing your mind. That
+ * is the whole reason this is not two inputs.
+ */
+function setHeld(
+  world: World,
+  state: GameState,
+  index: number,
+  itemId: string | null,
+): GameState {
+  const refusal = holdRefusal(world, state, index, itemId);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const target = state.party[index];
+  let bag = state.bag;
+
+  // Back in the bag first, so handing over the only Leftovers to the creature
+  // already holding them is not a way to make a second pair.
+  if (target.heldItem) bag = addItem(bag, target.heldItem);
+  if (itemId) bag = removeItem(bag, itemId);
+
+  const party = [...state.party];
+  party[index] = { ...target, heldItem: itemId };
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party,
+    bag,
+    notice: itemId
+      ? { t: "given", item: itemId, on: speciesById(target.speciesId).name }
+      : { t: "took", item: target.heldItem!, on: speciesById(target.speciesId).name },
   };
 }
 
@@ -2057,6 +2146,7 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
       status: null,
       sleepTurns: 0,
       moves: [],
+      heldItem: null,
       nickname: offer.nickname ?? null,
       traded: true,
       parents: null,
@@ -2135,6 +2225,27 @@ function release(
 
 /** What beating a gym leader pays the first time. */
 const GYM_PURSE = 5000;
+
+/**
+ * What an Amulet Coin does to a purse.
+ *
+ * Read off whoever was standing when the battle ended, which is the reading
+ * that matches the item: it doubles the money *this* creature won you. Asked
+ * here rather than in battle.ts because money is not something a battle knows
+ * about — the battle deals in health and experience, and the purse is the
+ * engine's business.
+ */
+function withAmuletCoin(battle: BattleState | null, purse: number): number {
+  if (!battle) return purse;
+  const standing = battle.sides[0].team[battle.sides[0].active];
+  if (!standing) return purse;
+
+  let paid = purse;
+  for (const effect of heldEffects(standing.heldItem)) {
+    if (effect.t === "purse") paid = Math.floor((paid * effect.mille) / 1000);
+  }
+  return paid;
+}
 
 /** How long a beaten trainer needs before they will go again. */
 export const REMATCH_AFTER = 1000;
@@ -2216,6 +2327,7 @@ export function gymTeam(world: World, state: GameState, id: string): Individual[
           status: null,
           sleepTurns: 0,
           moves: [],
+          heldItem: null,
           nickname: null,
           traded: false,
           parents: null,
@@ -2354,6 +2466,9 @@ export function cupTeam(world: World, state: GameState, id: string): Individual[
       atFullHealth({
         pp: fullPp(moves),
         abilities: pickAbilities(rng, CUP_ABILITIES),
+        // One item apiece, the same one on every seed: what they chose to do
+        // with a perfect creature is part of who they are.
+        heldItem: CUP_HOLDS[id] ?? null,
         uid: uid++,
         speciesId: pick.id,
         level: spec.level,
@@ -2555,6 +2670,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
           status: null,
           sleepTurns: 0,
           moves: [],
+          heldItem: null,
           nickname: null,
           traded: false,
           parents: null,
@@ -2699,7 +2815,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
           ...base,
           phase: "battleEnd",
           badges: already ? base.badges : [...base.badges, gymId].sort(),
-          money: base.money + (already ? 0 : GYM_PURSE),
+          money: base.money + (already ? 0 : withAmuletCoin(base.battle, GYM_PURSE)),
           bag: already ? base.bag : addItem(base.bag, gymSpec(gymId).tool),
           notice: already ? { t: "won" } : { t: "badge", gym: gymId },
         };
@@ -2733,7 +2849,10 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
 
       const trainer = [...world.trainers.values()].flat().find((who) => who.id === trainerId);
       const wins = (base.wins[trainerId] ?? 0) + 1;
-      const purse = trainerPurse(trainer?.team.length ?? 1, world.routes.get(base.route)?.ring ?? 1) * wins;
+      const purse = withAmuletCoin(
+        result.battle,
+        trainerPurse(trainer?.team.length ?? 1, world.routes.get(base.route)?.ring ?? 1) * wins,
+      );
 
       return {
         ...base,

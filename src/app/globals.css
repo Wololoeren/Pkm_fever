@@ -275,6 +275,16 @@ button.ghost { background: transparent; }
   letter-spacing: 0;
 }
 
+/* Something it is carrying. Amber rather than the ability's green, because
+   the two sit side by side on a card and mean different things: an ability is
+   a fact about the creature and a held item is a decision you made. */
+.tag.held {
+  color: #d8b25a;
+  border-color: #6a5522;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .abilityList { display: flex; flex-direction: column; gap: 6px; }
 .abilityCard {
   display: flex;
