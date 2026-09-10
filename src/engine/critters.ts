@@ -180,7 +180,7 @@ export interface CritterPlacement {
   speciesId: string;
   level: number;
   /** Which map, and how it stands on it. */
-  where: { at: "town" } | { at: "route"; biome: string; nth: number };
+  where: { at: "town"; town?: string } | { at: "route"; biome: string; nth: number };
   /** Whether it walks a loop. */
   roams?: boolean;
   /** What it looks like. Left off, it is ordinary. */
@@ -383,6 +383,68 @@ export const CRITTERS: readonly CritterPlacement[] = [
     where: { at: "town" },
     line:
       "The Rattata is guarding a crust of bread the size of its own head. It will not share it, and it does not intend to eat it either.",
+  },
+
+
+  // ============================================== the three outer towns
+  //
+  // Two apiece, and each is its town's joke wearing a creature. Every one of
+  // these is scenery — nothing in a town can be collected, which is the rule
+  // Hearth set and there is no reason the others should be different. What they
+  // are is something to walk over to and be rewarded with a sentence.
+  {
+    id: "sp-mountain-lion",
+    kind: "idle",
+    speciesId: "purugly",
+    level: 24,
+    where: { at: "town", town: "town-1" },
+    line:
+      "The Purugly is sitting on a bin lid in three feet of snow, entirely unbothered, the way only something that lives here can be.",
+  },
+  {
+    id: "sp-hall-monitor",
+    kind: "idle",
+    speciesId: "granbull",
+    level: 22,
+    where: { at: "town", town: "town-1" },
+    line:
+      "The Granbull is standing outside the school gate. It is not clear who put it in charge, but everybody walks the long way round.",
+  },
+  {
+    id: "nw-hypnotoad",
+    kind: "idle",
+    speciesId: "seismitoad",
+    level: 38,
+    where: { at: "town", town: "town-2" },
+    line:
+      "The Seismitoad looks at you and its eyes do something you would rather they did not. All glory to it, you think, for no reason you can name. You have lost about a minute.",
+  },
+  {
+    id: "nw-nibbler",
+    kind: "idle",
+    speciesId: "swalot",
+    level: 36,
+    where: { at: "town", town: "town-2" },
+    line:
+      "Something the size of a cart went past a moment ago. The Swalot is the only thing here and it is very small and looks extremely pleased.",
+  },
+  {
+    id: "sf-pickle-jar",
+    kind: "idle",
+    speciesId: "cacnea",
+    level: 46,
+    where: { at: "town", town: "town-3" },
+    line:
+      "The Cacnea is sitting in an empty pickle jar. Somebody has drawn a small face on the glass. It is not clear whose idea this was and nobody in this town will say.",
+  },
+  {
+    id: "sf-schwifty",
+    kind: "idle",
+    speciesId: "ludicolo",
+    level: 48,
+    where: { at: "town", town: "town-3" },
+    line:
+      "The Ludicolo is dancing in a way it clearly believes to be a complete answer to any question you might have had.",
   },
 
   // ----------------------------------------------------- the four roamers

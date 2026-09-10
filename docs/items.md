@@ -1,6 +1,6 @@
 # Items
 
-**541 of them**, of which 312 are machines. The other 229 are below.
+**550 of them**, of which 312 are machines. The other 238 are below.
 
 The bag sorts by what an item *is for*, because that is the only question a
 player has when they open it: something you use, something you throw,
@@ -15,7 +15,7 @@ something you give to a creature to keep, something you use on the world.
 | Breeding | 19 | Applied to a pairing at the daycare |
 | Machines | 312 | Teaches a move, and keeps |
 | Lures | 9 | Draws one kind of thing out of the grass |
-| Medicine | 7 | Health, and what ails it |
+| Medicine | 11 | Health, and what ails it |
 | Field | 5 | Used on the world rather than on a creature |
 | Tools | 10 | The HMs. Won from gyms |
 | Rods | 3 | Reaches further out the water |

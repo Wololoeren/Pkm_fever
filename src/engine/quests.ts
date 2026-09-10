@@ -154,6 +154,68 @@ export const QUESTS: readonly QuestSpec[] = [
     goal: { t: "level", level: 40 },
     reward: { money: 6000, item: "ultraball" },
   },
+
+  // ================================================= the three outer towns
+  //
+  // One or two apiece, and each is the shape of its town's joke told as a job
+  // rather than as a line of dialogue. A homage you can only read is set
+  // dressing; a homage you have to *do something about* is a quest.
+
+  // Southpass. A business plan with a hole in the middle of it, and a cryptid
+  // that is three animals, fetched as three animals.
+  {
+    id: "phase-two",
+    name: "Phase Two",
+    blurb:
+      "Phase one is collecting. Phase three is profit. We are extremely confident about phase three. Bring us ten of anything and we will call that phase one completed.",
+    goal: { t: "carryItem", item: "gnomepants", count: 3 },
+    reward: { money: 4000, item: "cheesypuffs" },
+  },
+  {
+    id: "the-cryptid",
+    name: "Half Man, Half Bear, Half Pig",
+    blurb:
+      "Nobody doubts a bear. Nobody doubts a pig. It is the man half people get funny about. Bring me three of the man-ish sorts \u2014 three Fighting ones \u2014 and the man half is established, and after that it is simply arithmetic.",
+    goal: { t: "ownType", type: "fighting", count: 3 },
+    reward: { money: 6000, item: "tm-bodyslam" },
+  },
+
+  // New Willow. A job the professor is very cheerful about, which is itself
+  // the warning.
+  {
+    id: "good-news",
+    name: "Splendid News",
+    blurb:
+      "The delivery is straightforward! You will need to be roughly level forty to survive it, which I mention only in passing and certainly not as a condition.",
+    goal: { t: "level", level: 40 },
+    reward: { money: 9000, item: "slurm" },
+  },
+  {
+    id: "the-inventory",
+    name: "The Crew Replacement Programme",
+    blurb:
+      "Form nine-b, in triplicate: twenty people out on the routes, beaten, by you, in that order. The professor upstairs will sign off one of his devices as scrap once it is filed, and you may keep the scrap.",
+    goal: { t: "beatTrainers", count: 20 },
+    reward: { money: 12000, item: "doomsdaydevice" },
+  },
+
+  // Sanchford. One adventure, which is never one adventure, and a sauce.
+  {
+    id: "one-more-adventure",
+    name: "One More Adventure",
+    blurb:
+      "Eight badges. That is the whole ask. Do not look at me like that — I need somebody the local authorities already take seriously, and badges are what passes for that here.",
+    goal: { t: "badges", count: 6 },
+    reward: { money: 15000, item: "meeseeksbox" },
+  },
+  {
+    id: "the-sauce",
+    name: "The Sauce",
+    blurb:
+      "Bring me something genuinely valuable and I will tell you where the last packet went. I am aware of how this sounds. I have made my peace with it.",
+    goal: { t: "carryItem", item: "pearl", count: 2 },
+    reward: { money: 20000, item: "szechuansauce" },
+  },
 ];
 
 const BY_ID = new Map(QUESTS.map((quest) => [quest.id, quest]));

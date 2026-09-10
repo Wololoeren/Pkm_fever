@@ -77,6 +77,11 @@ describe("what they bring", () => {
     const world = testWorld("A1");
     for (const [routeId, here] of world.trainers) {
       const route = world.routes.get(routeId)!;
+      // Routes only. The people standing in a town are written down rather
+      // than drawn, because in a town the team is the joke — five of the same
+      // creature, or a man and a bear and a pig. A town has no encounter table
+      // to be drawn from anyway.
+      if (route.kind !== "route") continue;
       const allowed = new Set(
         encounterTable(ALL_SPECIES, route.biome, route.ring, world.config.rings).map((row) => row.speciesId),
       );
@@ -92,6 +97,9 @@ describe("what they bring", () => {
     const world = testWorld("A1");
     for (const [routeId, here] of world.trainers) {
       const route = world.routes.get(routeId)!;
+      // Routes only, for the same reason as T5: a town has no grass to be a
+      // step above, and the people in one are written by hand.
+      if (route.kind !== "route") continue;
       const wildLevel = wildAt(world, ALL_SPECIES, routeId, 0, 1).level;
       for (const trainer of here) {
         for (const member of trainer.team) {

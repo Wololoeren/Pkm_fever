@@ -4,6 +4,7 @@ import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { nameOf, placesWanted, profileFor, typesFor } from "./biomes";
 import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
+import { TOWNS, TOWN_TRAINERS } from "./towns";
 import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
 import { GYMS, gym, type GymSpec } from "./gyms";
 import {
@@ -478,25 +479,6 @@ interface Duty {
  * nobody would think to look for.
  */
 export const CUP_LABEL = "The Cup";
-
-/**
- * The towns, in the order the plan founds them.
- *
- * Four, and only the first is home. Hearth keeps the daycare, because breeding
- * being in one place is what makes going back there mean something; the other
- * three get a Center, a Mart and somebody's front room, which is what a town
- * has to have to be worth the walk.
- *
- * Where each one *is* comes from the plan and not from here — they are cells on
- * the lattice, chosen for being as far from each other as the world allows, so
- * a name cannot promise a place. See `OUTER_TOWNS` in layout.ts.
- */
-const TOWNS: readonly { id: string; name: string; roles: InteriorRole[] }[] = [
-  { id: HUB, name: "Hearth", roles: ["daycare", "centre", "mart", "house"] },
-  { id: "town-1", name: "Highcross", roles: ["centre", "mart", "house"] },
-  { id: "town-2", name: "Willowmere", roles: ["centre", "mart", "house"] },
-  { id: "town-3", name: "Cinderhold", roles: ["centre", "mart", "house"] },
-];
 
 /** How coarse the maze is. Eight tiles a cell over 88x68 gives 10x8 rooms. */
 const CELL = 8;
@@ -1293,14 +1275,22 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
     const target = (() => {
       switch (entry.where.at) {
         case "town":
-          return { route: routes.get(HUB_ID), wish: { x: entry.where.x, y: entry.where.y } };
+          return {
+            route: routes.get(entry.where.town ?? HUB_ID),
+            wish: { x: entry.where.x, y: entry.where.y },
+          };
         case "interior": {
           const role = entry.where.role;
+          const town = entry.where.town;
           const room = entry.where.roomId
             ? routes.get(entry.where.roomId)
-            : role === "house"
-              ? houses[(entry.where.index ?? 0) % Math.max(1, houses.length)]
-              : [...routes.values()].find((route) => route.role === role);
+            : town
+              ? [...routes.values()].find(
+                  (route) => route.role === role && route.parent === town,
+                )
+              : role === "house"
+                ? houses[(entry.where.index ?? 0) % Math.max(1, houses.length)]
+                : [...routes.values()].find((route) => route.role === role);
           return room ? { route: room, wish: { x: Math.floor(room.width / 2), y: 3 } } : null;
         }
         case "route": {
@@ -1443,6 +1433,11 @@ const PICKUP_TABLE: readonly { item: string; weight: number }[] = [
   { item: "heartscale", weight: 4 },
   { item: "repel", weight: 4 },
   { item: "nugget", weight: 1 },
+  // Somebody is stealing these from the whole world, and you keep finding
+  // them. The recurrence is the joke, so the weight is high on purpose — and
+  // it is what makes the gnomes' errand a job you can actually finish rather
+  // than a token that only exists because a quest asked for one.
+  { item: "gnomepants", weight: 8 },
 ];
 
 /**
@@ -2180,7 +2175,7 @@ function placeCritters(
   for (const entry of CRITTERS) {
     const route =
       entry.where.at === "town"
-        ? routes.get(HUB_ID)
+        ? routes.get(entry.where.town ?? HUB_ID)
         : routes.get(routeId(entry.where.biome, entry.where.nth));
     if (!route) continue;
 
@@ -2501,6 +2496,36 @@ export function generateWorld(
     if (route.kind !== "route") continue;
     const here = buildTrainers(seed, route, allSpecies, config.rings);
     if (here.length) trainers.set(route.id, here);
+  }
+
+  // And the ones written by hand, who stand in the towns.
+  //
+  // The same `TrainerSpec` the routes use, so walking into one starts a battle
+  // through exactly the same door — what is different is that their teams are
+  // written down rather than drawn from the route's table, because the joke is
+  // usually the team.
+  for (const spec of TOWN_TRAINERS) {
+    const route = routes.get(spec.town);
+    if (!route) continue;
+
+    const busy = new Set([
+      ...(npcs.get(route.id) ?? []).map((who) => `${who.x},${who.y}`),
+      ...(trainers.get(route.id) ?? []).map((who) => `${who.x},${who.y}`),
+    ]);
+    const spot = nearestSpot(route, { x: spec.x, y: spec.y }, busy);
+    if (!spot) continue;
+
+    trainers.set(route.id, [
+      ...(trainers.get(route.id) ?? []),
+      {
+        id: spec.id,
+        routeId: route.id,
+        x: spot.x,
+        y: spot.y,
+        name: spec.name,
+        team: spec.team,
+      },
+    ]);
   }
 
   const critters = placeCritters(seed, routes, npcs, trainers, allSpecies, config.rings);

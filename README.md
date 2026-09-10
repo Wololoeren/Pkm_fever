@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         467 tests, including the replay property everything rests on
+tests/         473 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -307,6 +307,38 @@ drawn brighter than the ones you have not, and hovering a dot names it. Unwalked
 places are drawn but empty — the *shape* of the world is not a secret, only
 what is in it. Standing indoors lights up the town you are indoors in, because
 a door is not a journey.
+
+### The three outer towns
+
+Hearth is Hearth: it is where you wake up and it does not need a joke. The other
+three each borrow the shape of a television programme, and everything in them
+leans the same way — the people, what they say, the jobs they hand out, the
+shelf in the Mart and the creatures pottering about.
+
+**Southpass** is a small mountain town where appalling things happen weekly and
+nobody remarks on them, chiefly because the people who would remark are eight.
+**New Willow** is a future that turned out to be a job, with a professor
+upstairs who keeps inventing ways for everybody to die. **Sanchford** is one
+garage, one hole in reality, and a great deal of trouble. They arrive in that
+order because the plan founds them by distance, which is more or less the order
+in which those three things get harder to explain.
+
+Sixteen, fifteen and fifteen references, spread across people, quests, battles,
+items and creatures — because a homage you can only *read* is set dressing, and
+one you have to do something about is a quest. The gnomes' business plan is a
+job with a hole where phase two should be. The cryptid that is three animals is
+fetched as three animals. A council of one man is fielded as five Dittos, which
+is the joke told in this game's own vocabulary rather than in the programme's.
+
+They are homages rather than transcriptions: the situations are recognisable and
+the words are this game's own. That is the better joke anyway — a line lifted
+whole is somebody else's, and a line that lands because you know what it is
+*doing* is a joke you and the game are making together.
+
+`tests/towns.test.ts` is the manifest. Listing every nod by id is the only way
+"at least ten apiece" is a fact rather than an impression, and it is what stops
+a town quietly losing half its cast to a refactor that looked like it was about
+something else.
 
 ### What they are doing
 

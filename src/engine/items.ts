@@ -814,6 +814,123 @@ const HOLDABLE: ItemSpec[] = HELD_ITEMS.map((entry) => ({
   stacks: true,
 }));
 
+
+/**
+ * The things the three outer towns sell, hand out and leave lying about.
+ *
+ * Each town is an homage to a programme and everything in it leans the same
+ * way, down to the shelf in the Mart — a town whose people are a joke and whose
+ * shop is generic is a set with a shop painted on it.
+ *
+ * They are real items rather than souvenirs: the snack heals, the soda spends
+ * effort, the box is a full heal that goes away when it has done its one job.
+ * A reference you cannot use is a label, and this game does not have labels.
+ */
+const TOWN_ITEMS: readonly ItemSpec[] = [
+  // ---------------------------------------------------- Southpass, up in the
+  // mountains, where the children are unsupervised and it is nobody's fault.
+  {
+    id: "cheesypuffs",
+    name: "Cheesy Puffs",
+    kind: "medicine",
+    price: 250,
+    sell: 60,
+    blurb: "Returns 25 health. There is no nutrition in here at all and everybody involved knows it.",
+    stacks: true,
+    heals: 25,
+  },
+  {
+    id: "schoolgruel",
+    name: "School Gruel",
+    kind: "medicine",
+    price: 120,
+    sell: 30,
+    blurb:
+      "Returns 12 health and clears a status condition. Served by a large man who sings while he ladles.",
+    stacks: true,
+    heals: 12,
+    cures: true,
+  },
+  {
+    id: "gnomepants",
+    name: "Stolen Underpants",
+    kind: "treasure",
+    price: 0,
+    sell: 40,
+    blurb:
+      "Phase one of a three-phase business plan. Phase three is profit. Nobody will be drawn on phase two.",
+    stacks: true,
+  },
+
+  // ------------------------------------------------------- New Willow, where
+  // the future arrived and turned out to be a job.
+  {
+    id: "slurm",
+    name: "Slurm",
+    kind: "medicine",
+    price: 900,
+    sell: 220,
+    blurb:
+      "Returns 50 health. Wildly addictive, and you are very much better off not knowing where it comes from.",
+    stacks: true,
+    heals: 50,
+  },
+  {
+    id: "bachelorchow",
+    name: "Bachelor Chow",
+    kind: "medicine",
+    price: 400,
+    sell: 100,
+    blurb: "Returns 40 health. Now with flavour.",
+    stacks: true,
+    heals: 40,
+  },
+  {
+    id: "doomsdaydevice",
+    name: "Doomsday Device",
+    kind: "treasure",
+    price: 0,
+    sell: 6000,
+    blurb:
+      "A professor's, and one of several. He would like it back, but not urgently, and not in person.",
+    stacks: true,
+  },
+
+  // ---------------------------------------------------------- Sanchford, one
+  // garage, one hole in reality, and a great deal of trouble.
+  {
+    id: "meeseeksbox",
+    name: "Meeseeks Box",
+    kind: "medicine",
+    price: 0,
+    sell: 800,
+    blurb:
+      "Press the button and something cheerful appears, restores a creature completely, and stops existing. It seems glad to go.",
+    stacks: true,
+    heals: Infinity,
+  },
+  {
+    id: "plumbus",
+    name: "Plumbus",
+    kind: "treasure",
+    price: 0,
+    sell: 1800,
+    blurb:
+      "Everyone has one. First they take the dinglebop and smooth it out with a bunch of schleem. You know how a plumbus is made.",
+    stacks: true,
+  },
+  {
+    id: "szechuansauce",
+    name: "Szechuan Sauce",
+    kind: "treasure",
+    price: 0,
+    sell: 9000,
+    blurb:
+      "One packet, from a promotion that ran for a fortnight decades ago. A man in a garage has built nine years of plans around getting more.",
+    stacks: true,
+  },
+];
+
 export const ITEMS: readonly ItemSpec[] = [
   ...ITEM_LIST,
   ...TOOLS,
@@ -826,6 +943,7 @@ export const ITEMS: readonly ItemSpec[] = [
   ...FIELD_ITEMS,
   ...HOLDABLE,
   ...MACHINES,
+  ...TOWN_ITEMS,
 ];
 
 const BY_ID = new Map(ITEMS.map((entry) => [entry.id, entry]));

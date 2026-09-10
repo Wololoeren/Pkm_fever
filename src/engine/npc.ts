@@ -107,10 +107,27 @@ export function givesText(gives: NonNullable<NpcSpec["gives"]>): string {
 export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
   /** Which map, and roughly where on it. */
   where:
-    | { at: "town"; x: number; y: number }
+    /**
+     * In a town square: which town, and roughly where in it.
+     *
+     * `town` was not here while there was one town. There are four, three of
+     * them with a cast of their own, and "the town" stopped being an address
+     * the moment the second one was founded. Left off it still means home,
+     * so the original roster reads the same as it always did.
+     */
+    | { at: "town"; town?: string; x: number; y: number }
     | {
         at: "interior";
         role: "centre" | "mart" | "daycare" | "house";
+        /**
+         * Which town's one, when it matters.
+         *
+         * `index` picks among the *houses*, which are the only rooms there
+         * used to be several of. Every town has a Center and a Mart now, and
+         * without this a person written for the shop in one town stands behind
+         * the counter in Hearth: the joke with the setup removed.
+         */
+        town?: string;
         index?: number;
         /**
          * There is one of these in *every* building of the kind.
@@ -461,6 +478,253 @@ export const NPCS: readonly NpcPlacement[] = [
     lines: [
       "Do not trust the trees. They all look like that.",
       "Use the small map. The way through is drawn on it, and it is drawn correctly, which is more than I can say for my sense of direction.",
+    ],
+  },
+
+
+  // ================================================= the three outer towns
+  //
+  // Each is an homage, and everything in it leans the same way: the people, what
+  // they say, the jobs they hand out, the shelf in the Mart and the creatures
+  // pottering about. A town whose cast is a joke and whose shop is generic is a
+  // set with a shop painted on it.
+  //
+  // Recognisable rather than transcribed. The situations are the programmes';
+  // the words are this game's. That is the better joke anyway — a line lifted
+  // whole is somebody else's, and a line that lands because you know what it is
+  // *doing* is a joke you and the game are making together.
+
+  // ---------------------------------------------------------- Southpass
+  //
+  // A small mountain town where appalling things happen weekly and nobody
+  // remarks on it, chiefly because the people who would remark are eight.
+  {
+    id: "sp-hooded",
+    name: "Hooded Boy",
+    kind: "hint",
+    where: { at: "town", town: "town-1", x: 14, y: 12 },
+    lines: [
+      "(You cannot make out a word of it. He is entirely inside the coat.)",
+      "(He gestures at the hills, then at himself, then draws a finger across his throat, then shrugs.)",
+      "(You get the impression this has happened before and will happen again on Thursday.)",
+    ],
+  },
+  {
+    id: "sp-witness",
+    name: "Boy in a Bobble Hat",
+    kind: "hint",
+    where: { at: "town", town: "town-1", x: 17, y: 12 },
+    lines: [
+      "You did not see that. Nobody saw that.",
+      "They have done it again. The absolute swines.",
+      "He will be at school on Monday. He is always at school on Monday. Do not ask him about it, he gets funny.",
+    ],
+  },
+  {
+    id: "sp-gnome",
+    name: "Small Person",
+    kind: "quest",
+    questId: "phase-two",
+    where: { at: "town", town: "town-1", x: 10, y: 20 },
+    lines: [
+      "Phase one: collect underpants. That part is going extremely well.",
+      "Phase three: profit.",
+      "Phase two is under review. It has been under review for some years. We would rather talk about phase three.",
+    ],
+  },
+  {
+    id: "sp-cook",
+    name: "The Cook",
+    kind: "gift",
+    item: "schoolgruel",
+    where: { at: "interior", role: "mart", town: "town-1" },
+    lines: [
+      "Hello there, children.",
+      "You look like somebody with a question, and I have got exactly one answer and it is soup.",
+      "Take a ladleful. And if anybody in this town gives you advice, check who is holding the puppet first.",
+    ],
+  },
+  {
+    id: "sp-teacher",
+    name: "Schoolmaster",
+    kind: "hint",
+    where: { at: "town", town: "town-1", x: 22, y: 8 },
+    lines: [
+      "Good morning. I shall let my colleague take this one.",
+      "(He raises his left hand, which is wearing a small felt hat, and it addresses you directly.)",
+      "\"Types beat types, children. Write it down. He never writes it down.\"",
+    ],
+  },
+  {
+    id: "sp-moral",
+    name: "Boy in an Orange Coat",
+    kind: "hint",
+    where: { at: "town", town: "town-1", x: 25, y: 22 },
+    lines: [
+      "Look, I know it has been a strange week.",
+      "But if you think about it, the real thing worth having was the six creatures we walked in with.",
+      "...and I think we all learned something today. Right. I am going home. Forget the lot of you.",
+    ],
+  },
+  {
+    id: "sp-scout",
+    name: "Bus Stop Regular",
+    kind: "quest",
+    questId: "the-cryptid",
+    where: { at: "town", town: "town-1", x: 8, y: 14 },
+    lines: [
+      "There is a thing up in those hills and it is three animals at once. I have been saying so for years.",
+      "Everybody nods and then changes the subject to the weather. I am not mad. It is half man, and half bear, and half pig.",
+      "Bring me one of each and I will consider the point proven.",
+    ],
+  },
+
+  // --------------------------------------------------------- New Willow
+  //
+  // The future arrived. It turned out to be a job, with a professor upstairs
+  // who keeps inventing ways for everyone to die.
+  {
+    id: "nw-thawed",
+    name: "Delivery Boy",
+    kind: "hint",
+    where: { at: "town", town: "town-2", x: 14, y: 12 },
+    lines: [
+      "I got shut in a freezer. I would rather not say how long for. It was a while.",
+      "Everyone I knew is gone and there is a robot in my kitchen drinking my things.",
+      "Anyway. I deliver parcels now. It is going fine. It is going absolutely fine.",
+    ],
+  },
+  {
+    id: "nw-professor",
+    name: "The Professor",
+    kind: "quest",
+    questId: "good-news",
+    where: { at: "town", town: "town-2", x: 18, y: 9 },
+    lines: [
+      "Splendid news, everybody! I have invented a job that will almost certainly kill you.",
+      "Nothing to worry about. The last crew were all replaced very promptly.",
+      "Off you go. Take something strong. Take several somethings strong.",
+    ],
+  },
+  {
+    id: "nw-doctor",
+    name: "The Doctor",
+    kind: "heal",
+    where: { at: "interior", role: "centre", town: "town-2" },
+    lines: [
+      "A patient! Oh, this is wonderful. Nobody comes to see me.",
+      "I am a doctor, you understand. Of a sort. Not that sort. A related sort.",
+      "(Your creatures are, against every reasonable expectation, completely fine.)",
+    ],
+  },
+  {
+    id: "nw-captain",
+    name: "The Captain",
+    kind: "trade",
+    where: { at: "town", town: "town-2", x: 26, y: 20 },
+    wants: { type: "flying", minLevel: 30 },
+    gives: { speciesId: "elgyem", variantId: "tint3", gender: "male", level: 38, nickname: "Cadet" },
+    lines: [
+      "You there! I am the captain and this is my ship and I have exactly one working eye, so do not try anything.",
+      "I want something that flies. Level thirty or better. I have crashed everything else.",
+      "You may have this in exchange. It came aboard on its own and it has been extremely polite about it.",
+    ],
+  },
+  {
+    id: "nw-clerk",
+    name: "Bureaucrat",
+    kind: "quest",
+    questId: "the-inventory",
+    where: { at: "town", town: "town-2", x: 10, y: 18 },
+    lines: [
+      "You want form nine-b. Everybody wants form nine-b.",
+      "Form nine-b is obtained by filing form nine-a, which requires form nine-b. I have raised this. It has been noted.",
+      "I have been Grade Thirty-Six for eleven years and I am *thriving*. Now. Would you like some work?",
+    ],
+  },
+  {
+    id: "nw-lucky",
+    name: "Lucky Clover",
+    kind: "gift",
+    item: "slurm",
+    where: { at: "town", town: "town-2", x: 22, y: 22 },
+    lines: [
+      "Drink this. Everyone drinks this. It is the finest drink in the world and it is made in a way nobody will discuss.",
+      "There was a competition. I won a tour of the factory. I would rather I had not.",
+      "It does put you right back on your feet. That part is true. I would leave the rest of it alone.",
+    ],
+  },
+
+  // ----------------------------------------------------------- Sanchford
+  //
+  // One garage, one hole in reality, and a great deal of trouble.
+  {
+    id: "sf-grandfather",
+    name: "The Grandfather",
+    kind: "quest",
+    questId: "one-more-adventure",
+    where: { at: "town", town: "town-3", x: 15, y: 11 },
+    lines: [
+      "(He is drinking something and it is not water. There is a green hole in the wall of his garage.)",
+      "Right. You look competent. Competent-ish. You have a bag and a pulse, which puts you ahead.",
+      "One job. Do not ask what it is for. If you ask what it is for I will tell you, and then you will be *involved*.",
+    ],
+  },
+  {
+    id: "sf-grandson",
+    name: "The Grandson",
+    kind: "hint",
+    where: { at: "town", town: "town-3", x: 18, y: 11 },
+    lines: [
+      "Oh geez. Please do not encourage him.",
+      "He says it is one adventure. It is never one adventure. There is always a second thing, and the second thing has teeth.",
+      "If a version of me turns up and tells you I am dead, that one is lying. Probably. Mostly.",
+    ],
+  },
+  {
+    id: "sf-birdman",
+    name: "The Bird Man",
+    kind: "hint",
+    where: { at: "town", town: "town-3", x: 24, y: 9 },
+    lines: [
+      "In my language, the word for what you are doing translates as *a small hurt, repeated on purpose*.",
+      "Your friend is not being difficult. Your friend is in a great deal of pain and has made it everybody else's.",
+      "That was not a criticism. It was an observation. In my culture, they are the same thing.",
+    ],
+  },
+  {
+    id: "sf-squanch",
+    name: "Squanchy Sort",
+    kind: "gift",
+    item: "plumbus",
+    where: { at: "town", town: "town-3", x: 11, y: 19 },
+    lines: [
+      "Hey! Squanch on in, take a squanch, get squanchy.",
+      "You want a plumbus? Everyone squanching well needs a plumbus.",
+      "(You do not know what most of that meant. You are also fairly sure some of it was rude.)",
+    ],
+  },
+  {
+    id: "sf-television",
+    name: "Someone Watching Television",
+    kind: "hint",
+    where: { at: "town", town: "town-3", x: 27, y: 21 },
+    lines: [
+      "Eight hundred million channels. Every one of them is somewhere else's.",
+      "This one is a man reviewing a chair for forty minutes. He does not like the chair.",
+      "Do not look for a plot. There is no plot. That is the point and it took me a long time to enjoy it.",
+    ],
+  },
+  {
+    id: "sf-sauce",
+    name: "Fast Food Historian",
+    kind: "quest",
+    questId: "the-sauce",
+    where: { at: "town", town: "town-3", x: 20, y: 22 },
+    lines: [
+      "There was a sauce. It was available for a fortnight. Decades ago.",
+      "A man in this town has built nine years of plans around getting another packet of it. Nine *years*.",
+      "Bring me something worth a fortune and I will tell you where the last one is. That is the deal and I am not proud of it.",
     ],
   },
 
