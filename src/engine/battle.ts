@@ -8,7 +8,7 @@ import {
 } from "./dex";
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
-import { abilitiesOf, type AbilityEffect } from "./abilities";
+import { abilitiesOf, effectApplies, type AbilityEffect } from "./abilities";
 import { heldEffects, isConsumedOnUse } from "./carry";
 import { canStillEvolve } from "./progression";
 import { hasVariableDamage, variableDamage, type DamageContext } from "./moves";
@@ -227,7 +227,11 @@ function effects<K extends AbilityEffect["t"]>(
   const mine = abilitiesOf(creature.abilities).map((spec) => spec.effect);
   const carried = heldEffects(creature.heldItem);
   return [...mine, ...carried].filter(
-    (effect): effect is Extract<AbilityEffect, { t: K }> => effect.t === kind,
+    (effect): effect is Extract<AbilityEffect, { t: K }> =>
+      // A Thick Club does nothing unless a Cubone is holding it, and that is
+      // a whole family of items rather than one. Filtered here so no caller
+      // has to remember to ask.
+      effect.t === kind && effectApplies(effect, creature.speciesId),
   );
 }
 
@@ -432,13 +436,24 @@ function landDamage(
   // than in the damage formula, because it is about the blow landing rather
   // than about how hard it was.
   let amount = wanted;
-  if (defender.hp >= maxHp(defender) && amount >= defender.hp && has(defender, "endure")) {
-    amount = Math.max(0, defender.hp - 1);
-    const named = whichAbility(defender, "endure");
-    if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
-    // A Focus Sash does the same job and is spent doing it, which is the whole
-    // difference between it and Sturdy.
-    usedItem(turn, other(side), "endure");
+  if (amount >= defender.hp) {
+    // Sturdy and a Focus Sash want full health and always work; a Focus Band
+    // wants neither and sometimes does. One loop, because the difference
+    // between them is two fields rather than two mechanics.
+    const saving = effects(defender, "endure").find((effect) => {
+      const whole = effect.whole !== false;
+      if (whole && defender.hp < maxHp(defender)) return false;
+      return effect.mille === undefined || roll(turn, `${side}-brace`) * 1000 < effect.mille;
+    });
+
+    if (saving) {
+      amount = Math.max(0, defender.hp - 1);
+      const named = whichAbility(defender, "endure");
+      if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
+      // A Focus Sash is spent doing it, which is the whole difference between
+      // it and Sturdy.
+      usedItem(turn, other(side), "endure");
+    }
   }
 
   const dealt = applyDamage(turn, other(side), amount);
@@ -483,6 +498,29 @@ function landDamage(
       for (const stat of effect.stats) boosts[stat] = effect.delta;
       applyBoosts(turn, other(side), boosts);
       usedItem(turn, other(side), "policy");
+    }
+
+    // The Enigma Berry, which is the one thing in the bag that is paid for
+    // being hit rather than for hitting.
+    for (const effect of effects(active(turn, other(side)), "solace")) {
+      const hurt = active(turn, other(side));
+      const back = Math.max(1, Math.floor(maxHp(hurt) / effect.share));
+      const room = maxHp(hurt) - hurt.hp;
+      if (room <= 0) continue;
+      setActive(turn, other(side), { ...hurt, hp: hurt.hp + Math.min(room, back) });
+      turn.events.push({ t: "heal", side: other(side), amount: Math.min(room, back) });
+      usedItem(turn, other(side), "solace");
+    }
+  }
+
+  // Kee and Maranga: a stage for having been hit that way.
+  if (dealt > 0 && !isFainted(active(turn, other(side)))) {
+    for (const effect of effects(active(turn, other(side)), "brace")) {
+      if (effect.category !== move.category) continue;
+      const boosts: Boosts = {};
+      for (const stat of effect.stats) boosts[stat] = effect.delta;
+      applyBoosts(turn, other(side), boosts);
+      usedItem(turn, other(side), "brace");
     }
   }
 
@@ -647,7 +685,8 @@ function damageFor(
   value = Math.floor((value * power * attack) / defence);
   value = Math.floor(value / 50) + 2;
 
-  // Super Luck: one stage up the same ladder the move's own ratio walks.
+  // Super Luck, a Scope Lens, a Razor Claw: one stage up the same ladder the
+  // move's own ratio walks.
   const luck = effects(attacker, "luck").reduce((sum, effect) => sum + effect.stages, 0);
   const ratio = move.critRatio + luck;
   const odds = CRIT_ODDS[Math.max(0, Math.min(CRIT_ODDS.length - 1, ratio - 1))];
@@ -830,6 +869,9 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   let accuracy = move.accuracy;
   let unmissable = accuracy === 0;
   for (const effect of effects(attacker, "aim")) {
+    // A Zoom Lens is worth having only when it moves second, which is the one
+    // thing that separates it from a Wide Lens.
+    if (effect.when === "late" && turn.movingLast !== side) continue;
     if (effect.mille === 0) unmissable = true;
     else accuracy = Math.min(100, scaled(accuracy, effect.mille));
   }
@@ -885,7 +927,11 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   }
 
   if (move.drain && dealt > 0) {
-    const healed = applyHeal(turn, side, Math.max(1, Math.floor((dealt * move.drain[0]) / move.drain[1])));
+    // A Big Root: a share more of what was drained. Applied to the amount
+    // rather than to the fraction, so the arithmetic stays integer.
+    let drawn = Math.max(1, Math.floor((dealt * move.drain[0]) / move.drain[1]));
+    for (const effect of effects(attacker, "roots")) drawn = scaled(drawn, effect.mille);
+    const healed = applyHeal(turn, side, drawn);
     if (healed > 0) turn.events.push({ t: "heal", side, amount: healed });
   }
 
@@ -1203,6 +1249,14 @@ export function resolveTurn(
   const ours = actions[0];
   if (ours.t === "ball" || ours.t === "flee") {
     if (!rules.catchable) throw new IllegalAction("there is no running from this one");
+
+    // A Smoke Ball: running works. Checked before the speed comparison rather
+    // than folded into it, because the item promises certainty and a very fast
+    // wild creature is exactly when you want it.
+    if (ours.t === "flee" && has(active(turn, 0), "bolt")) {
+      turn.events.push({ t: "fled" });
+      return finish({ ...turn, battle: { ...turn.battle, outcome: { t: "fled" } } }, null, 0);
+    }
 
     if (ours.t === "ball") {
       if (balls <= 0) {

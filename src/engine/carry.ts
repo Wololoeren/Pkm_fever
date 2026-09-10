@@ -1,5 +1,5 @@
 import type { AbilityEffect } from "./abilities";
-import { TYPE_NAMES } from "./dex";
+import { ALL_SPECIES, TYPE_NAMES } from "./dex";
 import type { StatusId } from "./types";
 
 /**
@@ -500,11 +500,349 @@ function cureBerries(): HeldItemSeed[] {
   }));
 }
 
+
+/**
+ * The six Power items: effort, steered.
+ *
+ * A Macho Brace doubles whatever the loser was going to teach; these double it
+ * *and* decide what it teaches, which is what turns effort from something that
+ * happens to a creature into something you aim. The same `regimen` shape, with
+ * a stat named.
+ */
+const POWER_ITEMS: { id: string; name: string; stat: "hp" | "atk" | "def" | "spa" | "spd" | "spe"; what: string }[] = [
+  { id: "powerweight", name: "Power Weight", stat: "hp", what: "health" },
+  { id: "powerbracer", name: "Power Bracer", stat: "atk", what: "attack" },
+  { id: "powerbelt", name: "Power Belt", stat: "def", what: "defence" },
+  { id: "powerlens", name: "Power Lens", stat: "spa", what: "special attack" },
+  { id: "powerband", name: "Power Band", stat: "spd", what: "special defence" },
+  { id: "poweranklet", name: "Power Anklet", stat: "spe", what: "speed" },
+];
+
+function powerItems(): HeldItemSeed[] {
+  return POWER_ITEMS.map((entry) => ({
+    id: `hold-${entry.id}`,
+    name: entry.name,
+    blurb: `Twice the effort from everything it beats, all of it into ${entry.what}.`,
+    price: 4200,
+    hold: { effects: [{ t: "regimen", mille: 2000, stat: entry.stat }] },
+  }));
+}
+
+/**
+ * The four remaining flavour berries.
+ *
+ * The canon has five of these and they are the same item five times over: a
+ * third of your health back at a quarter remaining. In the games they differ
+ * only by which nature dislikes the taste, and there is no taste here, so they
+ * are five names for one effect — which is fine. A player who finds a Mago
+ * Berry should get something, and "you already have this one" is a worse answer
+ * than five that stack in the bag.
+ */
+const FLAVOUR: { id: string; name: string }[] = [
+  { id: "wiki", name: "Wiki Berry" },
+  { id: "mago", name: "Mago Berry" },
+  { id: "aguav", name: "Aguav Berry" },
+  { id: "iapapa", name: "Iapapa Berry" },
+];
+
+function flavourBerries(): HeldItemSeed[] {
+  return FLAVOUR.map((entry) => ({
+    id: `berry-${entry.id}`,
+    name: entry.name,
+    blurb: "A third of its health back when it drops below a quarter. Then it is gone.",
+    price: 700,
+    hold: { effects: [{ t: "snack", below: PINCH, share: 3 }], consumed: true },
+  }));
+}
+
+/**
+ * Every species whose id starts with one of these, from the bestiary.
+ *
+ * The species-specific items name a *creature*, not an id, and this manifest
+ * has eleven Pikachus and three Marowaks. Writing the ids out by hand meant a
+ * Light Ball that did nothing for a Pikachu-Kalos and a Griseous Orb that
+ * named `giratinaorigin`, which does not exist here at all — both silent,
+ * because an effect with a condition nothing matches is simply an effect that
+ * never applies. Read from the data instead, and `tests/hold.test.ts` checks
+ * that every name still resolves.
+ */
+function formsOf(...prefixes: string[]): string[] {
+  return ALL_SPECIES.filter((entry) => prefixes.some((prefix) => entry.id.startsWith(prefix)))
+    .map((entry) => entry.id)
+    .sort();
+}
+
+/**
+ * The species-specific family.
+ *
+ * Every one of these does nothing at all in the wrong hands, which is the
+ * whole point: they exist to prop up something that needs propping. A Thick
+ * Club on a Cubone is the difference between an unusable creature and a
+ * genuinely frightening one, and on anything else it is a rock.
+ *
+ * Named against base forms only, deliberately. Marowak does not need the club
+ * and Raichu does not need the ball; the canon agrees, and it is the reading
+ * that keeps them interesting rather than simply strong.
+ */
+const SPECIES_ITEMS: HeldItemSeed[] = [
+  {
+    id: "hold-thickclub",
+    name: "Thick Club",
+    blurb: "Twice the Attack, for a Cubone or a Marowak and nobody else.",
+    price: 3000,
+    hold: {
+      effects: [
+        {
+          t: "stat",
+          stat: "atk",
+          when: "always",
+          mille: 2000,
+          for: { species: formsOf("cubone", "marowak") },
+        },
+      ],
+    },
+  },
+  {
+    id: "hold-lightball",
+    name: "Light Ball",
+    blurb: "Twice both attacks, for a Pikachu and nobody else.",
+    price: 3000,
+    hold: {
+      effects: [
+        {
+          t: "stat",
+          stat: "offence",
+          when: "always",
+          mille: 2000,
+          for: { species: formsOf("pikachu") },
+        },
+      ],
+    },
+  },
+  {
+    id: "hold-metalpowder",
+    name: "Metal Powder",
+    blurb: "Twice the Defence, for a Ditto and nobody else.",
+    price: 2400,
+    hold: {
+      effects: [
+        { t: "stat", stat: "def", when: "always", mille: 2000, for: { species: formsOf("ditto") } },
+      ],
+    },
+  },
+  {
+    id: "hold-quickpowder",
+    name: "Quick Powder",
+    blurb: "Twice the Speed, for a Ditto and nobody else.",
+    price: 2400,
+    hold: {
+      effects: [
+        { t: "stat", stat: "spe", when: "always", mille: 2000, for: { species: formsOf("ditto") } },
+      ],
+    },
+  },
+  {
+    id: "hold-luckypunch",
+    name: "Lucky Punch",
+    blurb: "Two stages of critical hits, for a Chansey and nobody else.",
+    price: 2400,
+    hold: { effects: [{ t: "luck", stages: 2, for: { species: formsOf("chansey") } }] },
+  },
+  {
+    id: "hold-leek",
+    name: "Leek",
+    blurb: "Two stages of critical hits, for a Farfetch'd and nobody else.",
+    price: 2400,
+    hold: {
+      effects: [
+        {
+          t: "luck",
+          stages: 2,
+          for: { species: formsOf("farfetchd", "sirfetchd") },
+        },
+      ],
+    },
+  },
+  {
+    id: "hold-deepseatooth",
+    name: "Deep Sea Tooth",
+    blurb: "Twice the Sp. Atk, for a Clamperl and nobody else.",
+    price: 2400,
+    hold: {
+      effects: [
+        { t: "stat", stat: "spa", when: "always", mille: 2000, for: { species: formsOf("clamperl") } },
+      ],
+    },
+  },
+  {
+    id: "hold-deepseascale",
+    name: "Deep Sea Scale",
+    blurb: "Twice the Sp. Def, for a Clamperl and nobody else.",
+    price: 2400,
+    hold: {
+      effects: [
+        { t: "stat", stat: "spd", when: "always", mille: 2000, for: { species: formsOf("clamperl") } },
+      ],
+    },
+  },
+  {
+    id: "hold-souldew",
+    name: "Soul Dew",
+    blurb: "Its Psychic and Dragon moves hit a fifth harder, for a Latias or a Latios.",
+    price: 5000,
+    hold: {
+      effects: [
+        { t: "power", when: "typed", type: "psychic", mille: 1200, for: { species: formsOf("latias", "latios") } },
+        { t: "power", when: "typed", type: "dragon", mille: 1200, for: { species: formsOf("latias", "latios") } },
+      ],
+    },
+  },
+  {
+    id: "hold-adamantorb",
+    name: "Adamant Orb",
+    blurb: "Its Dragon and Steel moves hit a fifth harder, for Dialga.",
+    price: 5000,
+    hold: {
+      effects: [
+        { t: "power", when: "typed", type: "dragon", mille: 1200, for: { species: formsOf("dialga") } },
+        { t: "power", when: "typed", type: "steel", mille: 1200, for: { species: formsOf("dialga") } },
+      ],
+    },
+  },
+  {
+    id: "hold-lustrousorb",
+    name: "Lustrous Orb",
+    blurb: "Its Dragon and Water moves hit a fifth harder, for Palkia.",
+    price: 5000,
+    hold: {
+      effects: [
+        { t: "power", when: "typed", type: "dragon", mille: 1200, for: { species: formsOf("palkia") } },
+        { t: "power", when: "typed", type: "water", mille: 1200, for: { species: formsOf("palkia") } },
+      ],
+    },
+  },
+  {
+    id: "hold-griseousorb",
+    name: "Griseous Orb",
+    blurb: "Its Dragon and Ghost moves hit a fifth harder, for Giratina.",
+    price: 5000,
+    hold: {
+      effects: [
+        { t: "power", when: "typed", type: "dragon", mille: 1200, for: { species: formsOf("giratina") } },
+        { t: "power", when: "typed", type: "ghost", mille: 1200, for: { species: formsOf("giratina") } },
+      ],
+    },
+  },
+];
+
+/**
+ * The ones that are another item wearing a different name.
+ *
+ * Kept rather than collapsed. Somebody who finds a Lax Incense has found
+ * something, and telling them it is a Bright Powder they already have is a
+ * worse answer than letting them hold one on a second creature.
+ */
+const SECOND_NAMES: HeldItemSeed[] = [
+  {
+    id: "hold-razorclaw",
+    name: "Razor Claw",
+    blurb: "Critical hits come one stage more often.",
+    price: 4000,
+    hold: { effects: [{ t: "luck", stages: 1 }] },
+  },
+  {
+    id: "hold-laxincense",
+    name: "Lax Incense",
+    blurb: "Whatever is aiming at it is a tenth less accurate.",
+    price: 3000,
+    hold: { effects: [{ t: "graze", mille: 900 }] },
+  },
+  {
+    id: "hold-luckincense",
+    name: "Luck Incense",
+    blurb: "Twice the purse from any trainer it is out against.",
+    price: 6000,
+    hold: { effects: [{ t: "purse", mille: 2000 }] },
+  },
+];
+
+/** The rest of the second wave: shapes that already existed, unused. */
+const LATE: HeldItemSeed[] = [
+  {
+    id: "hold-zoomlens",
+    name: "Zoom Lens",
+    blurb: "A fifth more accurate, but only on the turns it moves second.",
+    price: 3200,
+    hold: { effects: [{ t: "aim", mille: 1200, when: "late" }] },
+  },
+  {
+    id: "hold-focusband",
+    name: "Focus Band",
+    blurb: "One time in ten it survives a hit that would have finished it, from any health at all.",
+    price: 3000,
+    hold: { effects: [{ t: "endure", mille: 100, whole: false }] },
+  },
+  {
+    id: "hold-clearamulet",
+    name: "Clear Amulet",
+    blurb: "Nobody else lowers any of its stats.",
+    price: 5000,
+    hold: { effects: [{ t: "hold", stats: ["atk", "def", "spa", "spd", "spe"] }] },
+  },
+  {
+    id: "hold-covertcloak",
+    name: "Covert Cloak",
+    blurb: "The secondary effects of moves used on it never fire.",
+    price: 5000,
+    hold: { effects: [{ t: "unfazed" }] },
+  },
+  {
+    id: "hold-bigroot",
+    name: "Big Root",
+    blurb: "Draining moves return half again as much.",
+    price: 3600,
+    hold: { effects: [{ t: "roots", mille: 1500 }] },
+  },
+  {
+    id: "hold-smokeball",
+    name: "Smoke Ball",
+    blurb: "Running from anything wild always works, however fast it is.",
+    price: 2000,
+    hold: { effects: [{ t: "bolt" }] },
+  },
+  {
+    id: "berry-enigma",
+    name: "Enigma Berry",
+    blurb: "A quarter of its health back when something hits it super effectively. Then it is gone.",
+    price: 1500,
+    hold: { effects: [{ t: "solace", share: 4 }], consumed: true },
+  },
+  {
+    id: "berry-kee",
+    name: "Kee Berry",
+    blurb: "Defence up a stage when something hits it physically. Then it is gone.",
+    price: 1200,
+    hold: { effects: [{ t: "brace", stats: ["def"], delta: 1, category: "physical" }], consumed: true },
+  },
+  {
+    id: "berry-maranga",
+    name: "Maranga Berry",
+    blurb: "Sp. Def up a stage when something hits it specially. Then it is gone.",
+    price: 1200,
+    hold: { effects: [{ t: "brace", stats: ["spd"], delta: 1, category: "special" }], consumed: true },
+  },
+];
+
 /** Everything that can be held, in one list, for items.ts to fold into the bag. */
 export const HELD_ITEMS: readonly HeldItemSeed[] = [
   ...SINGLES,
+  ...LATE,
+  ...SECOND_NAMES,
+  ...SPECIES_ITEMS,
+  ...powerItems(),
   ...typeItems(),
   ...cureBerries(),
+  ...flavourBerries(),
   ...resistBerries(),
 ];
 

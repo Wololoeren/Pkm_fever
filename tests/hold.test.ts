@@ -9,10 +9,11 @@ import {
   resolveTurn,
   startBattle,
   TRAINER_RULES,
+  WILD_RULES,
   type BattleState,
 } from "@/engine/battle";
 import { heldEffects, HELD_ITEMS, isConsumedOnUse, TYPE_ITEM_TYPES } from "@/engine/carry";
-import { species as speciesById } from "@/engine/dex";
+import { ALL_SPECIES, species as speciesById } from "@/engine/dex";
 import { applyInput, holdRefusal, initialState, type GameState } from "@/engine/engine";
 import { ITEMS } from "@/engine/items";
 import { creature, testWorld } from "./helpers";
@@ -112,6 +113,43 @@ describe("the vocabulary is shared", () => {
       expect(effects.length, type).toBe(1);
       expect(effects[0]).toEqual({ t: "power", when: "typed", type, mille: 1200 });
     }
+  });
+});
+
+describe("the species-specific family", () => {
+  it("H3b: every species an item names actually exists", () => {
+    // An effect whose condition matches nothing is an effect that never
+    // applies, and nothing says so. This found two: a Griseous Orb naming
+    // `giratinaorigin`, which is not a species in this bestiary at all, and a
+    // Light Ball naming `pikachu` when the manifest carries eleven Pikachus.
+    // Both were silent. The lists are read from the bestiary now, and this is
+    // the guard on that.
+    const known = new Set(ALL_SPECIES.map((entry) => entry.id));
+    let named = 0;
+
+    for (const entry of HELD_ITEMS) {
+      for (const effect of entry.hold.effects) {
+        for (const id of effect.for?.species ?? []) {
+          named++;
+          expect(known.has(id), `${entry.id} names ${id}, which does not exist`).toBe(true);
+        }
+      }
+    }
+
+    expect(named, "nothing names a species, so this proves nothing").toBeGreaterThan(10);
+  });
+
+  it("H3c: a Thick Club is a Cubone item and a rock to anything else", () => {
+    const withClub = (speciesId: string) =>
+      swing("karatechop", { heldItem: "hold-thickclub" }, {}, `club:${speciesId}`, { mine: speciesId })
+        .dealt;
+    const bare = (speciesId: string) =>
+      swing("karatechop", {}, {}, `club:${speciesId}`, { mine: speciesId }).dealt;
+
+    expect(withClub("cubone")).toBeGreaterThan(bare("cubone"));
+    expect(withClub("machamp")).toBe(bare("machamp"));
+    // And every form of it, which is the reason the list is derived.
+    expect(withClub("marowakalola")).toBeGreaterThan(bare("marowakalola"));
   });
 });
 
@@ -443,6 +481,125 @@ describe("the restrictions, and the hole they opened", () => {
   });
 });
 
+describe("the second wave", () => {
+  it("H17b: a Zoom Lens is worth having only on the turns it moves second", () => {
+    const holder = creature("machamp", { uid: 1, level: 50, moves: ["dynamicpunch"], heldItem: "hold-zoomlens" });
+    const slow = creature("shuckle", { uid: 2, level: 50, moves: ["growl"] });
+    const fast = creature("electrode", { uid: 2, level: 90, moves: ["growl"] });
+
+    // Against something slower it moves first, so the lens is dead weight;
+    // against something faster it moves second, so it is not. Measured over
+    // many turns, because accuracy is a coin.
+    const lands = (foe: typeof slow, tag: string) => {
+      let hits = 0;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const after = resolveTurn(
+          startBattle(SEED, `${tag}:${attempt}`, [holder], [foe]),
+          [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+          DUEL_RULES,
+        ).battle;
+        if (!after.events.some((e) => e.t === "miss" && e.side === 0)) hits++;
+      }
+      return hits;
+    };
+
+    // Dynamic Punch is fifty percent accurate, so a fifth more is visible.
+    expect(lands(fast, "zoom-late")).toBeGreaterThan(lands(slow, "zoom-first"));
+  });
+
+  it("H17c: a Focus Band can save it from any health, and only sometimes", () => {
+    const holder = creature("magikarp", { uid: 2, level: 5, moves: ["splash"], heldItem: "hold-focusband" });
+    const hurt = { ...holder, hp: Math.max(1, Math.floor(maxHp(holder) / 2)) };
+    const bruiser = creature("machamp", { uid: 1, level: 90, moves: ["closecombat"] });
+
+    let saved = 0;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const after = resolveTurn(
+        startBattle(SEED, `band:${attempt}`, [bruiser], [hurt]),
+        [{ t: "fight", moveIndex: 0 }, { t: "pass" }],
+        DUEL_RULES,
+      ).battle;
+      if (!isFainted(activeOf(after, 1))) saved++;
+    }
+
+    // One in ten, so over two hundred tries it is neither never nor always —
+    // and it worked from half health, which a Focus Sash would not have.
+    expect(saved).toBeGreaterThan(2);
+    expect(saved).toBeLessThan(80);
+  });
+
+  it("H17d: a Clear Amulet and a Covert Cloak are two abilities in item form", () => {
+    // `hold` and `unfazed` already existed, for Clear Body and Shield Dust, so
+    // these two cost nothing at all — which is the whole thesis of the file.
+    const amulet = creature("machamp", { uid: 2, level: 50, moves: ["splash"], heldItem: "hold-clearamulet" });
+    const after = resolveTurn(
+      startBattle(SEED, "amulet", [creature("machamp", { uid: 1, level: 50, moves: ["growl"] })], [amulet]),
+      [{ t: "fight", moveIndex: 0 }, { t: "pass" }],
+      DUEL_RULES,
+    ).battle;
+
+    // Growl lowers Attack. It did not.
+    expect(after.sides[1].stages.atk).toBe(0);
+    expect(heldEffects("hold-covertcloak")).toEqual([{ t: "unfazed" }]);
+  });
+
+  it("H17e: a Kee Berry answers a physical hit and a Maranga a special one", () => {
+    const run = (heldItem: string, moveId: string, tag: string) => {
+      const holder = creature("wailord", { uid: 2, level: 50, moves: ["growl"], heldItem });
+      const after = resolveTurn(
+        startBattle(SEED, tag, [creature("machamp", { uid: 1, level: 50, moves: [moveId] })], [holder]),
+        [{ t: "fight", moveIndex: 0 }, { t: "pass" }],
+        DUEL_RULES,
+      ).battle;
+      return { stages: after.sides[1].stages, held: activeOf(after, 1).heldItem };
+    };
+
+    const kee = run("berry-kee", "karatechop", "kee-a");
+    expect(kee.stages.def).toBe(1);
+    expect(kee.held).toBeNull();
+
+    // A physical hit says nothing to a Maranga.
+    const wrong = run("berry-maranga", "karatechop", "kee-b");
+    expect(wrong.stages.spd).toBe(0);
+    expect(wrong.held).toBe("berry-maranga");
+  });
+
+  it("H17f: a Smoke Ball always gets you out of the grass", () => {
+    // Running is a speed comparison ordinarily, so this is against something
+    // very fast: the promise on the label is certainty.
+    const holder = creature("shuckle", { uid: 1, level: 5, moves: ["splash"], heldItem: "hold-smokeball" });
+    const quick = creature("electrode", { uid: 2, level: 90, moves: ["growl"] });
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const after = resolveTurn(
+        startBattle(SEED, `smoke:${attempt}`, [holder], [quick]),
+        [{ t: "flee" }, { t: "pass" }],
+        WILD_RULES,
+      ).battle;
+      expect(after.outcome?.t, `attempt ${attempt}`).toBe("fled");
+    }
+  });
+
+  it("H17g: a Power item steers the effort as well as doubling it", () => {
+    const beat = (heldItem: string | null, tag: string) => {
+      const winner = creature("machamp", { uid: 1, level: 20, moves: ["karatechop"], heldItem });
+      const after = resolveTurn(
+        startBattle(SEED, tag, [winner], [creature("magikarp", { uid: 2, level: 3, moves: ["splash"] })]),
+        [{ t: "fight", moveIndex: 0 }, { t: "pass" }],
+        TRAINER_RULES,
+      ).battle;
+      return activeOf(after, 0).evs;
+    };
+
+    // A Magikarp teaches Speed. A Power Belt says otherwise.
+    const plain = beat(null, "power-a");
+    const steered = beat("hold-powerbelt", "power-a");
+    expect(plain.spe).toBeGreaterThan(0);
+    expect(steered.def).toBeGreaterThan(plain.def);
+    expect(steered.def).toBeGreaterThan(steered.spe);
+  });
+});
+
 describe("carrying one at all", () => {
   function started() {
     const world = testWorld(SEED);
@@ -512,6 +669,8 @@ describe("carrying one at all", () => {
       "policy",
       "soften",
       "barb",
+      "brace",
+      "solace",
     ]);
 
     for (const entry of HELD_ITEMS) {

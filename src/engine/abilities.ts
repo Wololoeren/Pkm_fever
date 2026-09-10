@@ -33,7 +33,14 @@ import type { StatusId } from "./types";
  * half works is worse than one that visibly does not exist yet.
  */
 
-export type AbilityEffect =
+/**
+ * Everything an ability or a held item can do, as a closed set of shapes.
+ *
+ * `AbilityEffect` is this intersected with an optional condition, below, so
+ * any shape may be narrowed to particular species without eighteen of them
+ * having to declare a field they will never use.
+ */
+type EffectShape =
   /** Same-type attack bonus becomes this instead of 1.5, in per-mille. */
   | { t: "stab"; mille: number }
   /** Its own attacks are multiplied, under a condition. */
@@ -56,14 +63,21 @@ export type AbilityEffect =
   | { t: "ignore"; status: StatusId }
   /** Secondary effects of moves used on it never fire. */
   | { t: "unfazed" }
-  /** Its own accuracy is multiplied; 0 means it cannot miss. */
-  | { t: "aim"; mille: number }
+  /** Its own accuracy is multiplied; 0 means it cannot miss. A `when` of
+   * "late" is the Zoom Lens: worth having only when it moves second. */
+  | { t: "aim"; mille: number; when?: "always" | "late" }
   /** Critical hit ratio, raised by this many stages. */
   | { t: "luck"; stages: number }
   /** Status moves go this much earlier. */
   | { t: "quick"; plus: number }
-  /** From full health, one hit always leaves it standing. */
-  | { t: "endure" }
+  /**
+   * One hit that would have finished it leaves it standing.
+   *
+   * `mille` makes it a chance rather than a certainty, and `whole` is whether
+   * it has to have been at full health to begin with. Sturdy and a Focus Sash
+   * are the certain, full-health kind; a Focus Band is the one that might.
+   */
+  | { t: "endure"; mille?: number; whole?: boolean }
   /** Knocking something out raises a stage. */
   | { t: "spoils"; stat: StageStat; delta: number }
   /** Coming out lowers a stage of whatever is across from it. */
@@ -147,7 +161,27 @@ export type AbilityEffect =
    * gone. Expressing them as `ward` made them permanent halves that were
    * never spent, which is two bugs wearing one shape.
    */
-  | { t: "soften"; types: readonly string[]; mille: number };
+  | { t: "soften"; types: readonly string[]; mille: number }
+  /** Whatever damages it with a move of this category raises these stages.
+   * Kee and Maranga: `barb` with a boost instead of a bite. */
+  | { t: "brace"; stats: readonly StageStat[]; delta: number; category: "physical" | "special" }
+  /** A super-effective hit heals it a share of its maximum. The Enigma Berry,
+   * which is the only thing here that is *paid* for being hit. */
+  | { t: "solace"; share: number }
+  /** Running from a wild battle always works. */
+  | { t: "bolt" }
+  /** Drain moves return this much more, in per-mille. */
+  | { t: "roots"; mille: number };
+
+/**
+ * One shape, plus who it is for.
+ *
+ * The condition is on the union rather than inside it because it is orthogonal
+ * to what the effect does — a Thick Club is `stat` for a Cubone and a Light
+ * Ball is `power` for a Pikachu, and neither shape should have to know that
+ * some items are species-specific.
+ */
+export type AbilityEffect = EffectShape & { for?: EffectFor };
 
 /** When a `power` effect applies. */
 export type PowerWhen =
@@ -180,6 +214,34 @@ export type StatWhen =
 
 /** Attack and Special Attack together are "offence"; the rest are their own. */
 export type StatKey = StageStat | "offence";
+
+/**
+ * A condition an effect can carry, narrowing who it works for.
+ *
+ * Only held items use it, and only because a whole family of them is built
+ * this way: a Thick Club does nothing at all unless a Cubone is holding it,
+ * and a Light Ball is a Pikachu's item. Expressing that as a condition on the
+ * effect keeps it one shape — the alternatives are a dozen near-identical
+ * shapes or a dozen special cases in battle.ts, and both are worse than a list
+ * of names on the effect that wants one.
+ */
+export interface EffectFor {
+  /** Only these species. Ids, as the bestiary spells them. */
+  species?: readonly string[];
+}
+
+/**
+ * Whether an effect carrying a condition applies to this species.
+ *
+ * Lives here rather than in battle.ts so there is one answer: the condition is
+ * part of the vocabulary, and a second reading of it elsewhere is a second
+ * reading to keep in step. An effect with no condition always applies, which
+ * is nearly all of them.
+ */
+export function effectApplies(effect: { for?: EffectFor }, speciesId: string): boolean {
+  const only = effect.for?.species;
+  return !only || only.includes(speciesId);
+}
 
 export interface AbilitySpec {
   id: string;
