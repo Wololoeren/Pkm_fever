@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   actionRefusal,
@@ -683,6 +685,67 @@ describe("carrying one at all", () => {
     expect(isConsumedOnUse("hold-leftovers")).toBe(false);
     expect(isConsumedOnUse("hold-choiceband")).toBe(false);
     expect(isConsumedOnUse("berry-sitrus")).toBe(true);
+  });
+});
+
+describe("the reference", () => {
+  it("H28: docs/items.md names every held item, so it cannot go quietly stale", () => {
+    // What somebody reads instead of the source. A list missing three entries
+    // is worse than no list, because nobody checks a document they have no
+    // reason to distrust. Same guard abilities.md has, for the same reason.
+    const doc = readFileSync(join(process.cwd(), "docs", "items.md"), "utf8");
+
+    const missing = HELD_ITEMS.filter((entry) => !doc.includes(entry.name)).map(
+      (entry) => entry.name,
+    );
+    expect(missing, `not in docs/items.md: ${missing.join(", ")}`).toEqual([]);
+
+    // And the shelf counts it opens with have to be the real ones.
+    const counts: Record<string, number> = {};
+    for (const spec of ITEMS) counts[spec.kind] = (counts[spec.kind] ?? 0) + 1;
+    for (const [kind, label] of [
+      ["hold", "Held"],
+      ["berry", "Berries"],
+      ["tonic", "Tonics"],
+      ["stone", "Stones"],
+    ] as const) {
+      expect(doc, `${label} count`).toContain(`| ${label} | ${counts[kind]} |`);
+    }
+    expect(doc).toContain(`**${ITEMS.length} of them**`);
+  });
+
+  it("H29: nothing on the deferred list is quietly implemented after all", () => {
+    // The other way a pair of documents rots. An item named as "waiting on a
+    // volatile" that has since been built is a reader sent looking for
+    // something that is already there — and the deferred list is the thing
+    // the next session reads to decide what to do next.
+    const doc = readFileSync(join(process.cwd(), "docs", "items-deferred.md"), "utf8");
+
+    // Every held item that exists must not be listed as missing. Checked by
+    // name, and only for names distinctive enough not to appear in prose.
+    const wrongly = HELD_ITEMS.filter((entry) => {
+      if (entry.name.length < 8) return false;
+      // The deferred list mentions some by name to say they are *in*, so only
+      // an entry inside a table row counts as a claim that it is missing.
+      const rows = doc.split("\n").filter((line) => line.startsWith("| **"));
+      return rows.some((line) => line.includes(`**${entry.name}**`));
+    });
+
+    // Two are named in rows on purpose: Big Root, to say it looked like it
+    // belonged and does not, and the legendary Orbs, to separate them from the
+    // Crystals. Both say so in the same row.
+    const excused = wrongly.filter((entry) => {
+      const row = doc
+        .split("\n")
+        .find((line) => line.startsWith("| **") && line.includes(`**${entry.name}**`));
+      return row?.includes("done") || row?.includes("are in");
+    });
+
+    const real = wrongly.filter((entry) => !excused.includes(entry));
+    expect(
+      real.map((entry) => entry.name),
+      `docs/items-deferred.md says these are missing, and they are not`,
+    ).toEqual([]);
   });
 });
 

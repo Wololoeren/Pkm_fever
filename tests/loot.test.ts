@@ -9,7 +9,7 @@ import {
   itemRefusal,
   type GameState,
 } from "@/engine/engine";
-import { ITEMS, item, MART_STOCK } from "@/engine/items";
+import { bagUse, ITEMS, item, MART_STOCK } from "@/engine/items";
 import { nature, NATURES } from "@/engine/natures";
 import { canStillEvolve, evolutionByItem, forgottenMoves } from "@/engine/progression";
 import { rngFor } from "@/engine/rng";
@@ -459,6 +459,52 @@ describe("the catalogue still holds together", () => {
       }
       if (spec.kind === "field") {
         expect(Boolean(spec.repel || spec.escape || spec.relearn), spec.id).toBe(true);
+      }
+    }
+  });
+
+  it("K15b: every item in the bag can actually be pressed", () => {
+    // The bug this exists for was invisible and total. The bag decided what a
+    // row could do with its own hand-written list of kinds:
+    //
+    //     spec.kind === "medicine" || spec.kind === "lure" ||
+    //       Boolean(spec.teaches) || spec.field === "clear" || ...
+    //
+    // Every kind added after that was written rendered correctly — right name,
+    // right blurb — greyed out, titled "Nothing to use this on". All
+    // twenty-two stones, all thirty-seven tonics, the repels, the rope, the
+    // Heart Scale, and then a hundred and eleven held items and berries.
+    // Nothing failed and nothing looked broken.
+    //
+    // `bagUse` is the one predicate now, and this is the guard: exactly one
+    // kind may answer null, and it is the one that is only ever sold.
+    // Some things genuinely are not pressed from the bag, and each has a
+    // reason that is not "nobody updated a list":
+    const elsewhere: Record<string, string> = {
+      ball: "thrown in a battle",
+      breeding: "applied to a pairing at the daycare",
+      treasure: "only ever sold",
+      key: "only ever held",
+      hm: "the crossing tools work by walking into the thing",
+      rod: "cast by standing at the water, from the field controls",
+    };
+
+    const dead = ITEMS.filter((spec) => bagUse(spec) === null);
+    for (const spec of dead) {
+      expect(
+        elsewhere[spec.kind],
+        `${spec.id} (${spec.kind}) is a row that cannot be pressed and has no reason to be`,
+      ).toBeTruthy();
+    }
+
+    // And the kinds that *are* used from the bag are pressable to the last
+    // one. This is the assertion the bug would have failed: stones, tonics,
+    // field items, held items and berries were every one of them dead.
+    for (const kind of ["medicine", "stone", "tonic", "field", "hold", "berry", "tm"] as const) {
+      const rows = ITEMS.filter((spec) => spec.kind === kind);
+      expect(rows.length, `no ${kind} at all`).toBeGreaterThan(0);
+      for (const spec of rows) {
+        expect(bagUse(spec), `${spec.id} cannot be pressed`).not.toBeNull();
       }
     }
   });

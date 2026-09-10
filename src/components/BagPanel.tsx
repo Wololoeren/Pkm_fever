@@ -14,7 +14,7 @@ import {
 } from "@/engine/engine";
 import type { World } from "@/engine/world";
 import { holdOf } from "@/engine/carry";
-import { bagEntries, item, type ItemKind } from "@/engine/items";
+import { bagEntries, bagUse, item, type ItemKind } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 
 /**
@@ -130,14 +130,13 @@ export function BagPanel({
             // Only medicine is used on a creature; everything else is held,
             // worn or sold, and offering a target picker for a Nugget would be
             // a lie about what the button does.
-            const usable =
-              spec.kind === "medicine" ||
-              spec.kind === "lure" ||
-              Boolean(spec.teaches) ||
-              spec.field === "clear" ||
-              spec.field === "travel";
+            // What pressing it does, asked of the item rather than guessed from
+            // a list of kinds here. The list is how every item added after it
+            // was written became a row that could not be pressed.
+            const use = bagUse(spec);
+            const usable = use !== null;
             const burning = spec.kind === "lure" ? lureLeft(state, id) : 0;
-            const why = spec.kind === "lure" || spec.repel || spec.escape ? itemRefusal(world, state, id, 0) : null;
+            const why = use === "light" ? itemRefusal(world, state, id, 0) : null;
 
             return (
               <button
@@ -146,11 +145,23 @@ export function BagPanel({
                 className={`itemCard${selected === id ? " on" : ""}`}
                 disabled={!usable || Boolean(why)}
                 onClick={() => {
-                  // A lure has no target to pick, so pressing it *is* using it.
-                  if (spec.kind === "lure") onInput({ t: "useItem", item: id, index: 0 });
+                  // A lure, a repel and a rope have no target to pick, so
+                  // pressing one *is* using it.
+                  if (use === "light") onInput({ t: "useItem", item: id, index: 0 });
                   else setChosen(selected === id ? null : id);
                 }}
-                title={why ?? (usable ? (spec.kind === "lure" ? "Light it" : "Use on…") : "Nothing to use this on")}
+                title={
+                  why ??
+                  (use === "light"
+                    ? "Use it"
+                    : use === "hold"
+                      ? "Give to…"
+                      : use === "creature"
+                        ? "Use on…"
+                        : use === "world"
+                          ? "Choose where"
+                          : "Nothing to use this on")
+                }
               >
                 <span className="itemName">
                   {spec.name} x{count}

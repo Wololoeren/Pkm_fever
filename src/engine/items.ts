@@ -1,5 +1,5 @@
 import { ALL_SPECIES, MACHINE_MOVES, move as moveById } from "./dex";
-import { HELD_ITEMS } from "./carry";
+import { HELD_ITEMS, holdOf } from "./carry";
 import { NATURES } from "./natures";
 import type { StatId } from "./types";
 import { chroma, CHROMA_IDS } from "./variants";
@@ -838,6 +838,48 @@ export function item(id: string): ItemSpec {
 
 export function isItem(id: string): boolean {
   return BY_ID.has(id);
+}
+
+/**
+ * What pressing this item in the bag does.
+ *
+ * One predicate, because the bag had its own opinion and the opinion went
+ * stale. It read:
+ *
+ *     const usable = spec.kind === "medicine" || spec.kind === "lure" ||
+ *       Boolean(spec.teaches) || spec.field === "clear" || spec.field === "travel";
+ *
+ * — a hand-written list of the kinds that existed when it was written. Every
+ * kind added since was a row that rendered, with the right name and the right
+ * blurb, greyed out and titled "Nothing to use this on": all twenty-two
+ * stones, all thirty-seven tonics, the repels, the rope, the Heart Scale, and
+ * then a hundred and eleven held items and berries. Nothing failed, nothing
+ * looked broken, and none of it could be pressed.
+ *
+ * So the question is asked of the item now. A kind that answers `null` here is
+ * a kind that genuinely does nothing from the bag, and there is exactly one:
+ * treasure, which is for selling.
+ */
+export type BagUse =
+  /** Pick a creature, then it happens to that creature. */
+  | "creature"
+  /** Pick a creature, and it goes on to carry this. */
+  | "hold"
+  /** Pressing it is using it. */
+  | "light"
+  /** Pick a direction, or a place. */
+  | "world"
+  /** Nothing at all, from the bag. */
+  | null;
+
+export function bagUse(spec: ItemSpec): BagUse {
+  if (spec.lure) return "light";
+  if (spec.repel || spec.escape) return "light";
+  if (spec.field === "clear" || spec.field === "travel") return "world";
+  if (holdOf(spec.id)) return "hold";
+  if (spec.kind === "medicine") return "creature";
+  if (spec.teaches || spec.evolves || spec.effort || spec.natureId || spec.relearn) return "creature";
+  return null;
 }
 
 /** What a Mart stocks, cheapest first. Anything with a price is for sale. */
