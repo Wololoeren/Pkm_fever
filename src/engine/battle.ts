@@ -300,6 +300,41 @@ const STATUS_IMMUNE: Record<StatusId, string[]> = {
   slp: [],
 };
 
+/**
+ * The manifest's word for a condition, as one of the five this game has.
+ *
+ * There are five status conditions here and the manifest knows six: Toxic
+ * carries `tox`, which is poison that gets worse every turn. That mechanic does
+ * not exist in this engine, so Toxic lands as ordinary poison — the same
+ * immunities, the same damage, without the escalation.
+ *
+ * It is a *normaliser* rather than a special case in one caller, and the table
+ * lookup below falls back rather than indexing blind, because the alternative
+ * is what happened: `STATUS_IMMUNE["tox"]` is `undefined`, `.includes` on it
+ * throws, and the throw comes back as "illegal input" from a move that is
+ * perfectly legal. TypeScript could not see it — the field is typed `StatusId`
+ * and the manifest is cast to that shape on the way in, so a value outside the
+ * union type-checks all the way to the crash.
+ *
+ * It survived this long because nothing ever used Toxic. The people on the
+ * routes draw their moves from the route's own table; the rival draws his from
+ * the whole dex, and found it inside a hundred battles.
+ */
+export function conditionOf(status: string): StatusId | null {
+  switch (status) {
+    case "tox":
+      return "psn";
+    case "brn":
+    case "frz":
+    case "par":
+    case "psn":
+    case "slp":
+      return status;
+    default:
+      return null;
+  }
+}
+
 export function startBattle(
   seed: string,
   tag: string,
@@ -557,7 +592,8 @@ function applyHeal(turn: Turn, side: SideIndex, amount: number): number {
 function applyStatus(turn: Turn, side: SideIndex, status: StatusId, tag: string): boolean {
   const target = active(turn, side);
   if (target.status || isFainted(target)) return false;
-  if (speciesById(target.speciesId).types.some((type) => STATUS_IMMUNE[status].includes(type))) return false;
+  const immune = STATUS_IMMUNE[status] ?? [];
+  if (speciesById(target.speciesId).types.some((type) => immune.includes(type))) return false;
 
   // Immunity, Limber, Water Veil, Insomnia, Magma Armor. Checked here so that
   // every road to a status goes through it — a move's own, a secondary, and
@@ -968,7 +1004,12 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
   }
 
-  if (move.status) applyStatus(turn, other(side), move.status, `${side}-status`);
+  if (move.status) {
+    // Through the normaliser, so a condition the manifest has and this engine
+    // does not lands as the nearest one it does rather than as a crash.
+    const condition = conditionOf(move.status);
+    if (condition) applyStatus(turn, other(side), condition, `${side}-status`);
+  }
   if (move.boosts) {
     const onSelf = move.target === "self";
     applyBoosts(turn, onSelf ? side : other(side), move.boosts, !onSelf);
@@ -984,7 +1025,12 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     !isFainted(active(turn, other(side))) &&
     chance(turn, `${side}-sec`, secondary.chance)
   ) {
-    if (secondary.status) applyStatus(turn, other(side), secondary.status, `${side}-secstatus`);
+    if (secondary.status) {
+      // The same normaliser, because a secondary is the other road to a status
+      // and one road being safe is not the same as the status being safe.
+      const condition = conditionOf(secondary.status);
+      if (condition) applyStatus(turn, other(side), condition, `${side}-secstatus`);
+    }
     if (secondary.boosts) {
       applyBoosts(turn, secondary.self ? side : other(side), secondary.boosts, !secondary.self);
     }

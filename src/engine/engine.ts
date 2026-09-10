@@ -26,6 +26,17 @@ import {
   species as speciesById,
 } from "./dex";
 import { rollGender, type Gender } from "./gender";
+import {
+  RIVAL_BEHIND,
+  RIVAL_NAME,
+  RIVAL_PURSE,
+  RIVAL_STALK,
+  RIVAL_TAG,
+  rivalCaughtUp,
+  rivalDue,
+  rivalTeam,
+  TRAIL,
+} from "./rival";
 import { NATURE_IDS } from "./natures";
 import { effortSpent, gainEffort } from "./effort";
 import {
@@ -355,6 +366,35 @@ export interface GameState {
    * else. It is in the hash for that reason.
    */
   centre: string | null;
+  /**
+   * Where you have just been, newest first.
+   *
+   * Four entries, which is all anything needs to walk three steps behind you.
+   * Kept whether or not anybody is following, because the rival appears on a
+   * tick nobody chose and has to already know where you were.
+   *
+   * This is the whole of what it takes to have something chase you: his
+   * position is not stored, it *is* `trail[RIVAL_BEHIND]`. There is no second
+   * copy of where he is to disagree with the first, and a save that replays
+   * walks him over the same ground.
+   */
+  trail: { route: string; x: number; y: number }[];
+  /**
+   * The tick the rival turned up on, or null when nobody is out there.
+   *
+   * One number. How far behind he is, where he is standing, how long until he
+   * catches you and what he will be carrying are all read off this and the
+   * trail.
+   */
+  rivalSince: number | null;
+  /**
+   * The tick he last turned up on, or null before the first time.
+   *
+   * The schedule, kept apart from `rivalSince` because they are two facts: one
+   * is "is somebody out there now", the other is "when was the last time". Null
+   * is what makes his first appearance the first move of a new game.
+   */
+  rivalLast: number | null;
   party: Individual[];
   box: Individual[];
   nextUid: number;
@@ -531,6 +571,9 @@ export function initialState(world: World): GameState {
     nextSlot: {},
     seen: {},
     centre: null,
+    trail: [],
+    rivalSince: null,
+    rivalLast: null,
     party: [],
     box: [],
     nextUid: 1,
@@ -557,6 +600,11 @@ export function initialState(world: World): GameState {
     met: [],
     cheated: false,
   });
+}
+
+/** Which appearance of the rival this battle is, or null. */
+export function rivalIdOf(battle: BattleState | null): string | null {
+  return battle?.tag.startsWith(RIVAL_TAG) ? battle.tag.slice(RIVAL_TAG.length) : null;
 }
 
 function trainerIdOf(battle: BattleState | null): string | null {
@@ -612,7 +660,90 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return checkedIn(world, look(world, applyOne(world, state, input)));
+  return followed(world, checkedIn(world, look(world, applyOne(world, state, input))));
+}
+
+/**
+ * Somebody is behind you.
+ *
+ * In the funnel with the map's fog and the Center you last stood in, and for
+ * the same reason: he follows where you *are*, and there are half a dozen ways
+ * to end up somewhere.
+ *
+ * Three jobs in order. Remember where you just were, so he has ground to walk.
+ * Turn him up when he is due. And when he has followed for long enough, let him
+ * catch you.
+ */
+function followed(world: World, state: GameState): GameState {
+  if (state.phase !== "field") return state;
+
+  // Out on the routes only. He does not follow you into a town and he does not
+  // walk into a Poké Center after you — partly because being jumped at a shop
+  // counter is silly, and partly because a refuge you can reach is what makes
+  // the twenty moves a decision rather than a countdown you watch.
+  //
+  // It also puts his first appearance where it belongs: not in the square you
+  // wake up in, but on the first route you walk out onto.
+  if (world.routes.get(state.route)?.kind !== "route") return state;
+
+  const here = { route: state.route, x: state.x, y: state.y };
+  const head = state.trail[0];
+  const moved = !head || head.route !== here.route || head.x !== here.x || head.y !== here.y;
+
+  const trail = moved ? [here, ...state.trail].slice(0, TRAIL) : state.trail;
+  const walked: GameState = moved ? { ...state, trail } : state;
+
+  // He appears on the tick, and only in the field, and only if he is not
+  // already out there. Tick nought counts: the first thing that happens to you
+  // is that somebody starts following you.
+  if (walked.rivalSince === null) {
+    return rivalDue(walked.tick, walked.rivalLast)
+      ? { ...walked, rivalSince: walked.tick, rivalLast: walked.tick }
+      : walked;
+  }
+
+  if (!rivalCaughtUp(walked.tick, walked.rivalSince)) return walked;
+
+  // He catches up. If there is nothing of yours standing he simply keeps
+  // following — being ambushed with a fainted party is a blackout you could not
+  // have avoided, which is a different game.
+  const lead = walked.party.findIndex((one) => !isFainted(one));
+  if (lead < 0) return walked;
+
+  const team = rivalTeam(world.seed, walked.rivalSince, walked.party);
+  if (!team.length) return { ...walked, rivalSince: null };
+
+  let uid = walked.nextUid;
+  const built = team.map((one) => atFullHealth(withMoves({ ...one, uid: uid++ })));
+
+  return {
+    ...walked,
+    phase: "battle",
+    rivalSince: null,
+    nextUid: uid,
+    battle: startBattle(
+      world.seed,
+      `${RIVAL_TAG}${walked.rivalSince}`,
+      walked.party,
+      built,
+      lead,
+    ),
+    notice: null,
+  };
+}
+
+/** Where the rival is standing, or null when nobody is following. */
+export function rivalAt(state: GameState): { route: string; x: number; y: number } | null {
+  if (state.rivalSince === null) return null;
+  // The oldest thing on the trail, which is where you were three moves ago.
+  // Early on the trail is short, so he starts on top of you and falls back.
+  return state.trail[Math.min(RIVAL_BEHIND, state.trail.length - 1)] ?? null;
+}
+
+/** How many moves before he catches you, or null when nobody is following. */
+export function rivalCountdown(state: GameState): number | null {
+  if (state.rivalSince === null) return null;
+  return Math.max(0, RIVAL_STALK - (state.tick - state.rivalSince));
 }
 
 /**
@@ -2769,6 +2900,8 @@ export function opponentLabel(world: World, battle: BattleState | null): string 
   const gymId = gymIdOf(battle);
   if (gymId) return `${gymSpec(gymId).leader}'s`;
 
+  if (rivalIdOf(battle)) return `${RIVAL_NAME}'s`;
+
   const trainerId = trainerIdOf(battle);
   if (trainerId) {
     const who = [...world.trainers.values()].flat().find((one) => one.id === trainerId);
@@ -3264,6 +3397,19 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
         };
       }
 
+      // The rival. He pays properly, because he is the hardest thing that will
+      // happen to you between gyms and because he turned up uninvited.
+      const rivalId = rivalIdOf(base.battle);
+      if (rivalId) {
+        const purse = withAmuletCoin(base.battle, RIVAL_PURSE);
+        return {
+          ...base,
+          phase: "battleEnd",
+          money: base.money + purse,
+          notice: { t: "beatTrainer", name: RIVAL_NAME, money: purse },
+        };
+      }
+
       if (!trainerId) return { ...base, phase: "battleEnd", notice: { t: "won" } };
 
       const trainer = [...world.trainers.values()].flat().find((who) => who.id === trainerId);
@@ -3416,6 +3562,9 @@ export function stateHash(state: GameState): string {
       .map((id) => `${id}=${state.seen[id]}`)
       .join(","),
     state.centre ?? "-",
+    state.trail.map((at) => `${at.route}@${at.x},${at.y}`).join(">"),
+    state.rivalSince ?? "-",
+    state.rivalLast ?? "-",
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
     state.nextUid,

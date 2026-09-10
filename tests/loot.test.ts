@@ -7,6 +7,7 @@ import {
   applyInput,
   initialState,
   itemRefusal,
+  rivalIdOf,
   type GameState,
 } from "@/engine/engine";
 import { bagUse, ITEMS, item, MART_STOCK } from "@/engine/items";
@@ -291,7 +292,10 @@ describe("the things used on the world", () => {
       let met = 0;
       for (let i = 0; i < steps; i++) {
         if (live.phase === "battle") {
-          met++;
+          // Somebody following you is not something a repel has anything to
+          // say about, any more than a trainer is. Counted the same way, and
+          // for the same reason: this counts what came out of the *grass*.
+          if (!rivalIdOf(live.battle)) met++;
           live = { ...live, phase: "field", battle: null };
           continue;
         }

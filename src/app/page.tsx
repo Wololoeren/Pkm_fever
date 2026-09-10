@@ -22,7 +22,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, critterDoing, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, critterDoing, fishRefusal, initialState, rivalCountdown, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -345,6 +345,14 @@ export default function Page() {
             walk. Tall grass has things in it. Every gap in the wall leads somewhere; the small
             map shows which of them you have taken.
           </p>
+          {/* Somebody is behind you. A number counting down, because there is
+              nothing to *do* about him except be ready, and a warning you can
+              act on is a warning worth giving. */}
+          {rivalCountdown(state) !== null ? (
+            <p className="error">
+              Somebody is following you. {rivalCountdown(state)} moves before they catch up.
+            </p>
+          ) : null}
           {state.notice?.t === "whiteout" ? (
             <p className="error">
               Everything fainted. You woke up in{" "}

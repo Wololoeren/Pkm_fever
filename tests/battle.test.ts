@@ -4,6 +4,7 @@ import {
   catchOdds,
   isFainted,
   maxHp,
+  conditionOf,
   resolveTurn,
   startBattle,
   aiAction,
@@ -17,7 +18,7 @@ import {
   type SideIndex,
 } from "@/engine/battle";
 import { anyPp } from "@/engine/pp";
-import { effectiveness, move } from "@/engine/dex";
+import { ALL_MOVES, effectiveness, move } from "@/engine/dex";
 import { awardExp, evolutionAt, expForLevel, levelFromExp } from "@/engine/progression";
 import type { Individual } from "@/engine/types";
 import { creature } from "./helpers";
@@ -425,5 +426,53 @@ describe("evolving", () => {
       expect(event.evolved).toBeNull();
       expect(event.evolvedFrom).toBeNull();
     }
+  });
+});
+
+describe("conditions the manifest has and this engine does not", () => {
+  it("B-tox: every condition the manifest knows lands as one this engine has", () => {
+    // A crash that type-checked all the way to the throw.
+    //
+    // The manifest carries six conditions and this engine has five: Toxic is
+    // `tox`, poison that gets worse each turn, and there is no worsening here.
+    // The field is typed `StatusId` and the manifest is cast to that shape on
+    // the way in, so a value outside the union is invisible to the compiler —
+    // and `STATUS_IMMUNE["tox"]` is `undefined`, and `.includes` on it throws,
+    // and the throw comes back to the player as "illegal input" on a move that
+    // is perfectly legal.
+    //
+    // It survived because nothing ever used Toxic: the people on the routes
+    // draw their moves from the route's own table. The rival draws his from the
+    // whole dex and found it inside a hundred battles.
+    const known = new Set(["brn", "psn", "par", "slp", "frz"]);
+
+    for (const move of ALL_MOVES) {
+      for (const status of [move.status, move.secondary?.status]) {
+        if (!status) continue;
+        // Either this engine knows it outright, or `conditionOf` turns it into
+        // one this engine knows. Nothing may fall through to neither.
+        expect(
+          known.has(status) || known.has(conditionOf(status) ?? ""),
+          `${move.id} inflicts ${status}, which is neither`,
+        ).toBe(true);
+      }
+    }
+
+    // And Toxic itself resolves rather than throwing, which is the thing that
+    // actually broke. Ninety accuracy, so it is given a few goes.
+    const mine = creature("machop", { uid: 1, level: 50, moves: ["toxic"] });
+    const theirs = creature("pidgey", { uid: 2, level: 50, moves: ["tackle"] });
+
+    let live = startBattle("tox", "wild:test:0", [mine], [theirs]);
+    for (let turn = 0; turn < 8 && !live.sides[1].team[0].status; turn++) {
+      live = resolveTurn(
+        live,
+        [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+        WILD_RULES,
+      ).battle;
+    }
+
+    // Poison, because that is the nearest condition this engine has.
+    expect(live.sides[1].team[0].status).toBe("psn");
   });
 });

@@ -5,6 +5,8 @@ import {
   canSee,
   crittersOn,
   DARK_RADIUS,
+  rivalAt,
+  rivalCountdown,
   sightCorner,
   tileAt,
   type GameState,
@@ -188,6 +190,30 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       if (spec.kind !== "idle") {
         mark(ctx, px + TILE_PX / 2, py, spec.kind === "joins" ? "#4f9e7a" : "#c9524a");
       }
+    }
+
+    // Whoever is behind you, three steps back on ground you have just left.
+    //
+    // Drawn before the dark, so a rival out past the torchlight is a rival you
+    // cannot see — which is worse, and correct.
+    const chasing = rivalAt(state);
+    if (chasing && chasing.route === route.id && inView(chasing.x, chasing.y, camX, camY, viewW, viewH)) {
+      person(
+        ctx,
+        (chasing.x - camX) * TILE_PX + TILE_PX / 2,
+        (chasing.y - camY) * TILE_PX + TILE_PX / 2,
+        "#b45cd8",
+        1,
+      );
+      // How long you have, over his head. A number counting down is the whole
+      // of the pressure: there is nothing to do about him except be ready.
+      mark(
+        ctx,
+        (chasing.x - camX) * TILE_PX + TILE_PX / 2,
+        (chasing.y - camY) * TILE_PX,
+        "#b45cd8",
+        String(rivalCountdown(state) ?? ""),
+      );
     }
 
     // What you cannot see. The outer bands are dark without Flash, which is
@@ -509,16 +535,22 @@ function ball(ctx: CanvasRenderingContext2D, px: number, py: number): void {
 }
 
 /** The mark over somebody with work going spare. */
-function mark(ctx: CanvasRenderingContext2D, px: number, py: number, colour = "#f2d14a"): void {
+function mark(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  colour = "#f2d14a",
+  glyph = "!",
+): void {
   ctx.save();
   ctx.font = "700 15px ui-sans-serif, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(20,24,32,0.9)";
-  ctx.strokeText("!", px, py - 4);
+  ctx.strokeText(glyph, px, py - 4);
   ctx.fillStyle = colour;
-  ctx.fillText("!", px, py - 4);
+  ctx.fillText(glyph, px, py - 4);
   ctx.restore();
 }
 

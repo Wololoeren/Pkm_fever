@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         479 tests, including the replay property everything rests on
+tests/         487 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -307,6 +307,46 @@ drawn brighter than the ones you have not, and hovering a dot names it. Unwalked
 places are drawn but empty — the *shape* of the world is not a secret, only
 what is in it. Standing indoors lights up the town you are indoors in, because
 a door is not a journey.
+
+### The rival
+
+Every trainer in this world stands still and waits. That is what makes them
+scenery you choose to walk into, and it is the right call a hundred and fifty
+times over — but it meant nothing here had ever come *after* anybody.
+
+He turns up three steps behind you, walks the ground you have just walked for
+twenty moves, and then catches up. You can see him the whole time, there is a
+number over his head counting down, and there is nothing to do about it except
+be ready or run for a town. He does not follow you into one.
+
+**His team is built out of yours.** As many as you have, three levels above your
+average, and each one picked for a type that beats one of yours — so a party
+that has grown lopsided is a party he has noticed. There is no preparing for him
+in general; you prepare by not having an obvious weakness, which is the one
+thing the rest of the game never asks. And he is *decorated*: chromas and high
+shine at rates nothing else comes close to, because the colours you have spent
+forty hours hunting are what he turns up wearing.
+
+He comes once at the start and then every 2,500 moves, measured from the last
+time rather than as a modulo on the clock, so a long encounter does not eat into
+the next one. There is no ball and no running: it is a trainer battle, and you
+do not get to walk away from this one.
+
+Almost none of him is stored. `rivalSince` is one number, and where he is
+standing *is* the player's own position three moves ago, read off a trail the
+state keeps anyway — so there is no second copy of him to disagree with the
+first, and a save that replays walks him over the same ground.
+
+He also found a bug that had been sitting there the whole time. The move
+manifest carries six status conditions and this engine has five: Toxic is `tox`,
+poison that worsens each turn, and there is no worsening here. The field is
+typed `StatusId` and the manifest is cast to that shape on the way in, so a
+value outside the union is invisible to the compiler — and `STATUS_IMMUNE["tox"]`
+is `undefined`, and `.includes` on it throws, and the throw reaches the player as
+"illegal input" on a move that is perfectly legal. Nothing had ever used Toxic,
+because the people on the routes draw their moves from the route's own table.
+He draws his from the whole dex and found it inside a hundred battles. Toxic
+lands as ordinary poison now, and the deadlock probe is what caught it.
 
 ### The survey
 
