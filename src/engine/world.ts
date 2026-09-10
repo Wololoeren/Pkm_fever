@@ -2,6 +2,7 @@ import { rollAbilities } from "./abilities";
 import { ALL_SPECIES, STARTER_TYPES, startersOfType } from "./dex";
 import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
+import { CRITTERS, idlersFor, type CritterSpec } from "./critters";
 import { CUP_BIOME, CUP_IDS, CUP_RING } from "./cup";
 import { GYMS, gym } from "./gyms";
 import { NPCS, type NpcPlacement, type NpcSpec } from "./npc";
@@ -175,6 +176,14 @@ export interface World {
   npcs: Map<string, NpcSpec[]>;
   /** Things on the floor, by route. Picked up by walking onto them. */
   pickups: Map<string, PickupSpec[]>;
+  /**
+   * Creatures standing where you can see them, by route.
+   *
+   * A roamer's *loop* is here, in the world, because it is a fact about the
+   * place; how far along it the creature has walked is in the save, because
+   * that is a fact about the playthrough. See critters.ts.
+   */
+  critters: Map<string, CritterSpec[]>;
 }
 
 export function routeId(biome: string, ring: number): string {
@@ -1675,6 +1684,424 @@ function buildTown(): { town: Route; interiors: Route[] } {
   };
 }
 
+
+/**
+ * The loop a roamer walks.
+ *
+ * A ring of waypoints joined by shortest paths through open ground, and then
+ * the last joined back to the first — which is the step that makes it a loop
+ * rather than a there-and-back, and the step that makes the whole mechanic
+ * work: chasing a roamer round its own loop never catches it, and walking the
+ * loop the other way meets it head on.
+ *
+ * Built tile by tile at generation, never at runtime. Two reasons. A path
+ * recomputed while walking would need the maze solved on every step, and more
+ * importantly the loop has to be *the same loop* on every machine and every
+ * reload, because a roamer's position is derived from how many steps you have
+ * taken along it. A path that differed by one tile would put the creature
+ * somewhere else entirely fifty steps later.
+ *
+ * Returns null when the route will not take one — a maze with no room for a
+ * ring of this size, most often. A roamer with no loop simply stands still,
+ * which is a worse creature but not a broken one.
+ */
+function roamPath(
+  route: Route,
+  rng: Rng,
+  centre: { x: number; y: number },
+  radius: number,
+  free: (x: number, y: number) => boolean,
+): { x: number; y: number }[] | null {
+  const open = (x: number, y: number) => {
+    // Around anybody already standing there. A loop that ran through a trainer
+    // would be a loop the player cannot walk, and the chase is the whole point
+    // of the loop.
+    if (!free(x, y)) return false;
+    if (x < 1 || y < 1 || x >= route.width - 1 || y >= route.height - 1) return false;
+    const tile = route.tiles[y * route.width + x];
+    if (!walkable(tile)) return false;
+    if (propBlocks(route, x, y)) return false;
+    // Never through a door or a border: a loop that crossed one would walk the
+    // creature off the map, and the map is where it lives.
+    if (route.doors.some((door) => door.x === x && door.y === y)) return false;
+    if (route.borders.some((border) => border.x === x && border.y === y)) return false;
+    return true;
+  };
+
+  // Eight waypoints on the ring, each snapped to the nearest open tile. Eight
+  // rather than four because four corners joined by shortest paths is a
+  // diamond that cuts straight through the middle, which is not a loop you can
+  // get behind.
+  const SPOKES = 8;
+  const waypoints: { x: number; y: number }[] = [];
+
+  for (let spoke = 0; spoke < SPOKES; spoke++) {
+    // Integer trigonometry, from a table, so nothing here depends on Math.sin
+    // agreeing to the last bit across engines.
+    const [dx, dy] = RING_STEPS[spoke];
+    const wish = {
+      x: centre.x + Math.round((dx * radius) / 100),
+      y: centre.y + Math.round((dy * radius) / 100),
+    };
+
+    const found = nearestOpen(wish, open, route);
+    if (!found) return null;
+    // Two spokes snapping to one tile is a loop with a pinch in it, which is
+    // fine, but an empty stretch is not: skip the duplicate.
+    if (!waypoints.some((at) => at.x === found.x && at.y === found.y)) waypoints.push(found);
+  }
+
+  if (waypoints.length < 4) return null;
+
+  // Join them up, and the last back to the first.
+  const loop: { x: number; y: number }[] = [];
+  for (let at = 0; at < waypoints.length; at++) {
+    const leg = shortestWalk(route, open, waypoints[at], waypoints[(at + 1) % waypoints.length]);
+    if (!leg) return null;
+    // The leg includes both ends; drop the first so the joins do not double up.
+    for (const step of leg.slice(1)) loop.push(step);
+  }
+
+  // A loop has to be long enough to be a chase rather than a shuffle, and it
+  // has to actually close.
+  if (loop.length < 24) return null;
+  const first = loop[loop.length - 1];
+  const start = waypoints[0];
+  if (first.x !== start.x || first.y !== start.y) return null;
+
+  // Rotated by the seed, so two roamers on one route do not start in step and
+  // the same route does not always begin at the same corner.
+  const offset = intBelow(rng, loop.length);
+  return [...loop.slice(offset), ...loop.slice(0, offset)];
+}
+
+/**
+ * Eight compass points, times a hundred.
+ *
+ * A table rather than trigonometry: `Math.cos` is not specified to the last
+ * bit and this decides where a creature stands for the life of a save.
+ */
+/**
+ * The longest loop worth walking.
+ *
+ * Half a loop is roughly how far you walk to meet a roamer head on, so this is
+ * a hundred and fifty moves at the outside. Loops are generated by joining a
+ * ring of waypoints through a maze, and a maze can turn a circle of radius
+ * sixteen into a six-hundred-tile ramble — which is a tour, not a circuit.
+ */
+const ROAM_LOOP_MAX = 300;
+
+const RING_STEPS: readonly (readonly [number, number])[] = [
+  [100, 0],
+  [71, 71],
+  [0, 100],
+  [-71, 71],
+  [-100, 0],
+  [-71, -71],
+  [0, -100],
+  [71, -71],
+];
+
+/** The open tile nearest a wish, spiralling out. */
+function nearestOpen(
+  wish: { x: number; y: number },
+  open: (x: number, y: number) => boolean,
+  route: Route,
+): { x: number; y: number } | null {
+  for (let radius = 0; radius < Math.max(route.width, route.height); radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const x = wish.x + dx;
+        const y = wish.y + dy;
+        if (open(x, y)) return { x, y };
+      }
+    }
+  }
+  return null;
+}
+
+/** Shortest walk between two open tiles, both ends included, or null. */
+function shortestWalk(
+  route: Route,
+  open: (x: number, y: number) => boolean,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): { x: number; y: number }[] | null {
+  if (from.x === to.x && from.y === to.y) return [from];
+
+  const width = route.width;
+  const came = new Int32Array(width * route.height).fill(-1);
+  const start = from.y * width + from.x;
+  const goal = to.y * width + to.x;
+  came[start] = start;
+
+  const queue = [start];
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    if (at === goal) break;
+
+    const x = at % width;
+    const y = (at - x) / width;
+    for (const [dx, dy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!open(nx, ny)) continue;
+      const next = ny * width + nx;
+      if (came[next] !== -1) continue;
+      came[next] = at;
+      queue.push(next);
+    }
+  }
+
+  if (came[goal] === -1) return null;
+
+  const walk: { x: number; y: number }[] = [];
+  for (let at = goal; ; at = came[at]) {
+    walk.push({ x: at % width, y: (at - (at % width)) / width });
+    if (at === start) break;
+  }
+  return walk.reverse();
+}
+
+/**
+ * The creatures standing about, per route.
+ *
+ * Three sources, in the order they claim ground: the authored ones (the
+ * roamers and the gifts), then the generated idlers drawn from the route's own
+ * encounter table, then nothing. Authored first because those are promises —
+ * a creature written to be circling the ashflats has to be circling the
+ * ashflats.
+ */
+function placeCritters(
+  seed: string,
+  routes: Map<string, Route>,
+  npcs: Map<string, NpcSpec[]>,
+  trainers: Map<string, TrainerSpec[]>,
+  allSpecies: readonly SpeciesEntry[],
+  rings: number,
+): Map<string, CritterSpec[]> {
+  const placed = new Map<string, CritterSpec[]>();
+
+  // Nothing stands where somebody already is, so the map never has two things
+  // on one tile and walking into one is never ambiguous.
+  const busy = new Map<string, Set<string>>();
+  const claim = (routeId: string, x: number, y: number) => {
+    const here = busy.get(routeId) ?? new Set<string>();
+    here.add(`${x},${y}`);
+    busy.set(routeId, here);
+  };
+  const taken = (routeId: string, x: number, y: number) =>
+    busy.get(routeId)?.has(`${x},${y}`) ?? false;
+
+  for (const [routeId, here] of npcs) for (const who of here) claim(routeId, who.x, who.y);
+  for (const [routeId, here] of trainers) for (const who of here) claim(routeId, who.x, who.y);
+
+  const add = (routeId: string, spec: CritterSpec) => {
+    placed.set(routeId, [...(placed.get(routeId) ?? []), spec]);
+  };
+
+  /**
+   * Somewhere to stand, through the same routine the people use.
+   *
+   * `nearestSpot` is not just "an open tile near here": it refuses any tile
+   * with fewer than two ways off it and any tile whose occupant would cut the
+   * map in two. Placing critters with a weaker test — which the first cut
+   * did — put six of them around the middle of town, one of them across the
+   * only way out, and every walking fixture in the test suite got stuck in
+   * Hearth. Nine tests failed and all nine said the same thing: "expected
+   * 'town' to be 'route'".
+   *
+   * A creature standing in a doorway is exactly as bad as a person standing
+   * in one, so it goes through exactly the same door.
+   */
+  const spotFor = (route: Route, wish: { x: number; y: number }) =>
+    nearestSpot(route, wish, busy.get(route.id) ?? new Set<string>());
+
+  // ------------------------------------------------------------- authored
+  for (const entry of CRITTERS) {
+    const route =
+      entry.where.at === "town"
+        ? routes.get(HUB_ID)
+        : routes.get(routeId(entry.where.biome, entry.where.ring));
+    if (!route) continue;
+
+    const rng = rngFor(seed, "critter", entry.id);
+    // Left bare exactly as `wildAt` leaves one: no moves, no health, and a
+    // uid of zero. The engine runs it through `withMoves` and `atFullHealth`
+    // at the moment it is needed, which is the one place that knows the stat
+    // table — and means a creature standing about and a creature met in the
+    // grass are built by the same rule rather than by two.
+    const built: Individual = {
+      pp: [],
+      abilities: rollAbilities(rng),
+      uid: 0,
+      speciesId: entry.speciesId,
+      level: entry.level,
+      exp: entry.level * entry.level * entry.level,
+      ivs: rolledIvs(rng),
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
+      variantId: entry.variantId ?? "normal",
+      hp: 0,
+      status: null,
+      sleepTurns: 0,
+      moves: [],
+      heldItem: null,
+      nickname: null,
+      traded: false,
+      parents: null,
+      gender: rollGender(rng),
+    };
+
+    let path: { x: number; y: number }[] | null = null;
+    if (entry.roams) {
+      // The middle of the map, not `route.entry` — the entry tile is one step
+      // inside the gate, which is on the *edge*, so a ring around it is half
+      // off the map and snaps into a shape that is not a ring at all. That
+      // mistake produced loops of nine hundred and sixty tiles: a tour of the
+      // whole route rather than a circle on it.
+      const middle = { x: Math.floor(route.width / 2), y: Math.floor(route.height / 2) };
+
+      // Tried large first and shrinking, and each radius from three centres.
+      // A maze that will not take a wide loop may take a narrower one, and a
+      // ring that sprawls around the middle of the map may close neatly a few
+      // tiles off it — pinewood's rooms are the tightest in the game and it
+      // was the one route that kept producing eight-hundred-tile rambles.
+      const centres = [middle, { x: middle.x - 8, y: middle.y - 6 }];
+
+      for (const radius of [14, 10, 7, 5]) {
+        for (const centre of centres) {
+          const tried = roamPath(
+            route,
+            rngFor(seed, "roampath", entry.id, radius, centre.x),
+            centre,
+            radius,
+            (x, y) => !taken(route.id, x, y),
+          );
+          if (!tried) continue;
+
+          // Long enough to be a chase, short enough to be one you can win.
+          // Walking a loop the other way to meet a roamer head on is about
+          // half its length in steps, so three hundred tiles is a hundred and
+          // fifty moves, which is the outside edge of reasonable.
+          if (tried.length <= ROAM_LOOP_MAX) {
+            path = tried;
+            break;
+          }
+          // Keep the shortest over-long one as a last resort: a sprawling loop
+          // is a worse chase than a tight one, and none at all is worse still.
+          if (!path || tried.length < path.length) path = tried;
+        }
+        if (path && path.length <= ROAM_LOOP_MAX) break;
+      }
+    }
+
+    const start = path?.[0] ?? spotFor(route, seededWish(rng, route));
+    if (!start) continue;
+
+    // The whole loop is claimed, not just where it starts. An idler standing on
+    // a roamer's path is an obstacle in the middle of the chase, and worse: the
+    // roamer walks *onto* it, and then two creatures share a tile and only one
+    // of them can be walked into.
+    if (path) for (const step of path) claim(route.id, step.x, step.y);
+    else claim(route.id, start.x, start.y);
+
+    add(route.id, {
+      id: entry.id,
+      routeId: route.id,
+      kind: entry.kind,
+      x: start.x,
+      y: start.y,
+      creature: built,
+      path,
+    });
+  }
+
+  // ------------------------------------------------------------ generated
+  for (const route of routes.values()) {
+    const inTown = route.id === HUB_ID;
+    if (!inTown && route.kind !== "route") continue;
+
+    const table = inTown ? [] : encounterTable(allSpecies, route.biome, route.ring, rings);
+    if (!inTown && !table.length) continue;
+
+    const wanted = inTown ? 0 : idlersFor(route.ring);
+    const rng = rngFor(seed, "idlers", route.id);
+
+    for (let index = 0; index < wanted; index++) {
+      const spot = spotFor(route, seededWish(rng, route));
+      if (!spot) continue;
+
+      const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
+      const level = Math.max(2, levelForRing(route.ring) - 1);
+      const built: Individual = {
+        pp: [],
+        abilities: rollAbilities(rng),
+        uid: 0,
+        speciesId,
+        level,
+        exp: level * level * level,
+        ivs: rolledIvs(rng),
+        evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+        natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
+        variantId: "normal",
+        hp: 0,
+        status: null,
+        sleepTurns: 0,
+        moves: [],
+        heldItem: null,
+        nickname: null,
+        traded: false,
+        parents: null,
+        gender: rollGender(rng),
+      };
+
+      claim(route.id, spot.x, spot.y);
+      add(route.id, {
+        id: `${route.id}:idle${index}`,
+        routeId: route.id,
+        // A third of the generated ones will fight you, which is what stops
+        // walking up to one being a free look every time.
+        kind: intBelow(rng, 3) === 0 ? "wild" : "idle",
+        x: spot.x,
+        y: spot.y,
+        creature: built,
+        path: null,
+      });
+    }
+  }
+
+  return placed;
+}
+
+/**
+ * A spot to wish for, well away from the middle.
+ *
+ * Anything that spirals out from one point puts everything it places in a
+ * heap around that point. In town that heap sat on the player's own starting
+ * tile and across the way out; on a route it would put every idler in one
+ * corner. A seeded wish spreads them, and `nearestSpot` does the rest.
+ */
+function seededWish(rng: Rng, route: Route): { x: number; y: number } {
+  return {
+    x: intBetween(rng, 2, route.width - 3),
+    y: intBetween(rng, 2, route.height - 3),
+  };
+}
+
+/** Wild IVs, rolled the same way `wildAt` rolls them. */
+function rolledIvs(rng: Rng): StatTable {
+  const ivs = {} as StatTable;
+  for (const stat of STAT_IDS) ivs[stat] = intBetween(rng, 0, WILD_IV_MAX);
+  return ivs;
+}
+
 export const HUB_ID = "hub-0";
 
 export function generateWorld(
@@ -1747,7 +2174,9 @@ export function generateWorld(
     if (here.length) trainers.set(route.id, here);
   }
 
-  return { config, seed, starters, routes, census, trainers, npcs, pickups };
+  const critters = placeCritters(seed, routes, npcs, trainers, allSpecies, config.rings);
+
+  return { config, seed, starters, routes, census, trainers, npcs, pickups, critters };
 }
 
 /**

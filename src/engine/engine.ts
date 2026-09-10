@@ -38,6 +38,15 @@ import {
 } from "./progression";
 import { pickAbilities, rollAbilities } from "./abilities";
 import { heldEffects, holdOf } from "./carry";
+import {
+  awayFrom,
+  CRITTER_TAG,
+  critterIdOf,
+  roamIndex,
+  ROAM_CHANCE,
+  standingOn,
+  type CritterSpec,
+} from "./critters";
 import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
@@ -288,7 +297,11 @@ export type Notice =
    */
   | { t: "evolved"; from: string; to: string }
   | { t: "given"; item: string; on: string }
-  | { t: "took"; item: string; on: string };
+  | { t: "took"; item: string; on: string }
+  /** Walked up to something standing about that had nothing to offer. */
+  | { t: "noticed"; speciesId: string }
+  /** Something standing about came along. */
+  | { t: "joined"; speciesId: string; boxed: boolean };
 
 export interface GameState {
   tick: number;
@@ -356,6 +369,29 @@ export interface GameState {
    * measured against. Expired entries are swept the next time one is lit.
    */
   lures: Record<string, number>;
+  /**
+   * How far along its loop each roamer has walked.
+   *
+   * A number per roamer, and the only thing about a creature standing in the
+   * world that the save has to remember. The *loop itself* is in the world,
+   * because it is a fact about the place; this is a fact about the
+   * playthrough. Absent means the beginning.
+   *
+   * Stored rather than derived, unlike almost everything else here, and for a
+   * reason worth writing down: it *could* be derived by folding every step
+   * ever taken, but that fold is O(moves) and a save reaches ninety thousand
+   * of them. An index is the fold, cached at the only moment it changes.
+   */
+  roamers: Record<string, number>;
+  /**
+   * Creatures standing in the world that have been dealt with, sorted.
+   *
+   * One that joined you, or one you beat or caught. They are gone from the map
+   * afterwards, the same way a picked-up item is: a creature you already have
+   * standing in the same spot forever would be a promise the world keeps
+   * breaking.
+   */
+  met: string[];
   /** Whether a testing shortcut was ever used in this save. Once true, always
    * true: the point is that a cheated save cannot quietly become an honest one. */
   cheated: boolean;
@@ -466,6 +502,8 @@ export function initialState(world: World): GameState {
     badges: [],
     beatenAt: {},
     wins: {},
+    roamers: {},
+    met: [],
     cheated: false,
   };
 }
@@ -484,7 +522,12 @@ function trainerIdOf(battle: BattleState | null): string | null {
  * dispatch swallows it. Buttons that visibly did nothing.
  */
 export function isWildBattle(battle: BattleState | null): boolean {
-  return Boolean(battle?.tag.startsWith(WILD_TAG));
+  // A creature standing in the open is as wild as one in the grass — it is
+  // the same creature, met by a different road — so balls and running are
+  // legal against it. This is also what decides the battle's *rules*, so
+  // getting it wrong here would make a roamer uncatchable, which would take
+  // the point out of chasing one.
+  return Boolean(battle && (battle.tag.startsWith(WILD_TAG) || critterIdOf(battle.tag)));
 }
 
 function withMoves(individual: Individual): Individual {
@@ -1775,6 +1818,141 @@ function landAt(world: World, state: GameState, id: string): GameState {
   };
 }
 
+/**
+ * Every creature standing on this map, and where.
+ *
+ * The one place that folds the world's record together with the save's, so
+ * nothing else has to know that a roamer's position is derived from an index
+ * and an idle one's is written down.
+ */
+export function crittersOn(
+  world: World,
+  state: GameState,
+  routeId: string,
+): { spec: CritterSpec; x: number; y: number }[] {
+  return standingOn(world.critters.get(routeId) ?? [], state.roamers, state.met);
+}
+
+/** Whatever is standing on this exact tile, if anything. */
+export function critterOn(
+  world: World,
+  state: GameState,
+  routeId: string,
+  x: number,
+  y: number,
+): CritterSpec | null {
+  return crittersOn(world, state, routeId).find((one) => one.x === x && one.y === y)?.spec ?? null;
+}
+
+/**
+ * Every roamer on this route moved on, one step of its loop.
+ *
+ * Called once per step the player takes, and only for the route they are
+ * standing on: a creature circling the marsh does not care what you are doing
+ * in the meadow, and making it care would mean every step in the world
+ * advanced every loop in it.
+ *
+ * Nine steps in ten it moves one tile *away* from you. The tenth it hesitates,
+ * which is the only reason a chase can ever be won going the same way round —
+ * and going the other way round is the reason it can be won at all. See
+ * critters.ts.
+ */
+function roamed(world: World, state: GameState, at: { x: number; y: number }): Record<string, number> {
+  const here = world.critters.get(state.route);
+  if (!here?.length) return state.roamers;
+
+  let moved = state.roamers;
+  for (const spec of here) {
+    if (!spec.path?.length || state.met.includes(spec.id)) continue;
+
+    // Named from the move count, so the same walk shifts the same creature the
+    // same way on every machine, and a hesitation is as unrerollable as an
+    // encounter.
+    if (intBelow(rngFor(world.seed, "roam", spec.id, state.tick), 1000) >= ROAM_CHANCE) continue;
+
+    const index = roamIndex(moved, spec);
+    const step = awayFrom(spec, index, at);
+    if (moved === state.roamers) moved = { ...state.roamers };
+    moved[spec.id] = index + step;
+  }
+
+  return moved;
+}
+
+/**
+ * Walking into a creature that was standing there.
+ *
+ * Three outcomes and one shape, because the difference between them is what
+ * the creature *is* rather than how you met it. Each is the same as its
+ * counterpart elsewhere in the game, deliberately: joining is a gift NPC's
+ * hand-over, fighting is a wild encounter, and looking at one is a hint
+ * NPC — nothing here is a new kind of event, only a new way of reaching one.
+ */
+function metCritter(world: World, state: GameState, spec: CritterSpec): GameState {
+  // Built the way `wildAt`'s is built, by the caller that knows the stat
+  // table, so a creature standing about and one met in the grass come out
+  // identical.
+  const creature = atFullHealth(withMoves({ ...spec.creature, uid: state.nextUid }));
+
+  if (spec.kind === "idle") {
+    // Nothing, and nothing recorded: it is still standing there tomorrow,
+    // which is the whole of what makes it scenery rather than a reward.
+    return {
+      ...state,
+      tick: state.tick + 1,
+      talking: null,
+      notice: { t: "noticed", speciesId: spec.creature.speciesId },
+    };
+  }
+
+  if (spec.kind === "joins") {
+    const boxed = state.party.length >= PARTY_LIMIT;
+    const found = state.found.includes(creature.variantId)
+      ? state.found
+      : [...state.found, creature.variantId].sort();
+
+    return {
+      ...state,
+      tick: state.tick + 1,
+      party: boxed ? state.party : [...state.party, creature],
+      box: boxed ? [...state.box, creature] : state.box,
+      nextUid: state.nextUid + 1,
+      found,
+      met: [...state.met, spec.id].sort(),
+      talking: null,
+      notice: { t: "joined", speciesId: creature.speciesId, boxed },
+    };
+  }
+
+  // It fights. As a wild battle, so it can be caught — which is the point of
+  // being able to see one before you decide, and the point of a roamer.
+  const lead = state.party.findIndex((one) => !isFainted(one));
+  if (lead < 0) {
+    return {
+      ...state,
+      tick: state.tick + 1,
+      talking: null,
+      notice: { t: "noticed", speciesId: spec.creature.speciesId },
+    };
+  }
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    phase: "battle",
+    battle: startBattle(world.seed, `${CRITTER_TAG}${spec.id}`, state.party, [creature], lead),
+    nextUid: state.nextUid + 1,
+    talking: null,
+    notice: { t: "encounter" },
+  };
+}
+
+/** Adds one to the met list, kept sorted, and idempotent. */
+function withMet(state: GameState, id: string | null): string[] {
+  if (!id || state.met.includes(id)) return state.met;
+  return [...state.met, id].sort();
+}
+
 /** Everyone standing on this map. */
 export function npcAt(world: World, route: string, x: number, y: number): NpcSpec | null {
   return (world.npcs.get(route) ?? []).find((who) => who.x === x && who.y === y) ?? null;
@@ -2617,6 +2795,17 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     return { ...state, tick: state.tick + 1, talking: person.id, notice: null };
   }
 
+  // A creature standing where you can see it. Checked here, beside the people,
+  // because it occupies its tile the same way they do: you do not walk onto
+  // it, you walk *into* it, and something happens.
+  //
+  // Note the player does not move. That is what makes a roamer a chase rather
+  // than a formality — catching up to one and pressing into it does not push
+  // it along, and it does not get its flee roll either, because the roll comes
+  // with a step and this was not one.
+  const standing = critterOn(world, state, state.route, nx, ny);
+  if (standing) return metCritter(world, state, standing);
+
   // Walking away is a way of ending a conversation, and the commonest one.
   // Leaving `talking` set would keep the panel open above a map you had
   // already left the speaker behind on.
@@ -2627,6 +2816,9 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     y: ny,
     talking: null,
     notice: null,
+    // Away from where the player has arrived, not from where they left: a
+    // roamer reacts to the step, and the step has already happened.
+    roamers: roamed(world, state, { x: nx, y: ny }),
   });
 
   // Something on the floor. Picked up by standing on it, once ever.
@@ -2788,6 +2980,10 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
         party: boxed ? base.party : [...base.party, caught],
         box: boxed ? [...base.box, caught] : base.box,
         found,
+        // A creature standing in the open, once caught, is not standing there
+        // any more. Fleeing does *not* record it: it is still out there, which
+        // is the whole reason a roamer is worth a second attempt.
+        met: withMet(base, critterIdOf(base.battle?.tag)),
         notice: { t: "caught", variantId: caught.variantId, boxed },
       };
       // The creature just caught is at full health, so catching with a wiped
@@ -2818,6 +3014,19 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
           money: base.money + (already ? 0 : withAmuletCoin(base.battle, GYM_PURSE)),
           bag: already ? base.bag : addItem(base.bag, gymSpec(gymId).tool),
           notice: already ? { t: "won" } : { t: "badge", gym: gymId },
+        };
+      }
+
+      // Something that was standing in the world, beaten. Recorded before the
+      // trainer and gym branches because it is neither, and because a battle
+      // has exactly one tag.
+      const standingId = critterIdOf(base.battle?.tag);
+      if (standingId) {
+        return {
+          ...base,
+          phase: "battleEnd",
+          met: withMet(base, standingId),
+          notice: { t: "won" },
         };
       }
 

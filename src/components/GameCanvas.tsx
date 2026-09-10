@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { canSee, DARK_RADIUS, tileAt, type GameState } from "@/engine/engine";
+import { useEffect, useRef, useState } from "react";
+import { canSee, crittersOn, DARK_RADIUS, tileAt, type GameState } from "@/engine/engine";
 import type { NpcKind } from "@/engine/npc";
 import { TILE } from "@/engine/terrain";
 import { drawProp } from "@/render/props";
 import type { World } from "@/engine/world";
+import { cachedSprite, loadSprite } from "@/render/sprites";
 import { TILE_PX, tileColor, VIEW_TILES_X, VIEW_TILES_Y } from "@/render/tiles";
 
 /**
@@ -23,6 +24,35 @@ import { TILE_PX, tileColor, VIEW_TILES_X, VIEW_TILES_Y } from "@/render/tiles";
 export function GameCanvas({ world, state }: { world: World; state: GameState }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const route = world.routes.get(state.route);
+  const standing = crittersOn(world, state, state.route);
+
+
+  /**
+   * Sprites arrive over the network, so the first paint of a route has none
+   * of them and there is nothing to draw. This is the nudge: once one lands,
+   * bump a counter and the effect below runs again with it in the cache.
+   *
+   * A counter rather than the sprite itself, because the cache is the sprite
+   * store — holding a second copy in React state would be two answers to
+   * "is it loaded" and they would disagree the moment a route changed.
+   */
+  const [loaded, setLoaded] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    for (const { spec } of standing) {
+      const { speciesId, variantId } = spec.creature;
+      if (cachedSprite(speciesId, variantId)) continue;
+      void loadSprite(speciesId, variantId).then(() => {
+        if (alive) setLoaded((seen) => seen + 1);
+      });
+    }
+    return () => {
+      alive = false;
+    };
+    // The list is rebuilt every render, so it is compared by what is in it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standing.map(({ spec }) => spec.id).join(",")]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -116,6 +146,45 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       }
     }
 
+    // Creatures standing about, drawn under the player so walking into one
+    // puts you in front of it. Their own sprite, at a whole fraction of the
+    // 96-pixel art — 24 into a 26-pixel tile, which leaves a hairline of
+    // floor around it and keeps every source pixel the same size.
+    for (const { spec, x, y } of standing) {
+      if (!inView(x, y, camX, camY, viewW, viewH)) continue;
+
+      const px = (x - camX) * TILE_PX;
+      const py = (y - camY) * TILE_PX;
+      const art = cachedSprite(spec.creature.speciesId, spec.creature.variantId);
+
+      // A shadow first, so it sits on the floor rather than floating over it,
+      // and so an unloaded sprite still reads as something being there.
+      ctx.beginPath();
+      ctx.ellipse(px + TILE_PX / 2, py + TILE_PX * 0.82, TILE_PX * 0.3, TILE_PX * 0.1, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fill();
+
+      if (art) {
+        const size = CRITTER_PX;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(art, px + (TILE_PX - size) / 2, py + (TILE_PX - size) - 2, size, size);
+      } else {
+        // Still loading. A dot rather than nothing: a tile you cannot walk
+        // through and cannot see the reason for is worse than a placeholder.
+        ctx.beginPath();
+        ctx.arc(px + TILE_PX / 2, py + TILE_PX / 2, TILE_PX * 0.26, 0, Math.PI * 2);
+        ctx.fillStyle = "#5a6b7a";
+        ctx.fill();
+      }
+
+      // A mark over the ones that will fight, so walking up to one is a
+      // decision rather than a surprise. The idlers get nothing, which is
+      // what makes them read as scenery.
+      if (spec.kind !== "idle") {
+        mark(ctx, px + TILE_PX / 2, py, spec.kind === "joins" ? "#4f9e7a" : "#c9524a");
+      }
+    }
+
     person(
       ctx,
       (state.x - camX) * TILE_PX + TILE_PX / 2,
@@ -123,7 +192,8 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       "#d8524a",
       1,
     );
-  }, [world, state, route]);
+    // `loaded` is read so the effect re-runs when a sprite lands.
+  }, [world, state, route, standing, loaded]);
 
   if (!route) return null;
 
@@ -413,7 +483,7 @@ function ball(ctx: CanvasRenderingContext2D, px: number, py: number): void {
 }
 
 /** The mark over somebody with work going spare. */
-function mark(ctx: CanvasRenderingContext2D, px: number, py: number): void {
+function mark(ctx: CanvasRenderingContext2D, px: number, py: number, colour = "#f2d14a"): void {
   ctx.save();
   ctx.font = "700 15px ui-sans-serif, system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -421,10 +491,20 @@ function mark(ctx: CanvasRenderingContext2D, px: number, py: number): void {
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(20,24,32,0.9)";
   ctx.strokeText("!", px, py - 4);
-  ctx.fillStyle = "#f2d14a";
+  ctx.fillStyle = colour;
   ctx.fillText("!", px, py - 4);
   ctx.restore();
 }
+
+/**
+ * How large a creature standing on the map is drawn.
+ *
+ * Twenty-four into a twenty-six pixel tile: a whole quarter of the 96-pixel
+ * art, so every source pixel is the same size — see `crispSize` in Sprite.tsx
+ * for what happens when it is not — and a hairline of floor is left showing
+ * round the edge so the creature reads as standing *on* the tile.
+ */
+const CRITTER_PX = 24;
 
 /** A small figure, so facing reads at a glance even at this size. */
 function person(ctx: CanvasRenderingContext2D, px: number, py: number, colour: string, alpha: number): void {

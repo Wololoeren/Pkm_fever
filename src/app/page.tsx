@@ -20,7 +20,7 @@ import { StarterPick } from "@/components/StarterPick";
 import { BALLS, countOf, item } from "@/engine/items";
 import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
-import { ALL_SPECIES, move as moveById } from "@/engine/dex";
+import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
 import { applyInput, bestRod, fishRefusal, initialState, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
@@ -356,6 +356,28 @@ export default function Page() {
           ) : null}
           {state.notice?.t === "picked" ? (
             <p className="good">Picked up a {item(state.notice.item).name}.</p>
+          ) : null}
+          {state.notice?.t === "noticed" ? (
+            <p className="muted">
+              The {speciesById(state.notice.speciesId).name} looks up at you, and goes back to
+              whatever it was doing.
+            </p>
+          ) : null}
+          {state.notice?.t === "joined" ? (
+            <p className="good">
+              The {speciesById(state.notice.speciesId).name} decided to come along
+              {state.notice.boxed ? " — your party was full, so it is in the box" : ""}.
+            </p>
+          ) : null}
+          {state.notice?.t === "given" ? (
+            <p className="good">
+              {state.notice.on} is carrying the {item(state.notice.item).name}.
+            </p>
+          ) : null}
+          {state.notice?.t === "took" ? (
+            <p className="good">
+              Took the {item(state.notice.item).name} back off {state.notice.on}.
+            </p>
           ) : null}
           {state.notice?.t === "gift" ? (
             <p className="good">
