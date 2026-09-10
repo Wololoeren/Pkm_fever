@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mixImages, applyHueShift, oklabToRgb, rgbToOklab, rotateHue } from "@/render/palette";
+import {
+  applyHueShift,
+  applyPaletteShift,
+  learnPaletteShift,
+  mixImages,
+  oklabToRgb,
+  rgbToOklab,
+  rotateHue,
+} from "@/render/palette";
 
 /**
  * The colour maths behind the eleven appearances.
@@ -95,5 +103,88 @@ describe("variant transforms", () => {
     applyHueShift(shifted, 170);
     expect([...shifted.data].slice(0, 3)).not.toEqual([226, 88, 42]);
     expect(shifted.data[3]).toBe(255);
+  });
+});
+
+describe("a variant learned as a palette shift", () => {
+  /**
+   * The maths that lets an icon be tinted at all.
+   *
+   * The tint ladder is an interpolation between two images, which needs the
+   * pair to be the same drawing at the same size. The box icons are neither,
+   * and there is no shiny icon in existence to pair one with — so the shift is
+   * read off the front pair and applied to the icon by nearest colour. These
+   * pin the three things that has to get right.
+   */
+  it("P8: applied to the sprite it was learned from, it *is* the shiny", () => {
+    // The identity case, and the one that says the maths is a shift rather
+    // than an approximation of one.
+    const normal = image([200, 40, 40, 255, 40, 60, 200, 255, 0, 0, 0, 255]);
+    const shiny = image([40, 200, 40, 255, 220, 180, 60, 255, 0, 0, 0, 255]);
+    const shift = learnPaletteShift(normal, shiny);
+
+    const painted = image([...normal.data]);
+    applyPaletteShift(painted, shift, 1);
+
+    for (let i = 0; i < shiny.data.length; i++) {
+      expect(Math.abs(painted.data[i] - shiny.data[i]), `channel ${i}`).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("P9: it moves a colour it has never seen by its neighbour's delta", () => {
+    // What makes it transferable. The icon's palette is not the sprite's —
+    // measured, they share two colours out of ten — so almost every pixel it
+    // is asked about is one it was not trained on.
+    const normal = image([200, 40, 40, 255]);
+    const shiny = image([200, 40, 200, 255]);
+    const shift = learnPaletteShift(normal, shiny);
+
+    // A near neighbour of the trained red, which is not the trained red.
+    const near = image([190, 50, 46, 255]);
+    applyPaletteShift(near, shift, 1);
+
+    // It went blue-ward like its neighbour did, and it did not simply *become*
+    // its neighbour's destination.
+    expect(near.data[2]).toBeGreaterThan(120);
+    expect([near.data[0], near.data[1], near.data[2]]).not.toEqual([200, 40, 200]);
+  });
+
+  it("P10: a colour the shiny does not change is left where it is", () => {
+    // The outline case, and the reason the delta is transferred rather than
+    // the destination. An icon's outline is pure black; the darkest colour in
+    // a front sprite is a near-black. Mapping to the destination would lift
+    // every outline in the game by a shade.
+    const normal = image([24, 24, 24, 255, 200, 40, 40, 255]);
+    const shiny = image([24, 24, 24, 255, 40, 40, 200, 255]);
+    const shift = learnPaletteShift(normal, shiny);
+
+    const outline = image([0, 0, 0, 255]);
+    applyPaletteShift(outline, shift, 1);
+    expect([outline.data[0], outline.data[1], outline.data[2]]).toEqual([0, 0, 0]);
+  });
+
+  it("P11: at zero it does nothing, and it never touches a transparent pixel", () => {
+    const normal = image([200, 40, 40, 255]);
+    const shiny = image([40, 40, 200, 255]);
+    const shift = learnPaletteShift(normal, shiny);
+
+    const still = image([200, 40, 40, 255]);
+    applyPaletteShift(still, shift, 0);
+    expect([...still.data]).toEqual([200, 40, 40, 255]);
+
+    const clear = image([200, 40, 40, 0]);
+    applyPaletteShift(clear, shift, 1);
+    expect([...clear.data]).toEqual([200, 40, 40, 0]);
+  });
+
+  it("P12: it learns nothing from pixels that are not part of the drawing", () => {
+    // A transparent pixel's colour channels are undefined in a PNG — they are
+    // whatever the encoder left there. Learning from one would put a junk
+    // colour in the palette for every real colour to be matched against.
+    const normal = image([255, 0, 255, 0, 200, 40, 40, 255]);
+    const shiny = image([0, 255, 0, 0, 40, 40, 200, 255]);
+    const shift = learnPaletteShift(normal, shiny);
+
+    expect(shift.from.length).toBe(1);
   });
 });

@@ -459,6 +459,43 @@ no rotation reaches black or white — neither of them is a hue. Until they arri
 placeholder creature is generated from the species id so nothing is ever a
 hole in the page.
 
+### Icons
+
+A creature standing on the map is drawn from the **box icons**, which is a
+different set of art for a different job.
+
+It used to be drawn from the battle sprite, and that is a 96-pixel drawing
+going into a 26-pixel tile: a quarter-size nearest-neighbour downscale, which
+throws away three pixels in every four. Eyes, ears and outlines land on the
+dropped rows at random, so a creature in the grass looked mangled rather than
+small. The icons are drawn at map scale to begin with — 68x56 sheets whose
+creature occupies 14 to 58 pixels — so nothing has to be discarded to fit.
+
+Two rules about the fitting, and both are that same lesson. **Never enlarge**,
+because a 1.33x upscale makes some source pixels one screen pixel and others
+two; a Caterpie being smaller than a Steelix on the map is the one thing a
+fixed box throws away and it is worth keeping. And **average rather than
+sample** for anything that does have to shrink, since sampling is precisely
+what broke the old draw. Whatever comes back is already the size it will be
+painted, so the canvas scales nothing at draw time.
+
+The set stops at Calyrex. Everything from Sprigatito onward — 154 of the 1,099
+sprite numbers in the dex — falls back to the battle sprite shrunk by those
+same rules, which is softer than an icon and a great deal better than what it
+replaced.
+
+There is no shiny icon in existence, so the tint ladder cannot be an
+interpolation between two icons the way it is between two sprites. The variant
+is **learned from the front pair and applied to the icon**: for each colour in
+the normal sprite, how far it moves in OKLab to become shiny, transferred to
+the nearest colour in the icon's own palette. The two palettes share about two
+colours exactly and all of their colour *families*, which match within 0.01 to
+0.08 against shifts of 0.04 to 0.16 — several times finer than the thing being
+measured. The delta is transferred rather than the destination, so a colour the
+shiny does not change stays put; without that, every pure-black icon outline
+would quietly lift a shade. A shiny Gyarados on the map is red and a shiny
+Dragonite is green, which is the check that matters.
+
 Regional forms are mapped to their own art at build time — PokeAPI numbers
 them in the 10000s rather than by dex number, so the build script resolves the
 mapping once. That is the only network call it makes, and it fails soft: no

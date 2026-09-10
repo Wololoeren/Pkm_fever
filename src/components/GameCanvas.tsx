@@ -6,7 +6,7 @@ import type { NpcKind } from "@/engine/npc";
 import { TILE } from "@/engine/terrain";
 import { drawProp } from "@/render/props";
 import type { World } from "@/engine/world";
-import { cachedSprite, loadSprite } from "@/render/sprites";
+import { cachedMapArt, loadMapArt } from "@/render/icons";
 import { TILE_PX, tileColor, VIEW_TILES_X, VIEW_TILES_Y } from "@/render/tiles";
 
 /**
@@ -42,8 +42,8 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
     let alive = true;
     for (const { spec } of standing) {
       const { speciesId, variantId } = spec.creature;
-      if (cachedSprite(speciesId, variantId)) continue;
-      void loadSprite(speciesId, variantId).then(() => {
+      if (cachedMapArt(speciesId, variantId)) continue;
+      void loadMapArt(speciesId, variantId).then(() => {
         if (alive) setLoaded((seen) => seen + 1);
       });
     }
@@ -147,15 +147,18 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
     }
 
     // Creatures standing about, drawn under the player so walking into one
-    // puts you in front of it. Their own sprite, at a whole fraction of the
-    // 96-pixel art — 24 into a 26-pixel tile, which leaves a hairline of
-    // floor around it and keeps every source pixel the same size.
+    // puts you in front of it.
+    //
+    // The art arrives at the size it is drawn — see render/icons.ts. Nothing
+    // is scaled here, which is the whole fix: this used to hand a 96-pixel
+    // battle sprite to a 24-pixel box with smoothing off, and a quarter-size
+    // nearest-neighbour downscale throws away three pixels in four.
     for (const { spec, x, y } of standing) {
       if (!inView(x, y, camX, camY, viewW, viewH)) continue;
 
       const px = (x - camX) * TILE_PX;
       const py = (y - camY) * TILE_PX;
-      const art = cachedSprite(spec.creature.speciesId, spec.creature.variantId);
+      const art = cachedMapArt(spec.creature.speciesId, spec.creature.variantId);
 
       // A shadow first, so it sits on the floor rather than floating over it,
       // and so an unloaded sprite still reads as something being there.
@@ -165,9 +168,15 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       ctx.fill();
 
       if (art) {
-        const size = CRITTER_PX;
+        // Centred on the tile and standing on its floor line, so a creature
+        // taller than a tile overhangs upward into the empty air above rather
+        // than sinking into the ground it is standing on.
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(art, px + (TILE_PX - size) / 2, py + (TILE_PX - size) - 2, size, size);
+        ctx.drawImage(
+          art,
+          Math.round(px + (TILE_PX - art.width) / 2),
+          Math.round(py + TILE_PX * 0.86 - art.height),
+        );
       } else {
         // Still loading. A dot rather than nothing: a tile you cannot walk
         // through and cannot see the reason for is worse than a placeholder.
@@ -495,16 +504,6 @@ function mark(ctx: CanvasRenderingContext2D, px: number, py: number, colour = "#
   ctx.fillText("!", px, py - 4);
   ctx.restore();
 }
-
-/**
- * How large a creature standing on the map is drawn.
- *
- * Twenty-four into a twenty-six pixel tile: a whole quarter of the 96-pixel
- * art, so every source pixel is the same size — see `crispSize` in Sprite.tsx
- * for what happens when it is not — and a hairline of floor is left showing
- * round the edge so the creature reads as standing *on* the tile.
- */
-const CRITTER_PX = 24;
 
 /** A small figure, so facing reads at a glance even at this size. */
 function person(ctx: CanvasRenderingContext2D, px: number, py: number, colour: string, alpha: number): void {

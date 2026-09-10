@@ -223,3 +223,110 @@ export const TYPE_COLORS: Record<string, string> = {
 export function typeColor(type: string): string {
   return TYPE_COLORS[type] ?? TYPE_COLORS.normal;
 }
+
+/**
+ * A variant expressed as a palette shift rather than as a second image.
+ *
+ * `mixImages` can only tint an image that comes with a matching partner: it
+ * walks two images pixel by pixel, so both have to be the same art at the same
+ * size. That is true of the front sprites — PokeAPI's normal and shiny pair is
+ * the same drawing recoloured, and measured, not one pixel of either differs in
+ * *shape* — and it is the reason the tint ladder works at all.
+ *
+ * It is not true of anything else. The box icons are a different drawing at a
+ * different size in a different palette, and there is no shiny icon anywhere to
+ * pair one with. So the shift is *learned* from the pair the artists drew and
+ * then applied to whichever image is being drawn:
+ *
+ *   - `learnPaletteShift` reads the front pair and records, for each colour in
+ *     the normal sprite, how far it moves in OKLab to become shiny.
+ *   - `applyPaletteShift` finds the nearest of those colours to each pixel of
+ *     some other image and moves it by the same amount.
+ *
+ * Nearest rather than exact, because the two palettes are not the same set:
+ * measured across a spread of species, an icon shares two colours exactly with
+ * its front sprite and no more. What it does share is the colour *families* —
+ * a Pikachu's yellow, a Snorlax's cream and blue, a Charizard's orange and red
+ * — and those match at an OKLab distance of 0.01 to 0.08, against shiny shifts
+ * of 0.04 to 0.16. The match is several times finer than the thing being
+ * measured, which is what makes this honest rather than merely plausible.
+ *
+ * The *delta* is transferred and not the destination, which matters for the one
+ * case that would otherwise look wrong: an icon's pure black outline has no
+ * exact partner in a front sprite whose darkest colour is a near-black, so
+ * mapping to the destination would quietly lift every outline. Adding the
+ * delta leaves a colour the shiny does not change exactly where it was.
+ */
+export interface PaletteShift {
+  /** The normal sprite's colours, in the order the deltas match. */
+  from: Oklab[];
+  /** Where each one goes, as an offset rather than a destination. */
+  delta: Oklab[];
+}
+
+export function learnPaletteShift(normal: ImageData, shiny: ImageData): PaletteShift {
+  const seen = new Map<number, { from: Oklab; delta: Oklab }>();
+  const length = Math.min(normal.data.length, shiny.data.length);
+
+  for (let i = 0; i < length; i += 4) {
+    // Both opaque, or the pixel is not part of the drawing on one side and
+    // there is nothing to learn from it.
+    if (normal.data[i + 3] < 200 || shiny.data[i + 3] < 200) continue;
+
+    const packed = (normal.data[i] << 16) | (normal.data[i + 1] << 8) | normal.data[i + 2];
+    if (seen.has(packed)) continue;
+
+    const from = rgbToOklab(normal.data[i], normal.data[i + 1], normal.data[i + 2]);
+    const to = rgbToOklab(shiny.data[i], shiny.data[i + 1], shiny.data[i + 2]);
+    seen.set(packed, { from, delta: { L: to.L - from.L, a: to.a - from.a, b: to.b - from.b } });
+  }
+
+  const rows = [...seen.values()];
+  return { from: rows.map((row) => row.from), delta: rows.map((row) => row.delta) };
+}
+
+export function applyPaletteShift(image: ImageData, shift: PaletteShift, t: number): void {
+  if (t <= 0 || !shift.from.length) return;
+
+  // Keyed by colour rather than by pixel. A sprite is a handful of colours
+  // over thousands of pixels — an icon runs from eight to a hundred and ten —
+  // so the nearest-colour search runs a hundred times rather than ten thousand.
+  const done = new Map<number, [number, number, number]>();
+
+  for (let i = 0; i < image.data.length; i += 4) {
+    if (image.data[i + 3] < 8) continue;
+
+    const packed = (image.data[i] << 16) | (image.data[i + 1] << 8) | image.data[i + 2];
+    let out = done.get(packed);
+
+    if (!out) {
+      const here = rgbToOklab(image.data[i], image.data[i + 1], image.data[i + 2]);
+
+      let best = 0;
+      let closest = Infinity;
+      for (let n = 0; n < shift.from.length; n++) {
+        const one = shift.from[n];
+        const gap =
+          (here.L - one.L) * (here.L - one.L) +
+          (here.a - one.a) * (here.a - one.a) +
+          (here.b - one.b) * (here.b - one.b);
+        if (gap < closest) {
+          closest = gap;
+          best = n;
+        }
+      }
+
+      const move = shift.delta[best];
+      out = oklabToRgb({
+        L: here.L + move.L * t,
+        a: here.a + move.a * t,
+        b: here.b + move.b * t,
+      });
+      done.set(packed, out);
+    }
+
+    image.data[i] = out[0];
+    image.data[i + 1] = out[1];
+    image.data[i + 2] = out[2];
+  }
+}
