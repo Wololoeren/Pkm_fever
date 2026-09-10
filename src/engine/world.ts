@@ -1,3 +1,4 @@
+import { rollAbilities } from "./abilities";
 import { STARTER_TYPES, startersOfType } from "./dex";
 import { MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
@@ -287,6 +288,9 @@ export function fishAt(
     moves: [],
     // Both filled by the caller, which runs them through `withMoves`.
     pp: [],
+    // Rolled after gender, for the same reason gender was added last: every
+    // draw above these was made before they existed.
+    abilities: rollAbilities(rng),
     nickname: null,
     traded: false,
     parents: null,
@@ -1746,6 +1750,7 @@ export function wildAt(
   // existed, and inserting a draw ahead of them would deal a different
   // creature into every encounter slot in every world already saved.
   const gender = rollGender(rng);
+  const abilities = rollAbilities(rng);
 
   return {
     uid,
@@ -1762,6 +1767,7 @@ export function wildAt(
     moves: [],
     // Both filled by the caller, which runs them through `withMoves`.
     pp: [],
+    abilities,
     nickname: null,
     traded: false,
     parents: null,

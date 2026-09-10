@@ -1,6 +1,7 @@
 "use client";
 
 import { maxHp } from "@/engine/battle";
+import { abilitiesOf } from "@/engine/abilities";
 import { maxPp, ppLeft } from "@/engine/pp";
 import { expForLevel, MAX_LEVEL } from "@/engine/progression";
 import { species as speciesById } from "@/engine/dex";
@@ -85,6 +86,29 @@ export function TeamBalls({ team, active }: { team: readonly Individual[]; activ
  * player is actually asking before they walk into more grass. The breakdown
  * is on the battle buttons and in the stat screen, where there is room for it.
  */
+/**
+ * What this one can do that its species cannot.
+ *
+ * Nothing at all for nine creatures in ten, which is why it renders to nothing
+ * rather than to "none": a row that says "no abilities" on every card is a row
+ * that stops being read, and the whole value of an ability here is that seeing
+ * one is a surprise.
+ */
+export function AbilityTags({ creature }: { creature: Individual }) {
+  const held = abilitiesOf(creature.abilities);
+  if (!held.length) return null;
+
+  return (
+    <>
+      {held.map((spec) => (
+        <span key={spec.id} className="tag ability" title={spec.blurb}>
+          {spec.name}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function PpTotal({ creature }: { creature: Individual }) {
   const left = creature.moves.reduce((sum, _, at) => sum + ppLeft(creature, at), 0);
   const full = creature.moves.reduce((sum, moveId) => sum + maxPp(moveId), 0);
@@ -206,6 +230,7 @@ export function PartyStrip({
                 <PpTotal creature={creature} />
                 {creature.status ? <span className={`tag st-${creature.status}`}>{creature.status.toUpperCase()}</span> : null}
                 <VariantTag variantId={creature.variantId} />
+                <AbilityTags creature={creature} />
               </div>
             </div>
           </Tag>

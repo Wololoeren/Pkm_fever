@@ -1,0 +1,513 @@
+import { TYPE_NAMES, type StageStat } from "./dex";
+import { intBelow, type Rng } from "./rng";
+import type { StatusId } from "./types";
+
+/**
+ * Abilities, and the one decision that makes them this game's rather than
+ * borrowed: they are not a property of a species.
+ *
+ * Everywhere else, an ability is the third thing a Pokédex entry tells you —
+ * Charizard has Blaze, and that is that. Here it is a property of the
+ * individual, rolled when the creature is made, and almost nothing has one.
+ * Eighty-nine in a hundred wild creatures have none at all, ten have one, and
+ * one in a hundred has two. That does three things the species-linked version
+ * cannot:
+ *
+ *  - It makes a wild catch worth *looking* at. A Rattata is a Rattata, until
+ *    the one you just caught turns out to carry Adaptability.
+ *  - It gives breeding a second axis to work on, beside stats and appearance,
+ *    and one that stacks: half of each parent's abilities pass down, up to
+ *    three, so a line can be built toward a combination nothing in the world
+ *    was born with.
+ *  - It keeps the census honest. Rarity here is already a property of a place
+ *    rather than a die roll; an ability is the one thing that is genuinely
+ *    rolled, and holding it to one in ten is what stops that undermining
+ *    everything else.
+ *
+ * The effects are a small closed set of shapes rather than a function each.
+ * A callback per ability is how a battle engine becomes a place where anything
+ * might happen; a shape means the battle asks a handful of questions — "does
+ * anything change this multiplier?" — and every ability answers one of them.
+ * Anything that needs a shape this game does not have is written down in
+ * docs/abilities-deferred.md rather than approximated, because an ability that
+ * half works is worse than one that visibly does not exist yet.
+ */
+
+export type AbilityEffect =
+  /** Same-type attack bonus becomes this instead of 1.5, in per-mille. */
+  | { t: "stab"; mille: number }
+  /** Its own attacks are multiplied, under a condition. */
+  | { t: "power"; when: PowerWhen; mille: number; type?: string }
+  /** Immune to a type, and healed by a share of its own maximum. */
+  | { t: "absorb"; type: string; share: number }
+  /** Immune to a type, full stop. */
+  | { t: "immune"; type: string }
+  /** Damage from these types is multiplied. */
+  | { t: "ward"; types: readonly string[]; mille: number }
+  /** Damage from anything super effective is multiplied. */
+  | { t: "cushion"; mille: number }
+  /** Its own attacks that are resisted are multiplied. */
+  | { t: "pierce"; mille: number }
+  /** A stat is multiplied, under a condition. */
+  | { t: "stat"; stat: StatKey; when: StatWhen; mille: number }
+  /** These stages cannot be lowered by anybody else. */
+  | { t: "hold"; stats: readonly StageStat[] }
+  /** This status never sticks. */
+  | { t: "ignore"; status: StatusId }
+  /** Secondary effects of moves used on it never fire. */
+  | { t: "unfazed" }
+  /** Its own accuracy is multiplied; 0 means it cannot miss. */
+  | { t: "aim"; mille: number }
+  /** Critical hit ratio, raised by this many stages. */
+  | { t: "luck"; stages: number }
+  /** Status moves go this much earlier. */
+  | { t: "quick"; plus: number }
+  /** From full health, one hit always leaves it standing. */
+  | { t: "endure" }
+  /** Knocking something out raises a stage. */
+  | { t: "spoils"; stat: StageStat; delta: number }
+  /** Coming out lowers a stage of whatever is across from it. */
+  | { t: "arrival"; stat: StageStat; delta: number }
+  /** Switching out heals a share of its maximum. */
+  | { t: "mend"; share: number }
+  /** Switching out clears whatever ails it. */
+  | { t: "shake" }
+  /** Recoil never applies to it. */
+  | { t: "reckless" }
+  /** Normal and Fighting reach Ghost. */
+  | { t: "reach" };
+
+/** When a `power` effect applies. */
+export type PowerWhen =
+  /** Always. */
+  | "always"
+  /** The move's own power is 60 or less. */
+  | "weak"
+  /** The move costs its user recoil. */
+  | "costly"
+  /** Below a third of its maximum health, and the move matches `type`. */
+  | "cornered"
+  /** It is the last to move this turn. */
+  | "late";
+
+/** When a `stat` effect applies. */
+export type StatWhen = "always" | "statused" | "hurt";
+
+/** Attack and Special Attack together are "offence"; the rest are their own. */
+export type StatKey = StageStat | "offence";
+
+export interface AbilitySpec {
+  id: string;
+  name: string;
+  blurb: string;
+  effect: AbilityEffect;
+}
+
+/**
+ * The three families, one entry per type.
+ *
+ * This is the diversifying the brief invited, and it is the part that turns a
+ * borrowed list into a system. Blaze, Torrent, Overgrow and Swarm are the same
+ * ability wearing four types, and the games only ever shipped four of them
+ * because only four starters needed one. With abilities rolled rather than
+ * assigned there is no reason for the other fourteen types to go without, and
+ * every reason not to: a Rock type that gets stronger when cornered is exactly
+ * as interesting as a Fire one, and a table that covers every type is a table
+ * with no arbitrary holes in it to explain.
+ *
+ * Names follow the canon where the canon has one, so somebody who knows Blaze
+ * finds Blaze. The rest are built to the same pattern.
+ */
+const CORNERED_NAMES: Record<string, string> = {
+  fire: "Blaze",
+  water: "Torrent",
+  grass: "Overgrow",
+  bug: "Swarm",
+};
+
+/**
+ * A canon name is used only where the canon *mechanic* is the same.
+ *
+ * Volt Absorb and Water Absorb are immunity plus a quarter healed, which is
+ * exactly this shape. Flash Fire and Sap Sipper are immunity plus a boost, and
+ * Dry Skin is immunity to one type and a weakness to another — different
+ * things, so they do not get to borrow those names. Calling a plain absorber
+ * "Flash Fire" would teach somebody who knows the games something false, which
+ * is worse than an unfamiliar name.
+ */
+const ABSORB_NAMES: Record<string, string> = {
+  electric: "Volt Absorb",
+  water: "Water Absorb",
+};
+
+const WARD_NAMES: Record<string, string> = {
+  fire: "Heatproof",
+};
+
+/** Every type an ability family covers. Stellar is not a type anything wears. */
+const FAMILY_TYPES: readonly string[] = TYPE_NAMES.filter((type) => type !== "stellar");
+
+function titleCase(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+/** Cornered: below a third of its health, its own moves of one type hit harder. */
+const CORNERED: AbilitySpec[] = FAMILY_TYPES.map((type) => ({
+  id: `cornered-${type}`,
+  name: CORNERED_NAMES[type] ?? `${titleCase(type)} Fury`,
+  blurb: `Below a third of its health, its ${type} moves hit half again as hard.`,
+  effect: { t: "power", when: "cornered", type, mille: 1500 },
+}));
+
+/** Absorb: immune to a type, and healed a quarter by it. */
+const ABSORB: AbilitySpec[] = FAMILY_TYPES.map((type) => ({
+  id: `absorb-${type}`,
+  name: ABSORB_NAMES[type] ?? `${titleCase(type)} Drinker`,
+  blurb: `Untouched by ${type} moves, and healed a quarter of its health by one.`,
+  effect: { t: "absorb", type, share: 4 },
+}));
+
+/** Ward: a type does half. */
+const WARD: AbilitySpec[] = FAMILY_TYPES.map((type) => ({
+  id: `ward-${type}`,
+  name: WARD_NAMES[type] ?? `${titleCase(type)} Guard`,
+  blurb: `${titleCase(type)} moves do half as much to it.`,
+  effect: { t: "ward", types: [type], mille: 500 },
+}));
+
+/**
+ * The ones that are their own idea rather than a type with a coat on.
+ *
+ * Kept to shapes the battle already understands. Each is named after the
+ * canon ability it is, so the knowledge somebody already has is worth
+ * something here.
+ */
+const SINGLES: AbilitySpec[] = [
+  {
+    id: "adaptability",
+    name: "Adaptability",
+    blurb: "Its same-type bonus is double rather than half again.",
+    effect: { t: "stab", mille: 2000 },
+  },
+  {
+    id: "technician",
+    name: "Technician",
+    blurb: "Moves of 60 power or less hit half again as hard. Struggle included.",
+    effect: { t: "power", when: "weak", mille: 1500 },
+  },
+  {
+    id: "reckless",
+    name: "Reckless",
+    blurb: "Moves that cost it recoil hit a fifth harder.",
+    effect: { t: "power", when: "costly", mille: 1200 },
+  },
+  {
+    id: "analytic",
+    name: "Analytic",
+    blurb: "Moving last is worth a third more damage.",
+    effect: { t: "power", when: "late", mille: 1300 },
+  },
+  {
+    id: "tintedlens",
+    name: "Tinted Lens",
+    blurb: "What it should barely scratch, it hits twice as hard.",
+    effect: { t: "pierce", mille: 2000 },
+  },
+  {
+    id: "filter",
+    name: "Filter",
+    blurb: "Anything super effective against it does three quarters.",
+    effect: { t: "cushion", mille: 750 },
+  },
+  {
+    id: "solidrock",
+    name: "Solid Rock",
+    blurb: "Anything super effective against it does two thirds.",
+    effect: { t: "cushion", mille: 667 },
+  },
+  {
+    id: "hugepower",
+    name: "Huge Power",
+    blurb: "Twice the Attack. Nothing subtle about it.",
+    effect: { t: "stat", stat: "atk", when: "always", mille: 2000 },
+  },
+  {
+    id: "hustle",
+    name: "Hustle",
+    blurb: "Attack half again as high, and every physical move a fifth likelier to miss.",
+    effect: { t: "stat", stat: "atk", when: "always", mille: 1500 },
+  },
+  {
+    id: "guts",
+    name: "Guts",
+    blurb: "Poisoned, burned or worse, it hits half again as hard.",
+    effect: { t: "stat", stat: "atk", when: "statused", mille: 1500 },
+  },
+  {
+    id: "marvelscale",
+    name: "Marvel Scale",
+    blurb: "Ailing, its Defence is half again as high.",
+    effect: { t: "stat", stat: "def", when: "statused", mille: 1500 },
+  },
+  {
+    id: "quickfeet",
+    name: "Quick Feet",
+    blurb: "Ailing, it moves half again as fast.",
+    effect: { t: "stat", stat: "spe", when: "statused", mille: 1500 },
+  },
+  {
+    id: "defeatist",
+    name: "Defeatist",
+    blurb: "Below half health it stops trying: both attacking stats halved.",
+    effect: { t: "stat", stat: "offence", when: "hurt", mille: 500 },
+  },
+  {
+    id: "clearbody",
+    name: "Clear Body",
+    blurb: "Nobody else lowers any of its stats.",
+    effect: { t: "hold", stats: ["atk", "def", "spa", "spd", "spe"] },
+  },
+  {
+    id: "hypercutter",
+    name: "Hyper Cutter",
+    blurb: "Its Attack cannot be lowered by anybody else.",
+    effect: { t: "hold", stats: ["atk"] },
+  },
+  {
+    id: "bigpecks",
+    name: "Big Pecks",
+    blurb: "Its Defence cannot be lowered by anybody else.",
+    effect: { t: "hold", stats: ["def"] },
+  },
+  {
+    id: "immunity",
+    name: "Immunity",
+    blurb: "Poison does not take.",
+    effect: { t: "ignore", status: "psn" },
+  },
+  {
+    id: "limber",
+    name: "Limber",
+    blurb: "Paralysis does not take.",
+    effect: { t: "ignore", status: "par" },
+  },
+  {
+    id: "waterveil",
+    name: "Water Veil",
+    blurb: "It cannot be burned.",
+    effect: { t: "ignore", status: "brn" },
+  },
+  {
+    id: "insomnia",
+    name: "Insomnia",
+    blurb: "It does not sleep.",
+    effect: { t: "ignore", status: "slp" },
+  },
+  {
+    id: "magmaarmor",
+    name: "Magma Armor",
+    blurb: "It cannot be frozen.",
+    effect: { t: "ignore", status: "frz" },
+  },
+  {
+    id: "shielddust",
+    name: "Shield Dust",
+    blurb: "The side effects of moves used on it never land.",
+    effect: { t: "unfazed" },
+  },
+  {
+    id: "compoundeyes",
+    name: "Compound Eyes",
+    blurb: "Its moves are a third more accurate.",
+    effect: { t: "aim", mille: 1300 },
+  },
+  {
+    id: "noguard",
+    name: "No Guard",
+    blurb: "Its moves never miss.",
+    effect: { t: "aim", mille: 0 },
+  },
+  {
+    id: "superluck",
+    name: "Super Luck",
+    blurb: "Critical hits come one stage more often.",
+    effect: { t: "luck", stages: 1 },
+  },
+  {
+    id: "prankster",
+    name: "Prankster",
+    blurb: "Its status moves go first.",
+    effect: { t: "quick", plus: 1 },
+  },
+  {
+    id: "sturdy",
+    name: "Sturdy",
+    blurb: "From full health, one hit will never finish it.",
+    effect: { t: "endure" },
+  },
+  {
+    id: "moxie",
+    name: "Moxie",
+    blurb: "Every knockout raises its Attack.",
+    effect: { t: "spoils", stat: "atk", delta: 1 },
+  },
+  {
+    id: "intimidate",
+    name: "Intimidate",
+    blurb: "Coming out lowers whatever is across from it.",
+    effect: { t: "arrival", stat: "atk", delta: -1 },
+  },
+  {
+    id: "regenerator",
+    name: "Regenerator",
+    blurb: "Switching out mends a third of its health.",
+    effect: { t: "mend", share: 3 },
+  },
+  {
+    id: "naturalcure",
+    name: "Natural Cure",
+    blurb: "Switching out shakes off whatever ails it.",
+    effect: { t: "shake" },
+  },
+  {
+    id: "rockhead",
+    name: "Rock Head",
+    blurb: "Recoil never touches it.",
+    effect: { t: "reckless" },
+  },
+  {
+    id: "levitate",
+    name: "Levitate",
+    blurb: "Ground moves cannot reach it at all.",
+    effect: { t: "immune", type: "ground" },
+  },
+  {
+    id: "thickfat",
+    name: "Thick Fat",
+    blurb: "Fire and Ice both do half as much to it.",
+    effect: { t: "ward", types: ["fire", "ice"], mille: 500 },
+  },
+  {
+    id: "scrappy",
+    name: "Scrappy",
+    blurb: "Its Normal and Fighting moves reach Ghosts.",
+    effect: { t: "reach" },
+  },
+];
+
+export const ABILITIES: readonly AbilitySpec[] = [...SINGLES, ...CORNERED, ...ABSORB, ...WARD];
+
+const BY_ID = new Map(ABILITIES.map((entry) => [entry.id, entry]));
+
+export function ability(id: string): AbilitySpec {
+  const found = BY_ID.get(id);
+  if (!found) throw new Error(`unknown ability: ${id}`);
+  return found;
+}
+
+export function isAbility(id: string): boolean {
+  return BY_ID.has(id);
+}
+
+/** Every ability a creature carries, as specs, in a stable order. */
+export function abilitiesOf(ids: readonly string[]): AbilitySpec[] {
+  return ids.filter(isAbility).map(ability);
+}
+
+/**
+ * How many a wild creature is born with.
+ *
+ * Eighty-nine in a hundred with none, ten with one, one with two. Per mille
+ * because everything else in this engine is integers, and because "ten
+ * percent" and "one percent" are exactly representable there.
+ */
+const NONE_UP_TO = 890;
+const ONE_UP_TO = 990;
+
+/** The most any creature can carry, however it came by them. */
+export const MAX_ABILITIES = 3;
+
+/**
+ * What this creature was born with.
+ *
+ * Drawn from the same named stream as everything else about it, so the
+ * abilities on the creature in encounter slot forty of the marsh's third ring
+ * are as fixed as its nature and as unrerollable as its IVs.
+ */
+export function rollAbilities(rng: Rng): string[] {
+  const roll = intBelow(rng, 1000);
+  const count = roll < NONE_UP_TO ? 0 : roll < ONE_UP_TO ? 1 : 2;
+
+  const picked: string[] = [];
+  while (picked.length < count) {
+    const candidate = ABILITIES[intBelow(rng, ABILITIES.length)].id;
+    // Two of the same is one ability, and a creature listed as carrying it
+    // twice would be lying about what it has.
+    if (!picked.includes(candidate)) picked.push(candidate);
+  }
+
+  return picked.sort();
+}
+
+/**
+ * What an egg inherits.
+ *
+ * A coin for each of its parents' abilities, and up to three kept. That makes
+ * an ability the one thing in breeding that *accumulates* — stats climb toward
+ * a ceiling and appearance is a ladder with rungs, but a pair carrying two
+ * apiece can produce a child with three, and no wild creature is ever born
+ * with three. The best-abilitied creature in a world is therefore always one
+ * somebody bred, which is the point.
+ *
+ * The order matters and is fixed: the first parent's are considered first, so
+ * a pair produces the same child on every machine. The cap bites late rather
+ * than early, so a fourth coin coming up heads is simply lost.
+ */
+export function inheritAbilities(
+  rng: Rng,
+  first: readonly string[],
+  second: readonly string[],
+): string[] {
+  const kept: string[] = [];
+
+  for (const id of [...first, ...second]) {
+    if (rng() >= 0.5) continue;
+    if (kept.includes(id) || !isAbility(id)) continue;
+    if (kept.length >= MAX_ABILITIES) continue;
+    kept.push(id);
+  }
+
+  return kept.sort();
+}
+
+/**
+ * The odds a child ends up with each count, as per mille.
+ *
+ * Computed from the same coins `inheritAbilities` flips rather than tabulated
+ * beside them, because the daycare shows this and a panel that can disagree
+ * with the engine is worse than no panel. Duplicates between the two parents
+ * collapse — an ability both carry is one ability, and one coin.
+ */
+export function abilityOdds(
+  first: readonly string[],
+  second: readonly string[],
+): number[] {
+  const coins = new Set([...first, ...second].filter(isAbility)).size;
+  const odds = new Array<number>(MAX_ABILITIES + 1).fill(0);
+
+  // Every subset of the coins is equally likely at one in two each, so the
+  // distribution is binomial, capped at three.
+  for (let heads = 0; heads <= coins; heads++) {
+    const ways = choose(coins, heads);
+    const share = (ways / 2 ** coins) * 1000;
+    odds[Math.min(MAX_ABILITIES, heads)] += share;
+  }
+
+  return odds;
+}
+
+function choose(n: number, k: number): number {
+  let out = 1;
+  for (let step = 0; step < k; step++) out = (out * (n - step)) / (step + 1);
+  return Math.round(out);
+}

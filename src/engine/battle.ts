@@ -8,6 +8,7 @@ import {
 } from "./dex";
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
+import { abilitiesOf, type AbilityEffect } from "./abilities";
 import { anyPp, hasPp, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
 import { intBelow, rngFor } from "./rng";
 import { computeStats } from "./stats";
@@ -65,6 +66,8 @@ export type BattleEvent =
   | { t: "use"; side: SideIndex; moveId: string }
   /** Nothing left to use it with. */
   | { t: "struggling"; side: SideIndex }
+  /** Something a creature can do that its species cannot. */
+  | { t: "ability"; side: SideIndex; abilityId: string }
   | { t: "miss"; side: SideIndex }
   | { t: "immune"; side: SideIndex }
   | { t: "damage"; side: SideIndex; amount: number; quarters: number; crit: boolean }
@@ -165,6 +168,52 @@ export const MAX_TURNS = 300;
 
 const NO_STAGES: Stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
 
+/**
+ * Everything a creature's abilities say about one question.
+ *
+ * The battle never asks "what does Adaptability do"; it asks "does anything
+ * change the same-type bonus" and takes what comes back. That is what keeps
+ * the ability list open — a new entry that answers an existing question needs
+ * no change here at all — and it is why the effects are shapes rather than
+ * callbacks. A closed set of questions is a battle whose behaviour can still
+ * be read off one file.
+ */
+function effects<K extends AbilityEffect["t"]>(
+  creature: Individual,
+  kind: K,
+): Extract<AbilityEffect, { t: K }>[] {
+  return abilitiesOf(creature.abilities)
+    .map((spec) => spec.effect)
+    .filter((effect): effect is Extract<AbilityEffect, { t: K }> => effect.t === kind);
+}
+
+/** Whether a creature carries any ability answering this question. */
+function has(creature: Individual, kind: AbilityEffect["t"]): boolean {
+  return effects(creature, kind).length > 0;
+}
+
+/** The ability id behind a shape, for the log to name it. */
+function whichAbility(creature: Individual, kind: AbilityEffect["t"]): string | null {
+  return abilitiesOf(creature.abilities).find((spec) => spec.effect.t === kind)?.id ?? null;
+}
+
+/** Multiplying by per-mille, kept in integers like everything else. */
+function scaled(value: number, mille: number): number {
+  return Math.floor((value * mille) / 1000);
+}
+
+/**
+ * Whether a status will take at all.
+ *
+ * One predicate, and every road to a status goes down it: a move's own status,
+ * a secondary effect, and anything added later. An immunity that only covered
+ * the direct case would be an immunity that quietly fails against the very
+ * moves people carry it for.
+ */
+function statusSticks(target: Individual, status: StatusId): boolean {
+  return !effects(target, "ignore").some((effect) => effect.status === status);
+}
+
 /** One in this many, by the move's crit ratio. */
 const CRIT_ODDS = [24, 8, 2, 1];
 
@@ -222,6 +271,22 @@ function effectiveStat(individual: Individual, stat: StageStat, stage: number): 
   const [numerator, denominator] = stageFactor(stage);
   let value = Math.floor((base * numerator) / denominator);
   if (stat === "spe" && individual.status === "par") value = Math.floor(value / 2);
+
+  // Huge Power, Hustle, Guts, Marvel Scale, Quick Feet, Defeatist. Applied
+  // after the stage and after paralysis, so a creature with Quick Feet that is
+  // paralysed ends up faster than one that is merely paralysed — which is what
+  // carrying it is for.
+  for (const effect of effects(individual, "stat")) {
+    const applies =
+      effect.when === "always" ||
+      (effect.when === "statused" && individual.status !== null) ||
+      (effect.when === "hurt" && individual.hp * 2 <= maxHp(individual));
+    if (!applies) continue;
+
+    const named = effect.stat === "offence" ? stat === "atk" || stat === "spa" : effect.stat === stat;
+    if (named) value = scaled(value, effect.mille);
+  }
+
   return Math.max(1, value);
 }
 
@@ -235,6 +300,8 @@ function effectiveStat(individual: Individual, stat: StageStat, stage: number): 
 interface Turn {
   battle: BattleState;
   events: BattleEvent[];
+  /** Which side moves second this turn, once that is known. Analytic asks. */
+  movingLast?: SideIndex;
 }
 
 function active(turn: Turn, side: SideIndex): Individual {
@@ -279,16 +346,42 @@ function applyStatus(turn: Turn, side: SideIndex, status: StatusId, tag: string)
   if (target.status || isFainted(target)) return false;
   if (speciesById(target.speciesId).types.some((type) => STATUS_IMMUNE[status].includes(type))) return false;
 
+  // Immunity, Limber, Water Veil, Insomnia, Magma Armor. Checked here so that
+  // every road to a status goes through it — a move's own, a secondary, and
+  // anything added later.
+  if (!statusSticks(target, status)) {
+    const named = abilitiesOf(target.abilities).find(
+      (spec) => spec.effect.t === "ignore" && spec.effect.status === status,
+    );
+    if (named) turn.events.push({ t: "ability", side, abilityId: named.id });
+    return false;
+  }
+
   const sleepTurns = status === "slp" ? 1 + intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, tag, "slp"), 3) : 0;
   setActive(turn, side, { ...target, status, sleepTurns });
   turn.events.push({ t: "status", side, status });
   return true;
 }
 
-function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts): void {
+/**
+ * A stage change, from anybody.
+ *
+ * `byOther` says whether somebody else did this, because that is the whole of
+ * what Clear Body and Hyper Cutter protect against: a creature lowering its
+ * own Defence to raise its Attack is its own business.
+ */
+function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = false): void {
+  const target = active(turn, side);
+  const held = new Set(effects(target, "hold").flatMap((effect) => effect.stats));
+
   const stages = { ...turn.battle.sides[side].stages };
   for (const stat of Object.keys(boosts) as StageStat[]) {
     const delta = boosts[stat] ?? 0;
+    if (byOther && delta < 0 && held.has(stat)) {
+      const named = whichAbility(target, "hold");
+      if (named) turn.events.push({ t: "ability", side, abilityId: named });
+      continue;
+    }
     const next = Math.max(-6, Math.min(6, stages[stat] + delta));
     if (next === stages[stat]) continue;
     stages[stat] = next;
@@ -308,9 +401,15 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
   // fight. Four quarters is neutral, which is what "types do not apply" means
   // in this arithmetic.
   const struggling = move.id === STRUGGLE;
-  const quarters = struggling
-    ? 4
-    : effectiveness(move.type, speciesById(defender.speciesId).types);
+  // Scrappy: Normal and Fighting reach a Ghost. Applied by pretending the
+  // target has no Ghost in it, which is exactly what the ability says.
+  const reaching =
+    has(attacker, "reach") && (move.type === "normal" || move.type === "fighting");
+  const defenderTypes = reaching
+    ? speciesById(defender.speciesId).types.filter((type) => type !== "ghost")
+    : speciesById(defender.speciesId).types;
+
+  const quarters = struggling ? 4 : effectiveness(move.type, defenderTypes);
   if (move.category === "status" || move.power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
   }
@@ -327,7 +426,10 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
   value = Math.floor((value * move.power * attack) / defence);
   value = Math.floor(value / 50) + 2;
 
-  const odds = CRIT_ODDS[Math.max(0, Math.min(CRIT_ODDS.length - 1, move.critRatio - 1))];
+  // Super Luck: one stage up the same ladder the move's own ratio walks.
+  const luck = effects(attacker, "luck").reduce((sum, effect) => sum + effect.stages, 0);
+  const ratio = move.critRatio + luck;
+  const odds = CRIT_ODDS[Math.max(0, Math.min(CRIT_ODDS.length - 1, ratio - 1))];
   const crit = intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-crit`), odds) === 0;
   if (crit) value = Math.floor((value * 3) / 2);
 
@@ -338,10 +440,49 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
   const attackerTypes: readonly string[] = speciesById(attacker.speciesId).types;
   // No same-type bonus on Struggle: it is the absence of an attack rather than
   // a Normal one, and a Normal type should not be rewarded for having nothing
-  // left.
-  if (!struggling && attackerTypes.includes(move.type)) value = Math.floor((value * 3) / 2);
+  // left. Adaptability makes the bonus double instead of half again.
+  if (!struggling && attackerTypes.includes(move.type)) {
+    const stab = effects(attacker, "stab")[0]?.mille ?? 1500;
+    value = scaled(value, stab);
+  }
+
+  // Technician, Reckless, Analytic, and the eighteen cornered abilities. Each
+  // is a multiplier on its own attack, and they compound — a cornered
+  // Technician is both.
+  for (const effect of effects(attacker, "power")) {
+    const applies =
+      effect.when === "always" ||
+      (effect.when === "weak" && move.power > 0 && move.power <= 60) ||
+      (effect.when === "costly" && move.recoil !== null) ||
+      (effect.when === "late" && turn.movingLast === side) ||
+      (effect.when === "cornered" &&
+        effect.type === move.type &&
+        attacker.hp * 3 <= maxHp(attacker));
+    if (applies) value = scaled(value, effect.mille);
+  }
+
   value = Math.floor((value * quarters) / 4);
-  if (attacker.status === "brn" && physical) value = Math.floor(value / 2);
+
+  // Filter and Solid Rock on the way in; Tinted Lens on the way out. Both are
+  // about the type chart's verdict rather than about a type, which is why they
+  // sit after the multiplier rather than beside it.
+  if (quarters > 4) {
+    for (const effect of effects(defender, "cushion")) value = scaled(value, effect.mille);
+  }
+  if (quarters < 4) {
+    for (const effect of effects(attacker, "pierce")) value = scaled(value, effect.mille);
+  }
+
+  // Ward and Thick Fat: a share off, by the move's type.
+  for (const effect of effects(defender, "ward")) {
+    if (effect.types.includes(move.type)) value = scaled(value, effect.mille);
+  }
+
+  // Guts ignores the burn penalty it is carried for.
+  const gutsy = effects(attacker, "stat").some(
+    (effect) => effect.when === "statused" && effect.stat === "atk",
+  );
+  if (attacker.status === "brn" && physical && !gutsy) value = Math.floor(value / 2);
 
   return { amount: Math.max(1, value), quarters, crit };
 }
@@ -399,7 +540,39 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
 
   turn.events.push(struggling ? { t: "struggling", side } : { t: "use", side, moveId });
 
-  const quarters = effectiveness(move.type, speciesById(active(turn, other(side)).speciesId).types);
+  const defender = active(turn, other(side));
+
+  // Absorb and Levitate. Checked before the type chart, because an ability
+  // that grants an immunity the chart does not have is the whole point of it —
+  // and the healing has to happen even though nothing landed.
+  if (!struggling && move.category !== "status") {
+    const drinking = abilitiesOf(defender.abilities).find(
+      (spec) =>
+        (spec.effect.t === "absorb" || spec.effect.t === "immune") &&
+        spec.effect.type === move.type,
+    );
+    if (drinking) {
+      turn.events.push({ t: "ability", side: other(side), abilityId: drinking.id });
+      if (drinking.effect.t === "absorb") {
+        const mended = applyHeal(
+          turn,
+          other(side),
+          Math.max(1, Math.floor(maxHp(defender) / drinking.effect.share)),
+        );
+        if (mended > 0) turn.events.push({ t: "heal", side: other(side), amount: mended });
+      } else {
+        turn.events.push({ t: "immune", side: other(side) });
+      }
+      return;
+    }
+  }
+
+  const reaching =
+    has(attacker, "reach") && (move.type === "normal" || move.type === "fighting");
+  const defenderTypes = reaching
+    ? speciesById(defender.speciesId).types.filter((type) => type !== "ghost")
+    : speciesById(defender.speciesId).types;
+  const quarters = effectiveness(move.type, defenderTypes);
   // Struggle is the exception to the type chart. It has to be: a creature out
   // of moves facing something its last resort cannot touch would be stuck in
   // a battle with no way to act and no way to lose.
@@ -408,8 +581,21 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     return;
   }
 
-  // Accuracy of 0 in the manifest means the move cannot miss.
-  if (move.accuracy > 0 && !chance(turn, `${side}-acc`, move.accuracy)) {
+  // Compound Eyes, No Guard and Hustle. Accuracy of 0 in the manifest means
+  // the move cannot miss to begin with.
+  let accuracy = move.accuracy;
+  let unmissable = accuracy === 0;
+  for (const effect of effects(attacker, "aim")) {
+    if (effect.mille === 0) unmissable = true;
+    else accuracy = Math.min(100, scaled(accuracy, effect.mille));
+  }
+  // Hustle's cost: the same ability that raises Attack makes physical moves
+  // less accurate, which is the trade it exists to offer.
+  if (attacker.abilities.includes("hustle") && move.category === "physical") {
+    accuracy = scaled(accuracy, 800);
+  }
+
+  if (!unmissable && accuracy > 0 && !chance(turn, `${side}-acc`, accuracy)) {
     turn.events.push({ t: "miss", side });
     return;
   }
@@ -417,8 +603,29 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   let dealt = 0;
   if (move.category !== "status" && move.power > 0) {
     const result = damageFor(turn, side, move);
-    dealt = applyDamage(turn, other(side), result.amount);
+
+    // Sturdy: from full health, one hit never finishes it. Trimmed here rather
+    // than in the damage formula, because it is about the blow landing rather
+    // than about how hard it was.
+    let amount = result.amount;
+    const whole = defender.hp >= maxHp(defender);
+    if (whole && amount >= defender.hp && has(defender, "endure")) {
+      amount = Math.max(0, defender.hp - 1);
+      const named = whichAbility(defender, "endure");
+      if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
+    }
+
+    dealt = applyDamage(turn, other(side), amount);
     turn.events.push({ t: "damage", side: other(side), amount: dealt, quarters: result.quarters, crit: result.crit });
+
+    // Moxie: the spoils of a knockout.
+    if (isFainted(active(turn, other(side)))) {
+      for (const effect of effects(attacker, "spoils")) {
+        applyBoosts(turn, side, { [effect.stat]: effect.delta });
+        const named = whichAbility(attacker, "spoils");
+        if (named) turn.events.push({ t: "ability", side, abilityId: named });
+      }
+    }
   }
 
   if (move.heal) {
@@ -431,7 +638,9 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     if (healed > 0) turn.events.push({ t: "heal", side, amount: healed });
   }
 
-  if (move.recoil && dealt > 0) {
+  // Rock Head. Struggle's own cost is below and is not recoil in this sense —
+  // it is what having nothing left costs you, and nothing waives it.
+  if (move.recoil && dealt > 0 && !has(attacker, "reckless")) {
     const taken = applyDamage(turn, side, Math.max(1, Math.floor((dealt * move.recoil[0]) / move.recoil[1])));
     if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
   }
@@ -447,12 +656,25 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   }
 
   if (move.status) applyStatus(turn, other(side), move.status, `${side}-status`);
-  if (move.boosts) applyBoosts(turn, move.target === "self" ? side : other(side), move.boosts);
+  if (move.boosts) {
+    const onSelf = move.target === "self";
+    applyBoosts(turn, onSelf ? side : other(side), move.boosts, !onSelf);
+  }
 
+  // Shield Dust: the side effects of a move used on it never land. Its own
+  // self-targeting secondaries are not "used on it", so they still do.
+  const shielded = has(active(turn, other(side)), "unfazed");
   const secondary = move.secondary;
-  if (secondary && !isFainted(active(turn, other(side))) && chance(turn, `${side}-sec`, secondary.chance)) {
+  if (
+    secondary &&
+    !(shielded && !secondary.self) &&
+    !isFainted(active(turn, other(side))) &&
+    chance(turn, `${side}-sec`, secondary.chance)
+  ) {
     if (secondary.status) applyStatus(turn, other(side), secondary.status, `${side}-secstatus`);
-    if (secondary.boosts) applyBoosts(turn, secondary.self ? side : other(side), secondary.boosts);
+    if (secondary.boosts) {
+      applyBoosts(turn, secondary.self ? side : other(side), secondary.boosts, !secondary.self);
+    }
   }
 }
 
@@ -496,10 +718,29 @@ export function aiAction(state: BattleState, side: SideIndex = 1): BattleAction 
   return { t: "fight", moveIndex: usable[roll] };
 }
 
+/**
+ * A move's priority, and what Prankster does to it.
+ *
+ * Dark types are immune to it in the games because Prankster is mischief, and
+ * that reading is worth keeping: it is the one line in the ability that stops
+ * it being simply "status moves go first, always".
+ */
+function priorityOf(turn: Turn, side: SideIndex, moveId: string | null): number {
+  if (!moveId) return 0;
+  const move = moveById(moveId);
+  if (move.category !== "status") return move.priority;
+
+  const target = speciesById(active(turn, other(side)).speciesId).types;
+  if (target.includes("dark")) return move.priority;
+
+  const plus = effects(active(turn, side), "quick").reduce((sum, one) => sum + one.plus, 0);
+  return move.priority + plus;
+}
+
 /** Who moves first: priority, then speed, then a seeded coin. */
 function firstMover(turn: Turn, moveA: string | null, moveB: string | null): SideIndex {
-  const priorityA = moveA ? moveById(moveA).priority : 0;
-  const priorityB = moveB ? moveById(moveB).priority : 0;
+  const priorityA = priorityOf(turn, 0, moveA);
+  const priorityB = priorityOf(turn, 1, moveB);
   if (priorityA !== priorityB) return priorityA > priorityB ? 0 : 1;
 
   const speedA = effectiveStat(active(turn, 0), "spe", turn.battle.sides[0].stages.spe);
@@ -618,6 +859,13 @@ export function resolveTurn(
     return finish(turn, caught, ballsUsed);
   }
 
+  // The opening lead counts as an arrival. Intimidate on the creature you
+  // send out first has to work, or the ability is worth nothing on the one
+  // creature most likely to be carrying it.
+  if (turn.battle.turn === 1) {
+    for (const side of [0, 1] as SideIndex[]) onArriving(turn, side);
+  }
+
   // Switches happen before any move, on both sides.
   for (const side of [0, 1] as SideIndex[]) {
     const action = actions[side];
@@ -630,6 +878,8 @@ export function resolveTurn(
   const first = firstMover(turn, moveA, moveB);
   const second = other(first);
   const moves: [string | null, string | null] = [moveA, moveB];
+  // Analytic asks, and it has to be answered before either move resolves.
+  turn.movingLast = second;
 
   if (moves[first]) executeMove(turn, first, moves[first]!);
   if (moves[second] && !isFainted(active(turn, second))) executeMove(turn, second, moves[second]!);
@@ -683,6 +933,44 @@ export function actionRefusal(state: BattleState, side: SideIndex, action: Battl
   return null;
 }
 
+/**
+ * Regenerator and Natural Cure, on the way out; Intimidate, on the way in.
+ *
+ * Both halves live in one place because a switch is one event and reading it
+ * in two would be how the two quietly stop agreeing about the order.
+ */
+function onLeaving(turn: Turn, side: SideIndex): void {
+  const leaving = active(turn, side);
+  if (isFainted(leaving)) return;
+
+  let changed = leaving;
+  for (const effect of effects(leaving, "mend")) {
+    const room = maxHp(leaving) - leaving.hp;
+    const mended = Math.min(room, Math.floor(maxHp(leaving) / effect.share));
+    if (mended > 0) changed = { ...changed, hp: changed.hp + mended };
+  }
+  if (has(leaving, "shake") && changed.status) {
+    changed = { ...changed, status: null, sleepTurns: 0 };
+  }
+
+  if (changed !== leaving) {
+    setActive(turn, side, changed);
+    const named = whichAbility(leaving, "mend") ?? whichAbility(leaving, "shake");
+    if (named) turn.events.push({ t: "ability", side, abilityId: named });
+  }
+}
+
+/** Intimidate, when somebody new is standing there. */
+function onArriving(turn: Turn, side: SideIndex): void {
+  const arriving = active(turn, side);
+  for (const effect of effects(arriving, "arrival")) {
+    // Scrappy is immune to it, as it is in the games.
+    if (has(active(turn, other(side)), "reach")) continue;
+    turn.events.push({ t: "ability", side, abilityId: whichAbility(arriving, "arrival")! });
+    applyBoosts(turn, other(side), { [effect.stat]: effect.delta }, true);
+  }
+}
+
 function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
   const combatant = turn.battle.sides[side];
   if (partyIndex < 0 || partyIndex >= combatant.team.length) throw new IllegalAction("no such party member");
@@ -691,10 +979,17 @@ function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
   }
   if (isFainted(combatant.team[partyIndex])) throw new IllegalAction("that one has fainted");
 
+  // Whatever the one on its way out can do about leaving.
+  onLeaving(turn, side);
+
   combatant.active = partyIndex;
   // Stat stages belong to the slot, not the creature, so they reset.
   combatant.stages = { ...NO_STAGES };
   turn.events.push({ t: "switch", side, partyIndex });
+
+  // And whatever the one arriving does on arrival. After the event, so a log
+  // reads in the order it happened.
+  onArriving(turn, side);
 }
 
 /** Faints, experience and who has run out of creatures. */
@@ -809,7 +1104,17 @@ function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnR
  */
 export function battleHash(state: BattleState): string {
   const creature = (individual: Individual) =>
-    [individual.uid, individual.speciesId, individual.level, individual.hp, individual.status ?? "-", individual.sleepTurns].join(":");
+    [
+      individual.uid,
+      individual.speciesId,
+      individual.level,
+      individual.hp,
+      individual.status ?? "-",
+      individual.sleepTurns,
+      // What it can do decides what the numbers come out as, so two peers that
+      // disagree about an ability would disagree about every hit after it.
+      individual.abilities.join("+"),
+    ].join(":");
 
   const side = (index: SideIndex) => {
     const combatant = state.sides[index];

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
+import { abilitiesOf } from "@/engine/abilities";
 import { natureVector } from "@/engine/natures";
 import { maxPp, ppLeft } from "@/engine/pp";
 import {
@@ -272,6 +273,23 @@ export function Inspect({
             {levelFromExp(creature.exp) !== creature.level ? " (experience and level disagree)" : ""}
           </p>
         </div>
+
+        <h3>Abilities · {creature.abilities.length}/3</h3>
+        {abilitiesOf(creature.abilities).length ? (
+          <div className="abilityList">
+            {abilitiesOf(creature.abilities).map((spec) => (
+              <div key={spec.id} className="abilityCard">
+                <strong>{spec.name}</strong>
+                <span className="muted">{spec.blurb}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">
+            None. Nine wild creatures in ten have none — one in ten has one, and one in a hundred
+            has two. Breeding is the only way to reach three.
+          </p>
+        )}
 
         <h3>
           Moves · {creature.moves.length}/{MAX_MOVES}

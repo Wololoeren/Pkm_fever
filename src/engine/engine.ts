@@ -28,6 +28,7 @@ import {
 import { rollGender, type Gender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { awardExp, expForLevel, MAX_LEVEL, MOVE_SLOTS } from "./progression";
+import { rollAbilities } from "./abilities";
 import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
@@ -592,6 +593,8 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
       const level = Math.max(1, Math.min(100, Math.floor(op.level)));
       const built = withMoves({
         pp: [],
+        // A cheat hands over exactly what was asked for and nothing else.
+        abilities: [],
         uid: state.nextUid,
         speciesId: speciesById(op.speciesId).id,
         level,
@@ -958,6 +961,8 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
   return atFullHealth(
     withMoves({
       pp: [],
+      // Starters roll like anything else in the world does.
+      abilities: rollAbilities(rng),
       uid,
       speciesId: world.starters[index],
       level: 5,
@@ -1803,6 +1808,9 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
   const got = atFullHealth(
     withMoves({
       pp: [],
+      // A traded creature came out of somebody else's story, and the offer
+      // says what it is. Nothing is rolled here.
+      abilities: [],
       uid: state.nextUid,
       speciesId: offer.speciesId,
       level: offer.level,
@@ -1964,6 +1972,7 @@ export function gymTeam(world: World, state: GameState, id: string): Individual[
       atFullHealth(
         withMoves({
           pp: [],
+          abilities: rollAbilities(rng),
           uid: uid++,
           speciesId: pick.id,
           level: ace ? level : Math.max(2, level - 2 - intBelow(rng, 3)),
@@ -2146,6 +2155,9 @@ function move(world: World, state: GameState, dir: Direction): GameState {
       const team = trainer.team.map((member, slot) => {
         const built = withMoves({
           pp: [],
+          // The people out on the routes roll too, from the trainer's own
+          // named stream, so the same trainer fields the same team forever.
+          abilities: rollAbilities(rngFor(world.seed, "trainer-ability", trainer.id, slot)),
           uid: uid++,
           speciesId: member.speciesId,
           // Three levels for every beating they have already taken from you,
@@ -2384,6 +2396,7 @@ export function stateHash(state: GameState): string {
       // Uses left is state a player can lose a battle over, so a save that
       // has spent its Surf cannot hash the same as one that has not.
       creature.moves.map((_, at) => ppLeft(creature, at)).join("/"),
+      creature.abilities.join("+"),
     ].join(":");
 
   const counters = (table: Record<string, number>) =>

@@ -2,6 +2,7 @@ import { baseFormOf, movesAtLevel, species as speciesById } from "./dex";
 import { gendersPair, rollGender } from "./gender";
 import { isItem, item as itemSpec } from "./items";
 import { NATURE_IDS } from "./natures";
+import { inheritAbilities } from "./abilities";
 import { fullPp } from "./pp";
 import { intBelow, intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
@@ -183,6 +184,11 @@ export function breed(
 
   const variantId = inheritAppearance(rng, first, second, applied);
 
+  // Drawn after appearance so that adding this did not renumber a single one
+  // of the rolls above it. Every egg a pairing has ever produced still comes
+  // out the same creature it did before abilities existed — with abilities.
+  const abilities = inheritAbilities(rng, first.abilities, second.abilities);
+
   return {
     // The caller owns identity; it has the counter.
     uid: 0,
@@ -198,6 +204,7 @@ export function breed(
     sleepTurns: 0,
     moves: movesAtLevel(speciesId, 1),
     pp: fullPp(movesAtLevel(speciesId, 1)),
+    abilities,
     nickname: null,
     traded: false,
     parents: [first.uid, second.uid],

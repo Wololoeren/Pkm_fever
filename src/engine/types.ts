@@ -12,7 +12,7 @@ import type { Gender } from "./gender";
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 10;
+export const ENGINE_VERSION = 11;
 
 // ------------------------------------------------------------------ stats
 
@@ -115,6 +115,14 @@ export interface Individual {
    * pp.ts for why there is no bottle that refills it.
    */
   pp: number[];
+  /**
+   * What this individual can do that its species cannot, sorted.
+   *
+   * A property of the creature rather than of the species, and almost always
+   * empty — see abilities.ts for why that is the whole design and not a
+   * placeholder.
+   */
+  abilities: string[];
   /** Nickname, or null to display the species name. */
   nickname: string | null;
   /** Which egg produced it, or null for a wild catch. Breeding reads this. */

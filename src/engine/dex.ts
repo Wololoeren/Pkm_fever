@@ -61,6 +61,10 @@ const LEARNSETS = learnsetData as unknown as Record<string, [number, string][]>;
  */
 const TYPE_CHART = typeData as unknown as Record<string, Record<string, number>>;
 
+/** Every type in the chart, sorted. The ability families are built over it, so
+ * a chart with a new type in it grows them without being edited. */
+export const TYPE_NAMES: readonly string[] = Object.keys(TYPE_CHART).sort();
+
 /**
  * How much a move of `attackType` is multiplied against a defender, in
  * quarters. Two types multiply, and the smallest result two types can produce

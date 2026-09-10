@@ -1,5 +1,6 @@
 "use client";
 
+import { abilitiesOf } from "@/engine/abilities";
 import { species as speciesById } from "@/engine/dex";
 import { effortSpent, effortYield } from "@/engine/effort";
 import { GENDER_NAMES } from "@/engine/gender";
@@ -101,6 +102,11 @@ export function StatHover({ creature, title }: { creature: Individual; title?: s
         Beating one is worth {yielded.amount} {listOf(yielded.stats.map((s) => STAT_LABELS[s]))}.
       </p>
       <p className="muted">Knows {creature.moves.join(", ")}.</p>
+      {abilitiesOf(creature.abilities).map((spec) => (
+        <p key={spec.id} className="good">
+          <strong>{spec.name}</strong> — {spec.blurb}
+        </p>
+      ))}
     </div>
   );
 }

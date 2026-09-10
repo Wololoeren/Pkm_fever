@@ -1,5 +1,6 @@
 "use client";
 
+import { abilitiesOf, abilityOdds } from "@/engine/abilities";
 import {
   BREEDING_ITEMS,
   breedingRefusal,
@@ -93,6 +94,33 @@ function ShineMatrix({
           </>
         ) : null}
       </p>
+
+      <h4 className="ladderSub">Abilities</h4>
+      <p className="muted">
+        A coin for each ability across the pair, and up to three kept. It is the one thing here
+        that accumulates — nothing wild is ever born with three.
+      </p>
+      <div className="chromaRow">
+        {abilityOdds(pair[0]?.abilities ?? [], pair[1]?.abilities ?? []).map((share, count) => (
+          <div key={count} className={`rung${share > 0 ? " lit" : ""}`}>
+            <span className="rungName">
+              {count} {count === 1 ? "ability" : "abilities"}
+            </span>
+            <span className="rungOdds">{formatShare(share)}</span>
+          </div>
+        ))}
+      </div>
+      {[...(pair[0]?.abilities ?? []), ...(pair[1]?.abilities ?? [])].length ? (
+        <p className="muted">
+          In the pool:{" "}
+          {abilitiesOf([
+            ...new Set([...(pair[0]?.abilities ?? []), ...(pair[1]?.abilities ?? [])]),
+          ])
+            .map((spec) => spec.name)
+            .join(", ")}
+          .
+        </p>
+      ) : null}
 
       <h4 className="ladderSub">Colour</h4>
       <div className="chromaRow">

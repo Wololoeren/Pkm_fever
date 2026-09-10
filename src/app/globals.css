@@ -266,6 +266,27 @@ button.ghost { background: transparent; }
   background: var(--panel-2);
 }
 
+/* An ability. Green rather than grey, because it is the one thing on a card
+   that most cards do not have. */
+.tag.ability {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.abilityList { display: flex; flex-direction: column; gap: 6px; }
+.abilityCard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-dim);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
 /* Uses left. On the button, because it is the number that decides whether the
    button can be pressed at all; there is no bottle in this game that refills
    it, so it is a budget rather than a status light. */

@@ -55,6 +55,8 @@ export function creature(
     uid?: number;
     /** Uses left, slot by slot. Full unless a test is about running out. */
     pp?: number[];
+    /** None unless a test is about one. */
+    abilities?: string[];
   } = {},
 ): Individual {
   const level = options.level ?? 50;
@@ -73,6 +75,7 @@ export function creature(
     sleepTurns: options.status === "slp" ? 3 : 0,
     moves: options.moves ?? ["tackle"],
     pp: options.pp ?? fullPp(options.moves ?? ["tackle"]),
+    abilities: options.abilities ?? [],
     nickname: null,
     traded: false,
     parents: null,
