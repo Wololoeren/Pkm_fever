@@ -120,6 +120,24 @@ describe("the catalogue", () => {
     expect(doc).toContain("Wonder Guard");
     expect(doc).toContain("Struggle");
   });
+
+  it("A4b: the reference lists every one of them, so it cannot go quietly stale", () => {
+    // docs/abilities.md is what somebody reads instead of the source. A list
+    // that is missing three entries is worse than no list, because nobody
+    // checks a document they have no reason to distrust.
+    const doc = readFileSync(join(process.cwd(), "docs", "abilities.md"), "utf8");
+
+    const missing = ABILITIES.filter((spec) => !doc.includes(spec.name)).map((spec) => spec.name);
+    expect(missing, `not in docs/abilities.md: ${missing.join(", ")}`).toEqual([]);
+
+    // And the counts it opens with have to be the real ones.
+    const singles = ABILITIES.filter(
+      (spec) => !/^(cornered|absorb|ward)-/.test(spec.id),
+    ).length;
+    expect(doc).toContain(`## The thirty-five singles`);
+    expect(singles).toBe(35);
+    expect(ABILITIES.length).toBe(89);
+  });
 });
 
 describe("how they are handed out", () => {
