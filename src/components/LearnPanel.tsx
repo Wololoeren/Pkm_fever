@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { learnRefusal, pendingOffers, type GameState, type Input } from "@/engine/engine";
 import { move as moveById } from "@/engine/dex";
+import { displayPower } from "@/engine/moves";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { MoveNote } from "./MoveNote";
@@ -101,7 +102,10 @@ export function LearnPanel({
         </span>
         <strong>{learning.name}</strong>
         <span className="muted">
-          {learning.category === "status" ? "status" : `${learning.power} pow`} ·{" "}
+          {learning.category === "status"
+            ? "status"
+            : `${displayPower(learning) ?? "varies"} pow`}{" "}
+          ·{" "}
           {learning.accuracy === 0 ? "never misses" : `${learning.accuracy}%`} · {learning.pp} PP
         </span>
         <MoveNote moveId={offer.moveId} />
@@ -126,7 +130,8 @@ export function LearnPanel({
               <kbd>{index + 1}</kbd>
               <span>Forget {entry.name}</span>
               <span className="muted">
-                {entry.type} · {entry.category === "status" ? "status" : `${entry.power} pow`}
+                {entry.type} ·{" "}
+                {entry.category === "status" ? "status" : `${displayPower(entry) ?? "varies"} pow`}
               </span>
               <MoveNote moveId={moveId} />
             </button>

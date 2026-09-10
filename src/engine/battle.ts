@@ -9,7 +9,8 @@ import {
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
 import { abilitiesOf, type AbilityEffect } from "./abilities";
-import { anyPp, hasPp, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
+import { hasVariableDamage, variableDamage, type DamageContext } from "./moves";
+import { anyPp, hasPp, ppLeft, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
 import { intBelow, rngFor } from "./rng";
 import { computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatId, type StatusId } from "./types";
@@ -68,6 +69,13 @@ export type BattleEvent =
   | { t: "struggling"; side: SideIndex }
   /** Something a creature can do that its species cannot. */
   | { t: "ability"; side: SideIndex; abilityId: string }
+  /**
+   * A move whose damage depends on the battle, in a battle where it comes to
+   * nothing. Endeavor against something weaker, Counter with nothing to
+   * counter. Its own event, because "it failed" and "it hit for zero" are
+   * different things and a log that says the second is lying.
+   */
+  | { t: "fizzled"; side: SideIndex; moveId: string }
   | { t: "miss"; side: SideIndex }
   | { t: "immune"; side: SideIndex }
   | { t: "damage"; side: SideIndex; amount: number; quarters: number; crit: boolean }
@@ -302,6 +310,15 @@ interface Turn {
   events: BattleEvent[];
   /** Which side moves second this turn, once that is known. Analytic asks. */
   movingLast?: SideIndex;
+  /**
+   * Move damage each side has taken this turn, by category.
+   *
+   * The counter family reads it, and only *move* damage counts: recoil and
+   * poison are not something there is anybody to retaliate against. Held on
+   * the turn rather than on the creature because it is answered within the
+   * turn and forgotten after it.
+   */
+  taken: [{ physical: number; special: number }, { physical: number; special: number }];
 }
 
 function active(turn: Turn, side: SideIndex): Individual {
@@ -326,6 +343,54 @@ function other(side: SideIndex): SideIndex {
 }
 
 // --------------------------------------------------------------- mechanics
+
+/**
+ * A blow landing, with everything that hangs off it.
+ *
+ * Sturdy, the damage event, the tally the counter family reads, and Moxie —
+ * four things that used to sit inline in one branch and now have to serve
+ * three (a move with power, a move that states a number, and a move whose
+ * power was computed). One place, so the three cannot drift.
+ */
+function landDamage(
+  turn: Turn,
+  side: SideIndex,
+  move: MoveEntry,
+  wanted: number,
+  quarters: number,
+  crit: boolean,
+): number {
+  const defender = active(turn, other(side));
+  const attacker = active(turn, side);
+
+  // Sturdy: from full health, one hit never finishes it. Trimmed here rather
+  // than in the damage formula, because it is about the blow landing rather
+  // than about how hard it was.
+  let amount = wanted;
+  if (defender.hp >= maxHp(defender) && amount >= defender.hp && has(defender, "endure")) {
+    amount = Math.max(0, defender.hp - 1);
+    const named = whichAbility(defender, "endure");
+    if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
+  }
+
+  const dealt = applyDamage(turn, other(side), amount);
+  turn.events.push({ t: "damage", side: other(side), amount: dealt, quarters, crit });
+
+  // What the counter family answers. Only move damage, and only this turn.
+  if (move.category === "physical") turn.taken[other(side)].physical += dealt;
+  else turn.taken[other(side)].special += dealt;
+
+  // Moxie: the spoils of a knockout.
+  if (isFainted(active(turn, other(side)))) {
+    for (const effect of effects(attacker, "spoils")) {
+      applyBoosts(turn, side, { [effect.stat]: effect.delta });
+      const named = whichAbility(attacker, "spoils");
+      if (named) turn.events.push({ t: "ability", side, abilityId: named });
+    }
+  }
+
+  return dealt;
+}
 
 function applyDamage(turn: Turn, side: SideIndex, amount: number): number {
   const target = active(turn, side);
@@ -390,7 +455,53 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = fals
   turn.battle.sides[side].stages = stages;
 }
 
-function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: number; quarters: number; crit: boolean } {
+/**
+ * Everything a variable-damage move might read, gathered up.
+ *
+ * moves.ts is handed this rather than reaching for it: that module must not
+ * import battle.ts — battle.ts imports it — and a cycle between the two would
+ * be a build problem for no gain. So the one place that knows about stages and
+ * maximum health fills in the form.
+ */
+function damageContext(turn: Turn, side: SideIndex, moveId: string): DamageContext {
+  const attacker = active(turn, side);
+  const defender = active(turn, other(side));
+  const theirStages = turn.battle.sides[other(side)].stages;
+
+  return {
+    attacker,
+    defender,
+    attackerMaxHp: maxHp(attacker),
+    defenderMaxHp: maxHp(defender),
+    attackerSpeed: effectiveStat(attacker, "spe", turn.battle.sides[side].stages.spe),
+    defenderSpeed: effectiveStat(defender, "spe", theirStages.spe),
+    defenderBoosts: (["atk", "def", "spa", "spd", "spe"] as StageStat[]).reduce(
+      (sum, stat) => sum + Math.max(0, theirStages[stat]),
+      0,
+    ),
+    takenPhysical: turn.taken[side].physical,
+    takenSpecial: turn.taken[side].special,
+    // Named from the battle's own stream, like every other draw, so Magnitude
+    // and Present come out the same on both peers in a duel.
+    rng: rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-var`),
+    // The slot has already been charged for this swing by the time damage is
+    // worked out, so the last use reads as zero left — which is exactly when
+    // Trump Card is meant to be at its worst-case best.
+    ppLeft: ppLeft(attacker, attacker.moves.indexOf(moveId)),
+  };
+}
+
+/**
+ * `power` is passed in rather than read off the move, because thirty-nine of
+ * them do not have one: the manifest ships `power: 0` for every move whose
+ * damage Showdown computes in a script, and moves.ts is the missing script.
+ */
+function damageFor(
+  turn: Turn,
+  side: SideIndex,
+  move: MoveEntry,
+  power: number,
+): { amount: number; quarters: number; crit: boolean } {
   const attacker = active(turn, side);
   const defender = active(turn, other(side));
 
@@ -410,7 +521,7 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
     : speciesById(defender.speciesId).types;
 
   const quarters = struggling ? 4 : effectiveness(move.type, defenderTypes);
-  if (move.category === "status" || move.power <= 0 || quarters === 0) {
+  if (move.category === "status" || power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
   }
 
@@ -423,7 +534,7 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
   );
 
   let value = Math.floor((2 * attacker.level) / 5) + 2;
-  value = Math.floor((value * move.power * attack) / defence);
+  value = Math.floor((value * power * attack) / defence);
   value = Math.floor(value / 50) + 2;
 
   // Super Luck: one stage up the same ladder the move's own ratio walks.
@@ -452,7 +563,9 @@ function damageFor(turn: Turn, side: SideIndex, move: MoveEntry): { amount: numb
   for (const effect of effects(attacker, "power")) {
     const applies =
       effect.when === "always" ||
-      (effect.when === "weak" && move.power > 0 && move.power <= 60) ||
+      // Technician reads the power the move is *actually* swinging with, so a
+      // Low Kick standing in at 60 qualifies and a Flail at 200 does not.
+      (effect.when === "weak" && power > 0 && power <= 60) ||
       (effect.when === "costly" && move.recoil !== null) ||
       (effect.when === "late" && turn.movingLast === side) ||
       (effect.when === "cornered" &&
@@ -601,30 +714,31 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   }
 
   let dealt = 0;
-  if (move.category !== "status" && move.power > 0) {
-    const result = damageFor(turn, side, move);
+  if (move.category !== "status") {
+    // Thirty-nine moves in the manifest ship `power: 0` because Showdown
+    // computes their damage in a script. moves.ts is that script; this is the
+    // one place it is asked. Before it was wired in, every one of them burned
+    // a turn and did exactly nothing — Seismic Toss, Night Shade, Fissure,
+    // Return, Flail, Gyro Ball, the whole counter family.
+    const variable = hasVariableDamage(move)
+      ? variableDamage(move, damageContext(turn, side, moveId))
+      : ({ t: "power", power: move.power } as const);
 
-    // Sturdy: from full health, one hit never finishes it. Trimmed here rather
-    // than in the damage formula, because it is about the blow landing rather
-    // than about how hard it was.
-    let amount = result.amount;
-    const whole = defender.hp >= maxHp(defender);
-    if (whole && amount >= defender.hp && has(defender, "endure")) {
-      amount = Math.max(0, defender.hp - 1);
-      const named = whichAbility(defender, "endure");
-      if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
-    }
-
-    dealt = applyDamage(turn, other(side), amount);
-    turn.events.push({ t: "damage", side: other(side), amount: dealt, quarters: result.quarters, crit: result.crit });
-
-    // Moxie: the spoils of a knockout.
-    if (isFainted(active(turn, other(side)))) {
-      for (const effect of effects(attacker, "spoils")) {
-        applyBoosts(turn, side, { [effect.stat]: effect.delta });
-        const named = whichAbility(attacker, "spoils");
-        if (named) turn.events.push({ t: "ability", side, abilityId: named });
+    if (variable.t === "fails") {
+      turn.events.push({ t: "fizzled", side, moveId });
+    } else if (variable.t === "exact") {
+      // Exactly this many hit points. No crit, no roll, no same-type bonus and
+      // no type multiplier — immunity already had its say above, and that is
+      // the whole point of a move that states a number.
+      dealt = landDamage(turn, side, move, variable.amount, 4, false);
+      if (variable.selfKo) {
+        const spent = active(turn, side);
+        applyDamage(turn, side, spent.hp);
+        turn.events.push({ t: "recoil", side, amount: spent.hp });
       }
+    } else if (variable.power > 0) {
+      const result = damageFor(turn, side, move, variable.power);
+      dealt = landDamage(turn, side, move, result.amount, result.quarters, result.crit);
     }
   }
 
@@ -792,6 +906,10 @@ export function resolveTurn(
   if (state.outcome) throw new IllegalAction("battle is already over");
 
   const turn: Turn = {
+    taken: [
+      { physical: 0, special: 0 },
+      { physical: 0, special: 0 },
+    ],
     battle: {
       ...state,
       turn: state.turn + 1,

@@ -68,6 +68,9 @@ export interface DamageContext {
   takenSpecial: number;
   /** For the three moves with a roll of their own. */
   rng: Rng;
+  /** Uses left in the slot this move is being swung from. Trump Card reads
+   * it, and could not until power points existed. */
+  ppLeft: number;
 }
 
 /**
@@ -154,9 +157,9 @@ function retaliate(taken: number, numerator: number, denominator: number): Damag
  *    priority the manifest already gives it.
  *  - spitup: 100 per Stockpile stack, and Stockpile is one of the 178 status
  *    moves that currently do nothing either. One stack.
- *  - trumpcard: 40..200 by PP remaining, and there is no PP — which is the
- *    same absence that made the turn cap in battle.ts necessary. 80 is the
- *    three-PP value.
+ *  - trumpcard: no longer a stand-in. Power points exist now, so it reads
+ *    them: 40 with five or more left, and 200 on the last one. It was the
+ *    only entry on this list waiting for something the game has since grown.
  *  - naturalgift, fling: a held item, and there are no held items. 80 and 30
  *    are the middle of each move's real range.
  */
@@ -170,7 +173,6 @@ const STAND_IN_POWER: Record<string, number> = {
   beatup: 30,
   bide: 60,
   spitup: 100,
-  trumpcard: 80,
   naturalgift: 80,
   fling: 30,
 };
@@ -303,6 +305,13 @@ export function variableDamage(move: MoveEntry, ctx: DamageContext): Damage {
     case "wringout":
     case "crushgrip":
       return { t: "power", power: squeezePower(ctx.defender, ctx.defenderMaxHp) };
+
+    // The last one in the tank is the hardest. Forty with five or more left,
+    // and two hundred when there is nothing behind it.
+    case "trumpcard": {
+      const byPp = [200, 80, 60, 50];
+      return { t: "power", power: byPp[Math.max(0, ctx.ppLeft - 1)] ?? 40 };
+    }
 
     case "magnitude":
       return { t: "power", power: weighted(ctx.rng, MAGNITUDE, ([, w]) => w)[0] };

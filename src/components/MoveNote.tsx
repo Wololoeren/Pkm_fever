@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { effectiveness, move as moveById } from "@/engine/dex";
+import { displayPower } from "@/engine/moves";
 import { typeColor } from "@/render/palette";
 
 /**
@@ -122,7 +123,13 @@ export function MoveNote({ moveId, against }: { moveId: string; against?: readon
       </span>
 
       <span className="moveFacts">
-        <span>{entry.category === "status" ? "No damage" : `${entry.power} power`}</span>
+        <span>
+          {entry.category === "status"
+            ? "No damage"
+            : displayPower(entry) === null
+              ? "Power depends on the battle"
+              : `${displayPower(entry)} power`}
+        </span>
         <span>{entry.accuracy === 0 ? "Never misses" : `${entry.accuracy}% accurate`}</span>
         <span>{entry.pp} PP</span>
         {entry.priority !== 0 ? (

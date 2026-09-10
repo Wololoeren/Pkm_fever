@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { activeOf, type BattleAction, type BattleState, type SideIndex } from "@/engine/battle";
-import { move as moveById, species as speciesById } from "@/engine/dex";
+import { move as moveById, species as speciesById, type MoveEntry } from "@/engine/dex";
+import { displayPower } from "@/engine/moves";
 import { anyPp, ppLeft, maxPp } from "@/engine/pp";
 import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
@@ -22,6 +23,19 @@ import { Sprite } from "./Sprite";
  * else is the same, and keeping this one component is the UI half of keeping
  * it one engine.
  */
+
+/**
+ * What to print on a move button.
+ *
+ * Thirty-nine moves in the manifest have no power of their own — their damage
+ * is computed from the battle — so printing `move.power` showed "0 pow" and
+ * read as a bug. The ones with an honest stand-in show it; the rest say so.
+ */
+function powerText(entry: MoveEntry): string {
+  if (entry.category === "status") return "status";
+  const shown = displayPower(entry);
+  return shown === null ? "power varies" : `${shown} pow`;
+}
 
 function Nameplate({
   creature,
@@ -185,7 +199,7 @@ export function BattleView({
                 >
                   <span className="moveName">{entry.name}</span>
                   <span className="moveMeta">
-                    {entry.type} · {entry.category === "status" ? "status" : `${entry.power} pow`}
+                    {entry.type} · {powerText(entry)}
                   </span>
                   {/* Uses left, on the button rather than in the tooltip: it
                       is the number that decides whether you can press it. */}

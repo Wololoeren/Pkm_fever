@@ -5,6 +5,7 @@ import { learnableAt, move as moveById, species as speciesById } from "@/engine/
 import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
 import { abilitiesOf } from "@/engine/abilities";
 import { natureVector } from "@/engine/natures";
+import { displayPower } from "@/engine/moves";
 import { maxPp, ppLeft } from "@/engine/pp";
 import {
   baseAtLevel,
@@ -72,7 +73,7 @@ function MoveRow({
       <span className="moveName">{entry.name}</span>
       <span className="moveMeta">
         {entry.type} · {entry.category}
-        {entry.category === "status" ? "" : ` · ${entry.power || "—"} pow`}
+        {entry.category === "status" ? "" : ` · ${displayPower(entry) ?? "varies"} pow`}
         {entry.accuracy ? ` · ${entry.accuracy}%` : " · never misses"}
       </span>
       {left === undefined ? null : (

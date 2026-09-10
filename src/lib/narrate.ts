@@ -1,4 +1,5 @@
 import type { BattleEvent, SideIndex } from "@/engine/battle";
+import { ability } from "@/engine/abilities";
 import { move as moveById, species as speciesById } from "@/engine/dex";
 import type { Individual } from "@/engine/types";
 
@@ -128,6 +129,18 @@ export function narrate(
         break;
       case "timeout":
         lines.push("The battle has gone on long enough — it is decided on health.");
+        break;
+      case "struggling":
+        lines.push(`${nameOf(event.side)} has nothing left, and struggles!`);
+        break;
+      case "ability":
+        lines.push(`${nameOf(event.side)}'s ${ability(event.abilityId).name}!`);
+        break;
+      case "fizzled":
+        // Not a miss and not a hit of zero. Endeavor against something already
+        // weaker, Counter with nothing to answer — the move happened and came
+        // to nothing, and saying "it took 0" would be a different claim.
+        lines.push(`${moveById(event.moveId).name} came to nothing.`);
         break;
     }
   }
