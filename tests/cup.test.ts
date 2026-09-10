@@ -494,7 +494,7 @@ describe("the chain", () => {
     expect(() => applyInput(world, started, { t: "flee" })).toThrow();
   });
 
-  it("C17: losing to them sends you home patched up, and keeps what you won", () => {
+  it("C17: losing to them sends you back patched up, and keeps what you won", () => {
     const { world, state } = atTheDoor("alpha");
     const entered = {
       ...state,
@@ -508,7 +508,7 @@ describe("the chain", () => {
       live = applyInput(world, live, { t: "fight", moveIndex: 0 });
     }
 
-    expect(live.notice).toEqual({ t: "whiteout" });
+    expect(live.notice).toMatchObject({ t: "whiteout" });
     // Healed on the way home, and the one already beaten stays beaten.
     expect(live.party.every((one) => one.hp === maxHp(one))).toBe(true);
     expect(live.beaten).toContain(CUP_IDS[0]);

@@ -14,7 +14,7 @@ import {
 } from "@/engine/engine";
 import { walkable } from "@/engine/terrain";
 import { HUB_ID, type Route } from "@/engine/world";
-import { outdoorRoutes, play, testWorld } from "./helpers";
+import { creature, outdoorRoutes, play, testWorld } from "./helpers";
 
 /**
  * The small map is a memory, not a satellite.
@@ -198,5 +198,109 @@ describe("what you have seen", () => {
     // And with Flash in the bag, the same spot shows the whole window.
     const lit = standingMidway(world, deep, { ...state, bag: { ...state.bag, "hm-flash": 1 } });
     expect(share(lit, deep)).toBeGreaterThan(share(dark, deep) * 3);
+  });
+});
+
+describe("where you wake up", () => {
+  /**
+   * Loses a fight properly, rather than reaching in and setting the party to
+   * nought.
+   *
+   * A blackout is only reachable through a battle that ends with nothing
+   * standing, so the fixture walks into somebody with a level one Magikarp
+   * that knows Splash. It cannot win, it runs out of Splash, it Struggles
+   * itself to death, and the engine does the rest — which means this exercises
+   * the real path and not a shortcut past it.
+   */
+  function beatenSomewhere(
+    world: ReturnType<typeof testWorld>,
+    state: GameState,
+  ): GameState {
+    const [routeId, here] =
+      [...world.trainers].find(([, group]) => group.length > 0) ?? [];
+    if (!routeId || !here) throw new Error("nobody to lose to");
+    const rival = here[0];
+
+    let live: GameState = {
+      ...state,
+      route: routeId,
+      x: rival.x - 1,
+      y: rival.y,
+      party: [creature("magikarp", { uid: 1, level: 1, moves: ["splash"] })],
+    };
+
+    live = applyInput(world, live, { t: "move", dir: "e" });
+    for (let turn = 0; turn < 300 && live.phase === "battle"; turn++) {
+      for (const input of [
+        { t: "fight", moveIndex: 0 } as const,
+        { t: "struggle" } as const,
+      ]) {
+        try {
+          live = applyInput(world, live, input);
+          break;
+        } catch {
+          /* nothing left of that sort */
+        }
+      }
+    }
+    return live;
+  }
+
+  it("W1: before you have been in a Center, it is still Hearth", () => {
+    const world = testWorld("A1");
+    const state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    expect(state.centre, "you start in the square, not in the building").toBeNull();
+
+    const woke = beatenSomewhere(world, state);
+    expect(woke.notice?.t, "the fixture did not actually lose").toBe("whiteout");
+    expect(woke.route).toBe(HUB_ID);
+    expect(woke.notice).toMatchObject({ t: "whiteout", at: HUB_ID });
+  });
+
+  it("W2: walking into one is what makes it the one you wake in", () => {
+    // Walking in, not healing. A Center you have stood in is a Center you know
+    // the way to, and that is the promise the message makes.
+    const world = testWorld("A1");
+    let state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    const centres = [...world.routes.values()].filter((route) => route.role === "centre");
+    expect(centres.length, "a world with one Center proves nothing").toBeGreaterThan(1);
+
+    // The one that is *not* Hearth's, so the fallback cannot pass this by
+    // accident.
+    const far = centres.find((room) => room.parent !== HUB_ID)!;
+    state = { ...state, route: far.id, x: far.entry.x, y: far.entry.y };
+    state = applyInput(world, state, { t: "move", dir: "n" });
+
+    expect(state.centre).toBe(far.id);
+
+    const woke = beatenSomewhere(world, state);
+    expect(woke.notice?.t, "the fixture did not actually lose").toBe("whiteout");
+    expect(woke.route).toBe(far.id);
+    expect(woke.notice).toMatchObject({ t: "whiteout", at: far.parent });
+    // And put right, which is the other half of the bargain.
+    expect(woke.party.every((one) => one.hp > 0)).toBe(true);
+  });
+
+  it("W3: the newest one wins, and it survives a replay", () => {
+    const world = testWorld("B2");
+    let state = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    const centres = [...world.routes.values()].filter((route) => route.role === "centre");
+    const [first, second] = centres.filter((room) => room.parent !== HUB_ID);
+    expect(second, "not enough towns to tell one Center from another").toBeTruthy();
+
+    const step = (room: (typeof centres)[number]) => {
+      state = { ...state, route: room.id, x: room.entry.x, y: room.entry.y };
+      state = applyInput(world, state, { t: "move", dir: "n" });
+    };
+
+    step(first);
+    expect(state.centre).toBe(first.id);
+    step(second);
+    expect(state.centre, "the older one is still remembered").toBe(second.id);
+
+    // It is in the hash, because it changes what a later input does.
+    expect(stateHash({ ...state, centre: first.id })).not.toBe(stateHash(state));
   });
 });

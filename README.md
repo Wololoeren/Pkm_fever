@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         460 tests, including the replay property everything rests on
+tests/         463 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -307,6 +307,23 @@ drawn brighter than the ones you have not, and hovering a dot names it. Unwalked
 places are drawn but empty — the *shape* of the world is not a secret, only
 what is in it. Standing indoors lights up the town you are indoors in, because
 a door is not a journey.
+
+### Waking up
+
+Everything faints and you wake at **the last Poké Center you walked into**,
+healed, having lost the time and nothing else.
+
+It used to be Hearth, always, which was the only answer while Hearth was the
+only town. With four of them, fainting nine hops out and waking at the origin is
+not a cost, it is a punishment: the walk back is most of an hour and none of it
+is play.
+
+Walking in is what counts, not healing — a Center you have stood in is a Center
+you know the way to. Before you have been in one it is still Hearth, which is
+most of the first walk, since you start in the square rather than in the
+building. Which one it was is state and is in the hash, because it changes what
+a later input does: the same log with a different Center in it puts you
+somewhere else.
 
 ### Fog
 

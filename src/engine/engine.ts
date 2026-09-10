@@ -266,7 +266,8 @@ export type Notice =
   | { t: "caught"; variantId: string; boxed: boolean }
   | { t: "won" }
   | { t: "fled" }
-  | { t: "whiteout" }
+  /** `at` is the place you woke up, for the message to name. */
+  | { t: "whiteout"; at: string }
   | { t: "found"; item: BreedingItem }
   | { t: "hatched"; boxed: boolean }
   | { t: "beatTrainer"; name: string; money: number }
@@ -338,6 +339,20 @@ export interface GameState {
    * retreats a tile at a time reads as a torch, and this is not a torch.
    */
   seen: Record<string, string>;
+  /**
+   * The Poké Center you were last inside, or null before you have been in one.
+   *
+   * Where you wake up when everything faints. With one town that was Hearth and
+   * needed no remembering; with four it is the difference between losing the
+   * walk back from a route and losing the walk back from the far side of the
+   * world. Walking in is what counts, not healing — a Center you have stood in
+   * is a Center you know the way to.
+   *
+   * State rather than a note beside it, because it changes what an input
+   * *does*: the same log with a different Center in it puts you somewhere
+   * else. It is in the hash for that reason.
+   */
+  centre: string | null;
   party: Individual[];
   box: Individual[];
   nextUid: number;
@@ -513,6 +528,7 @@ export function initialState(world: World): GameState {
     steps: {},
     nextSlot: {},
     seen: {},
+    centre: null,
     party: [],
     box: [],
     nextUid: 1,
@@ -594,7 +610,19 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return look(world, applyOne(world, state, input));
+  return checkedIn(world, look(world, applyOne(world, state, input)));
+}
+
+/**
+ * Notes the Poké Center you are standing in, so a blackout knows where to
+ * carry you.
+ *
+ * Beside the map's fog in the same funnel, and for the same reason: walking
+ * through the door is only one of the ways to end up inside one.
+ */
+function checkedIn(world: World, state: GameState): GameState {
+  if (world.routes.get(state.route)?.role !== "centre") return state;
+  return state.centre === state.route ? state : { ...state, centre: state.route };
 }
 
 function applyOne(world: World, state: GameState, input: Input): GameState {
@@ -3248,26 +3276,38 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
 }
 
 /**
- * Back to the hub with everything healed.
+ * Carried to the last Poké Center you were in, with everything healed.
  *
  * Losing costs progress and time, never a creature — a roguelike is a
  * different game. Reached from a lost battle, and from any other ending that
  * happens to leave nothing standing.
+ *
+ * It used to be Hearth, always, which was the only answer when Hearth was the
+ * only town. With four of them, fainting nine hops out and waking at the
+ * origin is not a cost, it is a punishment: the walk back is most of an hour
+ * and none of it is play. The Center you last stood in is the one you know the
+ * way to, and it is where a beaten trainer would go.
+ *
+ * Before you have been inside one — which is most of the first walk, since you
+ * start in the square rather than in the building — it is still Hearth.
  */
 function whiteout(world: World, state: GameState): GameState {
-  const hub = world.routes.get(HUB_ID);
-  if (!hub) throw new Error("world has no hub");
+  const centre = state.centre ? world.routes.get(state.centre) : null;
+  const woke = centre ?? world.routes.get(HUB_ID);
+  if (!woke) throw new Error("world has no hub");
 
   return {
     ...state,
     phase: "battleEnd",
-    route: HUB_ID,
-    x: hub.entry.x,
-    y: hub.entry.y,
-    // Beaten, carried home, and put right — uses included. Losing is the one
+    route: woke.id,
+    x: woke.entry.x,
+    y: woke.entry.y,
+    // Beaten, carried in, and put right — uses included. Losing is the one
     // thing in this game that costs you nothing but the walk back.
     party: state.party.map(restored),
-    notice: { t: "whiteout" },
+    // The town rather than the room, because "you woke up in the Poké Center"
+    // is true of every one of them and says nothing.
+    notice: { t: "whiteout", at: woke.parent ?? woke.id },
   };
 }
 
@@ -3362,6 +3402,7 @@ export function stateHash(state: GameState): string {
       .sort()
       .map((id) => `${id}=${state.seen[id]}`)
       .join(","),
+    state.centre ?? "-",
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
     state.nextUid,

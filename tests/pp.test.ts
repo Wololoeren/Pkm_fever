@@ -222,7 +222,7 @@ describe("what brings them back", () => {
       fighting = applyInput(world, fighting, mine);
     }
 
-    expect(fighting.notice).toEqual({ t: "whiteout" });
+    expect(fighting.notice).toMatchObject({ t: "whiteout" });
     expect(fighting.party.every((one) => !isFainted(one))).toBe(true);
     expect(ppLeft(fighting.party[0], 0)).toBe(maxPp("tackle"));
   });

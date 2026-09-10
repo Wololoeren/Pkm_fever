@@ -324,7 +324,10 @@ export default function Page() {
             map shows which of them you have taken.
           </p>
           {state.notice?.t === "whiteout" ? (
-            <p className="error">Everything fainted. You woke up back in Hearth, patched up.</p>
+            <p className="error">
+              Everything fainted. You woke up in{" "}
+              {session.world.routes.get(state.notice.at)?.label ?? "Hearth"}, patched up.
+            </p>
           ) : null}
           {state.notice?.t === "caught" ? (
             <p className="good">Caught it!{state.notice.boxed ? " Party was full, so it went to the box." : ""}</p>
