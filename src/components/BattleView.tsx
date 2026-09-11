@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { activeOf, type BattleAction, type BattleState, type SideIndex } from "@/engine/battle";
 import { move as moveById, species as speciesById, type MoveEntry } from "@/engine/dex";
 import { displayPower } from "@/engine/moves";
@@ -9,8 +9,10 @@ import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
-import { GenderMark, HpBar, PartyStrip, TeamBalls, VariantTag } from "./PartyStrip";
+import { GenderMark, HpBar, TeamBalls, VariantTag } from "./PartyStrip";
 import { EvolutionScene } from "./EvolutionScene";
+import { beatsFor } from "@/lib/beats";
+import { useBeat } from "./useBeat";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
@@ -100,8 +102,14 @@ export function BattleView({
    * Passed in rather than built here because the party panel belongs to the
    * page — it is the same one that sits under the map when you are walking, and
    * two of them would be two answers to "who is with me".
+   *
+   * A function rather than a node, because switching is *done in it*. It used
+   * to render a second copy of the party under the battlefield to pick from,
+   * which meant the same six creatures were on screen twice: once to read and
+   * once to click. Handed a callback, the panel that is already there becomes
+   * the thing you click, and hands back null the rest of the time.
    */
-  aside?: React.ReactNode;
+  aside?: (choosing: ((index: number) => void) | null) => React.ReactNode;
 }) {
   const [switching, setSwitching] = useState(false);
 
@@ -119,6 +127,14 @@ export function BattleView({
     return evolvedKey === key ? null : { key, from: event.evolvedFrom, to: event.evolved };
   })();
 
+  // What this turn looked like, and the two elements each side animates. The
+  // refs are handed to `useBeat`, which restarts on the turn number.
+  const beats = beatsFor(battle.events);
+  const foeSprite = useRef<HTMLSpanElement>(null);
+  const foeFlash = useRef<HTMLSpanElement>(null);
+  const mySprite = useRef<HTMLSpanElement>(null);
+  const myFlash = useRef<HTMLSpanElement>(null);
+
   const them: SideIndex = role === 0 ? 1 : 0;
   const player = activeOf(battle, role);
   const foe = activeOf(battle, them);
@@ -126,6 +142,12 @@ export function BattleView({
   const ourTeam = battle.sides[role].team;
   const theirTeam = battle.sides[them].team;
   const wildBattle = balls !== undefined;
+
+  // The foe stands top-right and lunges left; we stand bottom-left and lunge
+  // right. Handed in rather than read off a class, because the direction is
+  // the one thing about the animation the layout decides.
+  useBeat(foeSprite, foeFlash, beats[them], battle.turn, "left");
+  useBeat(mySprite, myFlash, beats[role], battle.turn, "right");
 
   const lines = narrate(battle.events, (side) =>
     side === role ? displayName(player) : `${opponentLabel} ${displayName(foe)}`.trim(),
@@ -141,15 +163,14 @@ export function BattleView({
           </div>
         ) : mustSwitch || switching ? (
           <div className="actions">
-            <p className="prompt">{mustSwitch ? "Send out who?" : "Switch to who?"}</p>
-            <PartyStrip
-              party={ourTeam}
-              activeIndex={battle.sides[role].active}
-              onSelect={(index) => {
-                setSwitching(false);
-                onAction({ t: "switch", partyIndex: index });
-              }}
-            />
+            {/* The prompt, and nothing else. The party is already on screen to
+                the left and it is now what you click — a second copy of it
+                here was the same six creatures twice, once to read and once to
+                press. */}
+            <p className="prompt">
+              {mustSwitch ? "Send out who?" : "Switch to who?"}
+              <span className="promptWhere">Pick one from your party.</span>
+            </p>
             {mustSwitch ? null : (
               <button type="button" className="ghost" onClick={() => setSwitching(false)}>
                 Back
@@ -250,7 +271,18 @@ export function BattleView({
         {/* Who you have, up the left. It used to sit a long way below the
             battle, under the bag, which meant checking what was left on the
             bench was a scroll rather than a glance. */}
-        {aside ? <div className="stageParty">{aside}</div> : null}
+        {aside ? (
+          <div className="stageParty">
+            {aside(
+              mustSwitch || switching
+                ? (index) => {
+                    setSwitching(false);
+                    onAction({ t: "switch", partyIndex: index });
+                  }
+                : null,
+            )}
+          </div>
+        ) : null}
 
         <div className="stageField">
           <div className="field">
@@ -265,11 +297,20 @@ export function BattleView({
                 big and soft. */}
             <div className="slot wild hoverable" tabIndex={0}>
               <Nameplate creature={foe} team={theirTeam} active={battle.sides[them].active} />
-              <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
+              {/* The sprite is wrapped rather than animated directly so the
+                  nameplate and the hover panel hold still while it moves — a
+                  shaking health bar is unreadable. */}
+              <span className="mover" ref={foeSprite}>
+                <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
+                <span className="flash" ref={foeFlash} aria-hidden="true" />
+              </span>
               <StatHover creature={foe} />
             </div>
             <div className="slot mine hoverable" tabIndex={0}>
-              <Sprite speciesId={player.speciesId} variantId={player.variantId} size={96} flip faint={player.hp <= 0} />
+              <span className="mover" ref={mySprite}>
+                <Sprite speciesId={player.speciesId} variantId={player.variantId} size={96} flip faint={player.hp <= 0} />
+                <span className="flash" ref={myFlash} aria-hidden="true" />
+              </span>
               <Nameplate creature={player} team={ourTeam} active={battle.sides[role].active} right />
               <StatHover creature={player} />
             </div>

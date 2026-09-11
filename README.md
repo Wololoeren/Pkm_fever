@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         529 tests, including the replay property everything rests on
+tests/         559 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -857,6 +857,91 @@ And one wording fix worth naming, because it is the same mistake twice: landing
 a condition and the condition *biting* were the same sentence, so the turn a
 seed took hold read "Amaura was seeded! Amaura was seeded! Amaura took 5" — the
 game appearing to stutter rather than a seed taking hold and then drawing.
+
+### Moves out in the world
+
+The HMs here are **items**, and that was a deliberate call: `OBSTACLES` in
+terrain.ts names the tool each impassable tile wants, and Cut, Surf, Strength,
+Rock Smash, Waterfall, Whirlpool, Dive, Rock Climb, Flash and Fly are keys in
+the bag rather than moves you teach. "A key shaped like a verb."
+
+What that left out is the other half of the idea: the field moves that are not
+keys at all. They do not open a tile, they *do* something. `statusmoves.ts` had
+already established that a move can carry an effect the manifest cannot say;
+`fieldmoves.ts` is the same idea for the world rather than the battle.
+
+Seven moves, and every one of them is machinery the game already had, reached
+by a different road:
+
+| Move | What it does | Built on |
+| --- | --- | --- |
+| **Headbutt** | Shakes a creature out of a tree beside you | the `TREE` tile, and the route's census |
+| **Sweet Scent** | Draws whatever is in the grass you are standing in | the same census, the same order |
+| **Dig** | Up and out, back to town | `landAt(HUB_ID)` — the Escape Rope's own road |
+| **Teleport** | Back to the Poké Center you last stood in | `state.centre`, which the blackout already uses |
+| **Defog** | Fills in this route's map | the fog-of-war bitset |
+| **Milk Drink** / **Soft-Boiled** | Gives some of the user's own health away | the party |
+
+Headbutt is the one that matters most: **122 species learn it**, which is what
+makes a tree worth putting something in. A tree draws on the route's *own*
+census in the route's own order — it is another door onto the same population,
+not a second population, because the census is what a route *is* and a move
+that rolled fresh would be a way to fish for the one true shiny. It gets its
+own battle tag, so a creature met in the grass and one that fell out of a tree
+never share a roll.
+
+Two couplings worth naming. A move with a use out here **is not inert**, so
+`actsOnSomething` asks `hasFieldUse` — without that, Sweet Scent and Defog do
+nothing in a battle, get filtered out of every learnset by the status-move
+audit, and the feature is unreachable for the two moves that most need it. And
+a creature shaken out of a tree **is catchable**: `isWildBattle` counts the
+tree tag, or Headbutt would be a way to find creatures you cannot keep.
+
+Rototiller wants soft soil and Secret Power wants a base, and this world has
+neither. Flash stays an item, because `OBSTACLES` asks the bag rather than the
+party and two answers to "can I see in here" is a pair that drifts.
+
+### Attack animations
+
+The battle emits structured events and nothing else — no positions, no timings,
+no words. `narrate.ts` turns them into sentences; `beats.ts` turns the same list
+into motion. Both are display, and neither is allowed near the state hash: an
+animation a save depended on would be a save that broke when somebody retimed a
+shake.
+
+The part worth getting right is the **ordering**. Both sides move in one turn,
+and animating them at once reads as two things happening to one creature rather
+than as one of them swinging and the other answering. The events are already in
+resolution order, so counting the `use` events gives each side its place for
+free — a lunge at 0ms, the answer at 340.
+
+A swing lunges toward whatever is opposite; a blow lands as a three-step shake
+plus a wash of the attacking move's own type colour, white and harder on a
+critical; a miss slips aside with no flash; a status glows; a faint drops and
+stays down. Played through `element.animate()` rather than CSS classes, because
+a CSS animation does not restart when the same class is reapplied and a battle
+is the same five animations over and over — the alternatives are a `key` that
+remounts the sprite's canvas and blanks it for a frame, or an `offsetWidth`
+reflow trick that needs a comment every time anybody reads it.
+
+`prefers-reduced-motion` is honoured, and the sprite is wrapped rather than
+animated in place so the nameplate and health bar hold still while it shakes.
+
+The impact flash is invisible at rest because it has **no colour**, not because
+it is at `opacity: 0`. That is not a detail: a rule that hides itself in CSS and
+is never shown again in CSS is exactly what the Y1 guard exists to catch, and it
+catches it for good reason. Reaching for an exception was the wrong instinct —
+carrying the colour in the keyframes instead means the element's resting state
+is honestly "no colour", and the guard needs no hole.
+
+### Switching in a battle
+
+The party is already up the left of the stage. A second list under the field was
+the same six creatures on screen twice — once to read, once to press — so the
+panel that is already there is now the thing you click: it takes a callback,
+says "Send out who?", and withholds reordering and the stat sheet while it is
+choosing, because a click meant to send a creature out should not sometimes open
+a stat screen instead.
 
 ## Updating the roster
 

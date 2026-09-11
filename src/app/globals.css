@@ -249,6 +249,82 @@ button.ghost { background: transparent; }
    right. Anything else reads as backwards to anyone who has played one. */
 .slot { display: flex; align-items: center; gap: 14px; justify-content: space-between; }
 
+/* ------------------------------------------------------------- the motion */
+
+/*
+ * The sprite moves; nothing else in the slot does.
+ *
+ * Wrapped rather than animated in place so the nameplate and the hover panel
+ * hold still while the creature shakes — a health bar that shakes with the hit
+ * is a health bar nobody can read at the moment they most want to.
+ *
+ * `will-change` on transform only. The flash is a separate element and gets
+ * its own layer, which keeps a tinted wash off the sprite's own canvas.
+ */
+.mover {
+  position: relative;
+  display: inline-flex;
+  will-change: transform;
+}
+
+/*
+ * The colour of whatever just hit it.
+ *
+ * `mix-blend-mode: screen` rather than an overlay at partial opacity, so a
+ * dark sprite lights up instead of being greyed over — the point is to read as
+ * a flash of the attacking type, not as a pane of coloured glass. Pointer
+ * events off, because it sits directly over a creature you can hover for its
+ * numbers.
+ *
+ * revealed-by: src/components/useBeat.ts
+ *
+ * That annotation is load-bearing. Y1 guards against a panel that hides itself
+ * in CSS and is never shown again — which is a real bug that has happened here
+ * — and this element genuinely breaks its premise, because what shows it is
+ * `element.animate()` rather than a second rule. So it says which file does it,
+ * and Y1 checks that the file exists and still names this class. An unexplained
+ * exception would be a hole; a checked one is not.
+ */
+.flash {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  /* No colour at rest, which is what makes it invisible — rather than
+     `opacity: 0`, which would be a rule that hides itself and is never shown
+     again in CSS, because what shows this one is `element.animate()`. The
+     colour lives in the keyframes and goes away with them. */
+  background: transparent;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  filter: blur(6px);
+}
+
+/*
+ * The party panel while the battle is waiting for somebody to be sent out.
+ *
+ * The cards are already there to be read; this is what says they are also the
+ * thing to press. An outline on the panel rather than on each card, because
+ * the ones that cannot be chosen — fainted, or already out — are disabled and
+ * should not look inviting.
+ */
+.panel.choosing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.panel.choosing .card:not(:disabled) { cursor: pointer; }
+.panel.choosing .card:not(:disabled):hover { border-color: var(--accent); background: var(--panel-2); }
+
+/* Points at where the choosing happens, since it is no longer under the
+   field. Its own line rather than in the prompt's sentence, so the prompt
+   stays the short thing you read first. */
+.promptWhere { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; margin-top: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The hook already declines to animate; this is the belt to its braces. */
+  .mover { will-change: auto; }
+  .flash { display: none; }
+}
+
 .plate {
   background: var(--panel);
   border: 1px solid var(--line);

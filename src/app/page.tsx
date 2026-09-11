@@ -9,6 +9,7 @@ import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { BagPanel } from "@/components/BagPanel";
+import { FieldMovePanel } from "@/components/FieldMovePanel";
 import { QuestPanel } from "@/components/QuestPanel";
 import { LearnPanel } from "@/components/LearnPanel";
 import { TalkPanel } from "@/components/TalkPanel";
@@ -255,14 +256,20 @@ export default function Page() {
    * question and they would drift.
    */
   const fighting = state.phase === "battle" || state.phase === "battleEnd";
-  const partyPanel = (
-    <section className="panel">
-      <h3>Party</h3>
+  //
+  // Given a callback when the battle wants somebody sent out, in which case the
+  // cards become the thing you press and the panel says so. Reordering and the
+  // full sheet are withheld while choosing: a click meant to send a creature
+  // out should not sometimes open a stat screen instead.
+  const partyPanel = (choosing: ((index: number) => void) | null) => (
+    <section className={`panel${choosing ? " choosing" : ""}`}>
+      <h3>{choosing ? "Send out who?" : "Party"}</h3>
       <PartyStrip
         party={state.party}
         activeIndex={state.battle?.sides[0].active}
-        onInspect={setInspecting}
-        onReorder={(from, to) => dispatch({ t: "reorderParty", from, to })}
+        onSelect={choosing ?? undefined}
+        onInspect={choosing ? undefined : setInspecting}
+        onReorder={choosing ? undefined : (from, to) => dispatch({ t: "reorderParty", from, to })}
       />
     </section>
   );
@@ -372,6 +379,9 @@ export default function Page() {
             <p className="good">
               You beat {state.notice.name}, and they handed over ¤{state.notice.money.toLocaleString()}.
             </p>
+          ) : null}
+          {state.notice?.t === "usedMove" ? (
+            <p className="good">Used {moveById(state.notice.move).name}.</p>
           ) : null}
           {state.notice?.t === "used" ? (
             <p className="good">
@@ -543,7 +553,7 @@ export default function Page() {
       <div className="sideBySide">
         {/* Not here during a battle: it is up beside the field instead, which
             is where you want it when you are deciding who to send out. */}
-        {inHub || fighting ? null : partyPanel}
+        {inHub || fighting ? null : partyPanel(null)}
 
         {state.phase === "field" ? (
           <section className="panel">
@@ -562,6 +572,11 @@ export default function Page() {
               </button>
             </div>
             <BagPanel world={session.world} state={state} onInput={dispatch} />
+
+            {/* And what your party can do out here, under the bag because it
+                is the same kind of question: something you have, used on the
+                place you are standing. Renders nothing when nobody has one. */}
+            <FieldMovePanel world={session.world} state={state} onInput={dispatch} />
           </section>
         ) : null}
       </div>

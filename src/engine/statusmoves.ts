@@ -1,4 +1,5 @@
 import type { MoveEntry } from "./dex";
+import { hasFieldUse } from "./fieldmoves";
 
 /*
  * Type-only, deliberately. `dex.ts` asks this module whether a move acts on
@@ -295,5 +296,9 @@ export function actsOnSomething(move: MoveEntry): boolean {
   if (move.status || move.boosts || move.secondary || move.heal || move.drain || move.recoil) {
     return true;
   }
+  // A move that does nothing in a battle but shakes a tree or draws something
+  // out of the grass is not inert, and must not be filtered out of the pools —
+  // Sweet Scent and Defog are exactly that, and were being thrown away.
+  if (hasFieldUse(move)) return true;
   return STATUS_EFFECTS[move.id] !== undefined;
 }

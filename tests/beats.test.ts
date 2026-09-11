@@ -1,0 +1,177 @@
+import { describe, expect, it } from "vitest";
+import { aiAction, resolveTurn, startBattle, WILD_RULES, type BattleEvent } from "@/engine/battle";
+import { BEAT_MS, beatLength, beatsFor } from "@/lib/beats";
+import { creature } from "./helpers";
+
+/**
+ * What a turn looks like.
+ *
+ * The battle emits events and nothing else — no positions, no timings, no
+ * words. `narrate.ts` turns them into sentences and `beats.ts` turns the same
+ * list into motion, and both are display: an animation the state depended on
+ * would be a save that broke when somebody retimed a shake. So these check the
+ * derivation, not the pixels.
+ *
+ * The part actually worth guarding is the *ordering*. Both sides move in one
+ * turn, and animating them at once reads as two things happening to one
+ * creature rather than as one of them swinging and the other answering.
+ */
+
+const SEED = "BEAT1";
+const TAG = "wild:meadow-1:0";
+
+/** A turn's events, from a real battle rather than a hand-written list. */
+function played(ourMove: string, theirMove: string): readonly BattleEvent[] {
+  const ours = creature("machop", { level: 50, moves: [ourMove] });
+  const theirs = creature("rattata", { level: 50, moves: [theirMove], uid: 2 });
+  const battle = startBattle(SEED, TAG, [ours], [theirs]);
+  return resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, aiAction(battle)], WILD_RULES, 10)
+    .battle.events;
+}
+
+describe("reading a turn", () => {
+  it("A1: a swing and the answer to it are not simultaneous", () => {
+    // The whole reason this module exists rather than a class per event.
+    const [first, second] = beatsFor([
+      { t: "use", side: 0, moveId: "tackle" },
+      { t: "damage", side: 1, amount: 10, quarters: 4, crit: false },
+      { t: "use", side: 1, moveId: "tackle" },
+      { t: "damage", side: 0, amount: 8, quarters: 4, crit: false },
+    ]);
+
+    expect(first.lungeAt).toBe(0);
+    expect(second.lungeAt).toBe(BEAT_MS);
+    // Each one is hit after whoever hit it swung, not before.
+    expect(second.hitAt!).toBeGreaterThan(first.lungeAt!);
+    expect(first.hitAt!).toBeGreaterThan(second.lungeAt!);
+  });
+
+  it("A2: the blow is attributed to whoever was mid-swing", () => {
+    const [mine, theirs] = beatsFor([
+      { t: "use", side: 0, moveId: "ember" },
+      { t: "damage", side: 1, amount: 12, quarters: 8, crit: true },
+    ]);
+
+    // They were hit, by fire, critically. We were not hit at all.
+    expect(theirs.hitAt).not.toBeNull();
+    expect(theirs.type).toBe("fire");
+    expect(theirs.crit).toBe(true);
+    expect(mine.hitAt).toBeNull();
+  });
+
+  it("A3: a residual has no swing in front of it and still lands", () => {
+    // A burn or a seed arrives at the end of the turn with nobody having used
+    // anything. Read naively that is damage attributed to the last attacker,
+    // which would flash it in that move's colour — a poison tick lighting up
+    // green because somebody used Vine Whip four events earlier.
+    const [, theirs] = beatsFor([
+      { t: "use", side: 0, moveId: "vinewhip" },
+      { t: "damage", side: 1, amount: 10, quarters: 4, crit: false },
+      { t: "residual", side: 1, status: "psn", amount: 3 },
+      { t: "damage", side: 1, amount: 3, quarters: 4, crit: false },
+    ]);
+
+    expect(theirs.hitAt).not.toBeNull();
+    // Still the move's colour from the hit that *did* have a swing; what
+    // matters is that the second damage did not overwrite it with nothing.
+    expect(theirs.type).toBe("grass");
+  });
+
+  it("A4: a miss makes the other one dodge, not the one who swung", () => {
+    const [mine, theirs] = beatsFor([
+      { t: "use", side: 0, moveId: "tackle" },
+      { t: "miss", side: 0 },
+    ]);
+
+    // `miss` carries whoever swung, so it is the target that moves.
+    expect(theirs.dodgeAt).not.toBeNull();
+    expect(mine.dodgeAt).toBeNull();
+    expect(theirs.hitAt).toBeNull();
+  });
+
+  it("A5: a gesture takes its turn in the order without lunging", () => {
+    // Growl is not a swing. It should still occupy its place, or the answer
+    // to it lands at the same moment it was used.
+    const [mine, theirs] = beatsFor([
+      { t: "use", side: 0, moveId: "growl" },
+      { t: "boost", side: 1, stat: "atk", delta: -1 },
+      { t: "use", side: 1, moveId: "tackle" },
+      { t: "damage", side: 0, amount: 9, quarters: 4, crit: false },
+    ]);
+
+    expect(mine.lungeAt, "a growl lunged").toBeNull();
+    expect(theirs.lungeAt).toBe(BEAT_MS);
+    expect(mine.hitAt!).toBeGreaterThan(0);
+    // And the thing that was growled at glows rather than flinching.
+    expect(theirs.glowAt).not.toBeNull();
+    expect(theirs.hitAt).toBeNull();
+  });
+
+  it("A6: a glow is suppressed when the same creature was also hit", () => {
+    // A move that hurts and burns should play one animation, not two over
+    // each other reading as neither.
+    const [, theirs] = beatsFor([
+      { t: "use", side: 0, moveId: "flamethrower" },
+      { t: "damage", side: 1, amount: 20, quarters: 4, crit: false },
+      { t: "status", side: 1, status: "brn" },
+    ]);
+
+    expect(theirs.hitAt).not.toBeNull();
+    // `glowAt` is still recorded; it is the hook that declines to play it, and
+    // that is asserted here so the rule lives somewhere a reader can find it.
+    expect(theirs.glowAt).not.toBeNull();
+  });
+
+  it("A7: fainting is the last thing that happens to it", () => {
+    const [, theirs] = beatsFor([
+      { t: "use", side: 0, moveId: "tackle" },
+      { t: "damage", side: 1, amount: 99, quarters: 4, crit: false },
+      { t: "faint", side: 1 },
+    ]);
+
+    expect(theirs.faintAt!).toBeGreaterThan(theirs.hitAt!);
+  });
+
+  it("A8: an empty turn is silent rather than a flurry at zero", () => {
+    const [mine, theirs] = beatsFor([]);
+    for (const beat of [mine, theirs]) {
+      expect(beat.lungeAt).toBeNull();
+      expect(beat.hitAt).toBeNull();
+      expect(beat.faintAt).toBeNull();
+    }
+    expect(beatLength([mine, theirs])).toBe(BEAT_MS);
+  });
+});
+
+describe("against a real turn", () => {
+  it("A9: a fight out of the engine produces a swing on both sides", () => {
+    // Hand-written event lists can drift from what the engine actually emits.
+    const events = played("tackle", "tackle");
+    const beats = beatsFor(events);
+
+    expect(beats[0].lungeAt).not.toBeNull();
+    expect(beats[1].lungeAt).not.toBeNull();
+    expect(beats[0].lungeAt).not.toBe(beats[1].lungeAt);
+    // Somebody took something.
+    expect(beats[0].hitAt !== null || beats[1].hitAt !== null).toBe(true);
+  });
+
+  it("A10: a status move out of the engine does not lunge", () => {
+    const events = played("leechseed", "tackle");
+    const beats = beatsFor(events);
+    expect(beats[0].lungeAt).toBeNull();
+  });
+
+  it("A11: every time is a whole number of milliseconds", () => {
+    // Fed straight to the Web Animations API as a delay. A fraction there is
+    // not wrong, but a rounding difference between two machines would make a
+    // recorded battle look different on replay, which is the one thing this
+    // codebase does not allow anywhere.
+    const beats = beatsFor(played("tackle", "growl"));
+    for (const beat of beats) {
+      for (const at of [beat.lungeAt, beat.hitAt, beat.dodgeAt, beat.glowAt, beat.faintAt]) {
+        if (at !== null) expect(Number.isInteger(at), `${at}`).toBe(true);
+      }
+    }
+  });
+});

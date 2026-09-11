@@ -26,6 +26,7 @@ import {
   species as speciesById,
 } from "./dex";
 import { rollGender, type Gender } from "./gender";
+import { fieldUse, needsTarget } from "./fieldmoves";
 import {
   RIVAL_BEHIND,
   RIVAL_NAME,
@@ -58,7 +59,7 @@ import {
   standingOn,
   type CritterSpec,
 } from "./critters";
-import { alignPp, fullPp, ppLeft, restorePp } from "./pp";
+import { alignPp, fullPp, ppLeft, restorePp, spendPp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
   isQuest,
@@ -203,6 +204,19 @@ export type Input =
    * fights, like the rest of the game asks you to.
    */
   | { t: "useItem"; item: string; index: number }
+  /**
+   * Using one of a creature's own moves out in the world.
+   *
+   * `index` is the party slot whose move it is and `moveIndex` the slot in its
+   * four — the same pair `fight` uses, for the same reason: a move id would be
+   * ambiguous on a creature that knows one move twice, and a creature uid
+   * would not say which of its four was pressed.
+   *
+   * `to` is the party slot being helped, for the two moves that hand health
+   * over. Absent for the other five, which point at the world rather than at
+   * anybody.
+   */
+  | { t: "fieldMove"; index: number; moveIndex: number; to?: number }
   | { t: "buyItem"; item: string; count: number }
   | { t: "sellItem"; item: string; count: number }
   /** Casting a line at water you are standing beside. */
@@ -284,6 +298,9 @@ export type Notice =
   | { t: "beatTrainer"; name: string; money: number }
   | { t: "traded"; given: string; received: string }
   | { t: "used"; item: string; on: string }
+  /** A move used out in the world, for the ones whose effect is not itself
+   * visible — a map filled in, a walk home, health handed over. */
+  | { t: "usedMove"; move: string }
   | { t: "bought"; item: string; count: number }
   | { t: "sold"; item: string; count: number }
   | { t: "picked"; item: string }
@@ -486,6 +503,14 @@ const TRAINER_TAG = "trainer:";
 
 /** A battle against the grass. The counterpart to TRAINER_TAG. */
 const WILD_TAG = "wild:";
+/**
+ * Something shaken out of a tree.
+ *
+ * Its own tag so a creature met in the grass and one that fell out of a tree
+ * never share a roll even at the same census slot — the tag is what makes one
+ * encounter's criticals independent of another's.
+ */
+const TREE_TAG = "tree:";
 
 /**
  * Reaching further out is what pays for the breeding items.
@@ -626,7 +651,14 @@ export function isWildBattle(battle: BattleState | null): boolean {
   // legal against it. This is also what decides the battle's *rules*, so
   // getting it wrong here would make a roamer uncatchable, which would take
   // the point out of chasing one.
-  return Boolean(battle && (battle.tag.startsWith(WILD_TAG) || critterIdOf(battle.tag)));
+  // A tree counts. It is the same census met by a different road, so refusing
+  // a ball at one would make Headbutt a way to find creatures you cannot keep.
+  return Boolean(
+    battle &&
+      (battle.tag.startsWith(WILD_TAG) ||
+        battle.tag.startsWith(TREE_TAG) ||
+        critterIdOf(battle.tag)),
+  );
 }
 
 function withMoves(individual: Individual): Individual {
@@ -799,6 +831,8 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return reorderParty(state, input.from, input.to);
     case "useItem":
       return applyItem(world, state, input.item, input.index);
+    case "fieldMove":
+      return applyFieldMove(world, state, input.index, input.moveIndex, input.to);
     case "buyItem":
       return buyItem(world, state, input.item, input.count);
     case "sellItem":
@@ -1768,6 +1802,203 @@ function lureTakes(lure: LureSpec, variantId: string): boolean {
  * it. Nothing in the UI reads it: a lure that told you what it was about to
  * find would not be a lure.
  */
+
+/* ------------------------------------------------------- moves in the world
+ *
+ * `fieldmoves.ts` says what each one does; this is the half that knows where
+ * you are standing. Two functions and no more, on the pattern the rest of the
+ * engine uses: one predicate the panel and the engine both ask, and one
+ * handler that trusts it.
+ */
+
+/** A tree you could reach from where you are standing, or null. */
+function treeBeside(route: Route, state: GameState): { x: number; y: number } | null {
+  // Adjacency rather than facing, because nothing in this game stores which
+  // way you are pointing — and a headbutt you have to line up in a world with
+  // no turn animation would read as the move being broken.
+  for (const [dx, dy] of [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+  ] as const) {
+    const x = state.x + dx;
+    const y = state.y + dy;
+    if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
+    if (tileAt(state, route, x, y) === TILE.TREE) return { x, y };
+  }
+  return null;
+}
+
+/**
+ * Why this move cannot be used here, or null.
+ *
+ * Exported for the same reason `buyRefusal` and `itemRefusal` are: the panel
+ * greys exactly what the engine refuses, in the same words, because it is the
+ * same function. A second opinion computed in the UI is how a button that
+ * throws gets shipped.
+ */
+export function fieldMoveRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  moveIndex: number,
+  to?: number,
+): string | null {
+  if (state.phase !== "field") return "not right now";
+
+  const user = state.party[index];
+  if (!user) return "nobody there";
+  if (isFainted(user)) return "it is in no state to";
+
+  const moveId = user.moves[moveIndex];
+  if (!moveId) return "no such move";
+
+  const use = fieldUse(moveId);
+  if (!use) return "that one is for battles";
+
+  // Power points are spent, so an empty slot is a refusal rather than a free
+  // use — the same rule a battle applies to the same four slots.
+  if (ppLeft(user, moveIndex) <= 0) return "no uses left in that one";
+
+  const route = world.routes.get(state.route);
+  if (!route) return "not right now";
+
+  if (needsTarget(use) && (to === undefined || !state.party[to])) return "on whom?";
+
+  switch (use.t) {
+    case "shake":
+      if (route.kind !== "route") return "there are no trees in here";
+      if (!treeBeside(route, state)) return "stand next to a tree first";
+      // Nothing able to fight means nothing to shake a tree at, exactly as
+      // the grass stays quiet with a fainted party.
+      if (state.party.every(isFainted)) return "nothing of yours could answer it";
+      return null;
+
+    case "draw":
+      if (route.kind !== "route") return "nothing lives in here";
+      if (!hidesEncounters(tileAt(state, route, state.x, state.y))) {
+        return "stand in the tall grass first";
+      }
+      if (state.party.every(isFainted)) return "nothing of yours could answer it";
+      return null;
+
+    case "escape":
+      return inTown(world, state) ? "you are already in town" : null;
+
+    case "recall":
+      if (!state.centre) return "you have not been to a Poké Center yet";
+      return state.route === state.centre ? "you are standing in one" : null;
+
+    case "reveal": {
+      if (route.kind !== "route") return "there is no map of one room";
+      return state.seen[route.id] === wholeMap(route) ? "this one is already drawn" : null;
+    }
+
+    case "transfuse": {
+      const target = state.party[to!];
+      if (to === index) return "it cannot give to itself";
+      if (isFainted(target)) return "it is past helping this way";
+      if (target.hp >= maxHp(target)) return "that one is already well";
+      // It gives a fixed share of its own maximum whether or not all of it is
+      // needed, so giving with too little left would be a faint.
+      if (user.hp <= Math.floor(maxHp(user) / use.share)) return "it has too little to spare";
+      return null;
+    }
+  }
+}
+
+/** One of a creature's moves, used out in the world. */
+function applyFieldMove(
+  world: World,
+  state: GameState,
+  index: number,
+  moveIndex: number,
+  to?: number,
+): GameState {
+  const refusal = fieldMoveRefusal(world, state, index, moveIndex, to);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const user = state.party[index];
+  const moveId = user.moves[moveIndex];
+  const use = fieldUse(moveId)!;
+  const route = world.routes.get(state.route)!;
+
+  // Spent first, and on every road out of here. A field move costs a use the
+  // way a battle move does, which is the whole reason Sweet Scent is not
+  // simply a better way to walk.
+  const party = [...state.party];
+  party[index] = spendPp(user, moveIndex);
+  const spent: GameState = { ...state, party, tick: state.tick + 1 };
+
+  switch (use.t) {
+    case "shake": {
+      // Out of the route's own census, in the route's own order. A tree is
+      // another door onto the same population rather than a second population
+      // — the census is what a route *is*, and a move that rolled fresh would
+      // be a way to fish for the one true shiny.
+      const slot = nextEncounterSlot(world, spent, state.route);
+      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid)));
+      const lead = party.findIndex((one) => !isFainted(one));
+
+      return {
+        ...spent,
+        nextSlot: { ...spent.nextSlot, [state.route]: slot + 1 },
+        phase: "battle",
+        // Its own tag, so a creature shaken out of a tree and one met in the
+        // grass never share a roll even at the same slot.
+        battle: startBattle(world.seed, `${TREE_TAG}${state.route}:${slot}`, party, [wild], lead),
+        nextUid: spent.nextUid + 1,
+        notice: { t: "encounter" },
+      };
+    }
+
+    case "draw": {
+      const slot = nextEncounterSlot(world, spent, state.route);
+      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid)));
+      const lead = party.findIndex((one) => !isFainted(one));
+
+      return {
+        ...spent,
+        nextSlot: { ...spent.nextSlot, [state.route]: slot + 1 },
+        phase: "battle",
+        // The grass tag, because this *is* the grass — drawn out early rather
+        // than walked into, and it should be the same encounter either way.
+        battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, party, [wild], lead),
+        nextUid: spent.nextUid + 1,
+        notice: { t: "encounter" },
+      };
+    }
+
+    case "escape":
+      return { ...landAt(world, spent, HUB_ID), notice: { t: "usedMove", move: moveId } };
+
+    case "recall":
+      return { ...landAt(world, spent, spent.centre!), notice: { t: "usedMove", move: moveId } };
+
+    case "reveal":
+      return {
+        ...spent,
+        seen: { ...spent.seen, [route.id]: wholeMap(route) },
+        notice: { t: "usedMove", move: moveId },
+      };
+
+    case "transfuse": {
+      const given = Math.max(1, Math.floor(maxHp(user) / use.share));
+      const target = party[to!];
+      const room = maxHp(target) - target.hp;
+
+      // The giver pays the whole share; the taker is capped at full. That
+      // asymmetry is the cost of the move, and it is why it refuses at the
+      // point where paying it would be a faint.
+      party[index] = { ...party[index], hp: Math.max(1, party[index].hp - given) };
+      party[to!] = { ...target, hp: target.hp + Math.min(room, given) };
+
+      return { ...spent, party, notice: { t: "usedMove", move: moveId } };
+    }
+  }
+}
+
 export function nextEncounterSlot(world: World, state: GameState, routeId: string): number {
   const from = state.nextSlot[routeId] ?? 0;
   const lures = activeLures(state);
@@ -2086,8 +2317,19 @@ function look(world: World, state: GameState): GameState {
     }
   }
 
-  // Packed back to hex, four blocks a character, most significant first so the
-  // string has no leading zeroes to keep in step.
+  const out = packFog(bits);
+  return out === known ? state : { ...state, seen: { ...state.seen, [route.id]: out } };
+}
+
+/**
+ * A fog bitset, back to the hex it is stored as.
+ *
+ * Four blocks a character, most significant first so the string carries no
+ * leading zeroes to keep in step with. Pulled out of `look` when Defog needed
+ * to write the same format from the other direction — two encoders for one
+ * string is the kind of pair that agrees until it does not.
+ */
+function packFog(bits: Uint8Array): string {
   let out = "";
   for (let nibble = Math.ceil(bits.length / 4) - 1; nibble >= 0; nibble--) {
     let value = 0;
@@ -2096,9 +2338,13 @@ function look(world: World, state: GameState): GameState {
     }
     if (value !== 0 || out.length > 0) out += value.toString(16);
   }
-  if (out === "") out = "0";
+  return out === "" ? "0" : out;
+}
 
-  return out === known ? state : { ...state, seen: { ...state.seen, [route.id]: out } };
+/** Every block of a route's map, known. What Defog writes. */
+function wholeMap(route: Route): string {
+  const blocks = Math.ceil(route.width / FOG) * Math.ceil(route.height / FOG);
+  return packFog(new Uint8Array(blocks).fill(1));
 }
 
 /** Rings this far out are dark without Flash. */
