@@ -130,6 +130,18 @@ export default function Page() {
 
   const state = session?.state;
 
+  /**
+   * The evolution to sit through, if a stone produced one and it has not been.
+   *
+   * Bound here rather than read out of `state.notice` inside the JSX, because
+   * the variant lookup is a callback and TypeScript drops the narrowing from
+   * `notice.t === "evolved"` the moment the access happens inside one. The
+   * alternative was a cast, which would have been a way of insisting the
+   * notice is the shape it is rather than showing it.
+   */
+  const evolved =
+    state?.notice?.t === "evolved" && seenEvolution !== state.notice ? state.notice : null;
+
   useEffect(() => {
     if (!state) return;
 
@@ -523,11 +535,16 @@ export default function Page() {
         </section>
       ) : null}
 
-      {state.notice?.t === "evolved" && seenEvolution !== state.notice ? (
+      {evolved ? (
         <EvolutionScene
-          from={state.notice.from}
-          to={state.notice.to}
-          onDone={() => setSeenEvolution(state.notice)}
+          from={evolved.from}
+          to={evolved.to}
+          // The party is where an appearance is recorded, and the notice says
+          // which member. It has already changed species by the time this is
+          // read, which is why the notice carries both names and the creature
+          // carries neither.
+          variantId={state.party.find((one) => one.uid === evolved.uid)?.variantId ?? "normal"}
+          onDone={() => setSeenEvolution(evolved)}
         />
       ) : null}
 

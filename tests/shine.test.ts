@@ -28,6 +28,7 @@ import { rngFor } from "@/engine/rng";
 import { routeId as worldRouteId } from "@/engine/world";
 import { walkable } from "@/engine/terrain";
 import { appearanceId, TOP_TIER, variant } from "@/engine/variants";
+import { resolveTurn, startBattle, WILD_RULES } from "@/engine/battle";
 import { creature, testWorld } from "./helpers";
 
 /**
@@ -377,6 +378,102 @@ describe("lures", () => {
     // one cannot be mistaken for a save that did not.
     const lit = { ...once, lures: { "lure-shiny": once.tick + LURE_MOVES } };
     expect(stateHash(lit)).not.toBe(stateHash(once));
+  });
+});
+
+/**
+ * An appearance is a fact about a creature, not about its species.
+ *
+ * Which means it has to survive the one moment the species changes. Both roads
+ * there are guarded, because they are separate code and an appearance that
+ * survived one of them would be an appearance that half works — and because
+ * the evolution scene reads the creature back out afterwards to know what to
+ * draw. It used to ask for `variantId="normal"` and get it, so the one moment
+ * the game stops everything to look at a creature showed somebody else's.
+ */
+describe("an appearance survives becoming something else", () => {
+  it("S18: levelling into an evolution keeps it, and the event says which one", () => {
+    const mine = creature("caterpie", {
+      uid: 1,
+      level: 6,
+      moves: ["tackle"],
+      variantId: "shiny:tide",
+    });
+    const theirs = creature("magikarp", { uid: 2, level: 40, hp: 1, moves: ["splash"] });
+
+    let battle = startBattle("SHINE-EVO", "wild:evolve:0", [mine], [theirs]);
+    let grown: { evolved: string | null; uid: number } | null = null;
+
+    for (let i = 0; i < 20 && !battle.outcome; i++) {
+      battle = resolveTurn(
+        battle,
+        [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+        WILD_RULES,
+      ).battle;
+      for (const event of battle.events) {
+        if (event.t === "exp" && event.evolved) grown = event;
+      }
+    }
+
+    expect(grown).not.toBeNull();
+    expect(grown!.evolved).toBe("metapod");
+
+    // The uid is on the event so a screen can find the creature it is about,
+    // and this is what finding it has to yield: the same appearance, on the
+    // new species.
+    const found = battle.sides[0].team.find((one) => one.uid === grown!.uid);
+    expect(found, "the event named a uid that is not on the team").toBeDefined();
+    expect(found!.speciesId).toBe("metapod");
+    expect(found!.variantId).toBe("shiny:tide");
+  });
+
+  it("S19: a stone keeps it, and the notice says which creature it was", () => {
+    // Two of the same species, wearing different appearances, and the stone
+    // goes on the second. Deliberately two: with one, a screen that assumed
+    // the first party member or the first match on species would pass, and
+    // that is the assumption worth breaking here.
+    const world = testWorld("STONE1");
+    const before = reduce(world, [
+      { t: "pickStarter", index: 0 },
+      {
+        t: "cheat",
+        cheat: { op: "give", speciesId: "vulpix", level: 25, variantId: "normal", gender: "female" },
+      },
+      {
+        t: "cheat",
+        cheat: { op: "give", speciesId: "vulpix", level: 25, variantId: "shiny:ember", gender: "female" },
+      },
+      { t: "cheat", cheat: { op: "items" } },
+    ]);
+
+    const slots = before.party
+      .map((one, index) => ({ one, index }))
+      .filter(({ one }) => one.speciesId === "vulpix");
+    expect(slots.length).toBe(2);
+
+    const { one: target, index } = slots[1];
+    expect(target.variantId).toBe("shiny:ember");
+
+    const after = applyInput(world, before, { t: "useItem", item: "stone-firestone", index });
+
+    expect(after.notice?.t).toBe("evolved");
+    const notice = after.notice as { t: "evolved"; from: string; to: string; uid: number };
+    expect(notice.from).toBe("vulpix");
+    expect(notice.to).toBe("ninetales");
+    // The uid rather than the species: "which species" does not say which
+    // creature, and there are two of this one standing right here.
+    expect(notice.uid).toBe(target.uid);
+
+    const grown = after.party.find((one) => one.uid === notice.uid);
+    expect(grown, "the notice named a uid that is not in the party").toBeDefined();
+    expect(grown!.speciesId).toBe("ninetales");
+    expect(grown!.variantId).toBe("shiny:ember");
+
+    // And the one that was not stoned is untouched, which is the other half of
+    // naming the right creature.
+    const spare = after.party.find((one) => one.uid === slots[0].one.uid);
+    expect(spare!.speciesId).toBe("vulpix");
+    expect(spare!.variantId).toBe("normal");
   });
 });
 

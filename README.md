@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         571 tests, including the replay property everything rests on
+tests/         574 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -1000,6 +1000,40 @@ so it was reported as doing nothing at all.
 **And the plate got wider** to hold the row: 200px to 264, with the health bar
 as wide as the plate and a touch taller. At the old width a burned, seeded,
 two-stages-down creature wrapped its badges onto three lines.
+
+### The reveal shows the creature that earned it
+
+The evolution scene asked for `variantId="normal"` and got it, for as long as
+the scene existed. So the one moment the game stops everything for twenty
+seconds to look at a creature was the one moment it showed somebody else's: a
+shiny that had been shiny for forty levels turned up in factory colours,
+changed shape, and went back to being shiny in the party list underneath.
+
+The prop is required now and has no default, because a default is how this
+survived. Both callers answer it by finding the creature rather than by copying
+a field off it: the battle reads the `uid` already on the `exp` event, and the
+`evolved` notice carries a `uid` for the same reason — "which species" does
+not say which creature, and two Gloom in a party with a Leaf Stone on one of
+them is enough to pick the wrong one. The notice is not in `stateHash`, so
+widening it costs no save compatibility and no version bump.
+
+The variant needs no staging of its own. The earlier stages flatten the sprite
+to black and the peak blows it white, both through a filter on the whole
+`.evolveSprite` — so the colour *and* the variant marks stay hidden until the
+reveal for free, and the reveal is the one frame that shows the creature as it
+actually is.
+
+Guarded three ways, because the bug was invisible: S18 and S19 check that an
+appearance survives both roads to an evolution (levelling in a battle, and a
+stone) and that the uid each road reports finds the creature that kept it —
+S19 deliberately puts *two* Vulpix in the party wearing different appearances
+and stones the second, since with one, a screen that assumed party slot zero
+would pass. Y6 reads the components and fails on any literal `variantId="..."`
+in the markup at all: an appearance is a fact about a creature, the only
+honest source for it is the creature, and a literal there is not a compile
+error, not a runtime error, and not visibly wrong either — because "normal"
+is exactly what nine creatures in ten look like. It is wrong only for the ones
+a player cares about.
 
 ### Creatures arrive rather than appear
 

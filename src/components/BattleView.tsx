@@ -188,8 +188,23 @@ export function BattleView({
     );
     if (!event || event.t !== "exp" || !event.evolved || !event.evolvedFrom) return null;
 
+    // Which creature earned it, so the scene can show that one rather than a
+    // factory-colours stand-in. `uid` is on the event for exactly this: the
+    // creature has already changed by the time anything reads the event, and
+    // the team is the only place its appearance is recorded. Experience only
+    // ever goes to the side we are driving, and "normal" is the honest answer
+    // if that ever stops being true.
+    const grown = battle.sides[role].team.find((one) => one.uid === event.uid);
+
     const key = `${battle.tag}:${battle.turn}:${event.evolved}`;
-    return evolvedKey === key ? null : { key, from: event.evolvedFrom, to: event.evolved };
+    return evolvedKey === key
+      ? null
+      : {
+          key,
+          from: event.evolvedFrom,
+          to: event.evolved,
+          variantId: grown?.variantId ?? "normal",
+        };
   })();
 
   // What this turn looked like, and the two elements each side animates. The
@@ -340,6 +355,7 @@ export function BattleView({
         <EvolutionScene
           from={evolving.from}
           to={evolving.to}
+          variantId={evolving.variantId}
           onDone={() => setEvolved(evolving.key)}
         />
       ) : null}

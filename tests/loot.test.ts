@@ -100,9 +100,16 @@ describe("the stones", () => {
 
       const after = applyInput(world, state, { t: "useItem", item: stoneId, index: 0 });
       expect(after.party[0].speciesId, `${speciesId} + ${stoneId}`).toBe(into);
-      // Spent when it works, and its own notice so the screen can show it.
+      // Spent when it works, and its own notice so the screen can show it —
+      // which needs to know *which* creature, not just which species, because
+      // the reveal draws its appearance and two of a species is normal.
       expect(after.bag[stoneId] ?? 0).toBe(0);
-      expect(after.notice).toEqual({ t: "evolved", from: speciesId, to: into });
+      expect(after.notice).toEqual({
+        t: "evolved",
+        from: speciesId,
+        to: into,
+        uid: state.party[0].uid,
+      });
     }
 
     // And a stone with nothing behind it says so, in the refusal, rather than

@@ -140,6 +140,49 @@ describe("colour as meaning", () => {
   });
 });
 
+describe("appearances on screen", () => {
+  it("Y6: nothing tells a sprite what a creature looks like", () => {
+    // An appearance is a fact about a creature, and the only honest source for
+    // it is the creature. A literal in the markup is the screen deciding
+    // instead — which is not a compile error, not a runtime error, and not
+    // visibly wrong either, because "normal" is exactly what nine creatures in
+    // ten look like. It is wrong only for the ones a player cares about, and
+    // the evolution scene had it for as long as the scene existed: a shiny
+    // that had been shiny for forty levels arrived at its own reveal in
+    // factory colours.
+    //
+    // Block comments are stripped first, because this file's own explanation
+    // of the bug quotes it.
+    const offenders: string[] = [];
+
+    for (const dir of [["src", "components"], ["src", "app"]]) {
+      const root = join(process.cwd(), ...dir);
+      for (const file of readdirSync(root)) {
+        if (!file.endsWith(".tsx")) continue;
+        const source = readFileSync(join(root, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+        for (const match of source.matchAll(/variantId\s*=\s*"([^"]*)"/g)) {
+          offenders.push(`${file}: variantId="${match[1]}"`);
+        }
+      }
+    }
+
+    expect(offenders, offenders.join("; ")).toEqual([]);
+
+    // And the test has to be looking at something: every sprite on screen
+    // should be getting its appearance from somewhere.
+    let passed = 0;
+    for (const dir of [["src", "components"], ["src", "app"]]) {
+      const root = join(process.cwd(), ...dir);
+      for (const file of readdirSync(root)) {
+        if (!file.endsWith(".tsx")) continue;
+        const source = readFileSync(join(root, file), "utf8");
+        passed += [...source.matchAll(/variantId=\{/g)].length;
+      }
+    }
+    expect(passed).toBeGreaterThan(10);
+  });
+});
+
 describe("pixel art", () => {
   it("Y3: every sprite is asked for at a size the art divides into", () => {
     // The sprites are 96 pixels square. At the battle's old 148 the

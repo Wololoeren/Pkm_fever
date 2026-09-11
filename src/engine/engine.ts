@@ -323,8 +323,14 @@ export type Notice =
    * stone doing the same thing should not be a line of small text. Both halves
    * are carried for the same reason the battle event carries both — the
    * creature has already changed by the time anything reads this.
+   *
+   * And `uid` for the same reason the battle's `exp` event carries one: the
+   * scene shows a creature, and "which species" does not say which creature.
+   * Two Gloom in a party and a Leaf Stone on one of them is enough for the
+   * scene to pick the wrong appearance, and a shiny watching itself evolve in
+   * factory colours is the version of this bug that got noticed.
    */
-  | { t: "evolved"; from: string; to: string }
+  | { t: "evolved"; from: string; to: string; uid: number }
   | { t: "given"; item: string; on: string }
   | { t: "took"; item: string; on: string }
   /** Walked up to something standing about that had nothing to offer. */
@@ -1571,7 +1577,7 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
       tick: state.tick + 1,
       party,
       bag: removeItem(state.bag, itemId),
-      notice: { t: "evolved", from: target.speciesId, to: into },
+      notice: { t: "evolved", from: target.speciesId, to: into, uid: target.uid },
     };
   }
 

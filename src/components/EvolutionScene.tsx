@@ -20,6 +20,15 @@ import { Sprite } from "./Sprite";
  * Nothing here touches game state. The evolution already happened in the
  * engine, on the turn the experience was awarded; this is a picture of
  * something that is already true, which is why skipping it costs nothing.
+ *
+ * It is a picture of *this* creature, which took a while to be true. The scene
+ * asked for `variantId="normal"` and got it — so the one moment the game
+ * stops everything to look at a creature was the one moment it showed somebody
+ * else's. A shiny that had been shiny for forty levels turned up in factory
+ * colours, changed shape, and went back to being shiny in the party list
+ * underneath. There is no sensible default here, which is why the prop has
+ * none: a caller that cannot say which creature this is has no business
+ * playing the scene.
  */
 
 /** The whole thing, in milliseconds. */
@@ -39,10 +48,19 @@ const STAGES = {
 export function EvolutionScene({
   from,
   to,
+  variantId,
   onDone,
 }: {
   from: string;
   to: string;
+  /**
+   * Which of the eleven appearances is evolving.
+   *
+   * Required, and deliberately not defaulted. Evolution keeps the variant —
+   * it is a fact about the creature and not about the species — so one id
+   * covers both halves of the scene.
+   */
+  variantId: string;
   onDone: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
@@ -125,8 +143,15 @@ export function EvolutionScene({
               which is a clean doubling and so not *uneven* — but every pixel
               four times the area, held still and lit from behind for twenty
               seconds, is the one place blockiness has nowhere to hide. The
-              drama is the glow, which can be any size it likes. */}
-          <Sprite speciesId={shown.id} variantId="normal" size={96} />
+              drama is the glow, which can be any size it likes.
+
+              The variant is passed straight through and needs no staging of
+              its own: the earlier stages flatten this to black and the peak
+              blows it white, both through a filter on the whole
+              `.evolveSprite`, so the colour and the variant marks are hidden
+              until the reveal for free. The reveal is the one frame that shows
+              the creature as it actually is, which is the whole point of it. */}
+          <Sprite speciesId={shown.id} variantId={variantId} size={96} />
         </div>
       </div>
 
