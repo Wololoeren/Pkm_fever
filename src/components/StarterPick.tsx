@@ -52,7 +52,12 @@ export function StarterPick({ world, onPick }: { world: World; onPick: (index: n
 
           return (
             <button key={id} type="button" className="starterCard" onClick={() => onPick(index)}>
-              <Sprite speciesId={id} variantId={creature.variantId} size={192} />
+              {/* The art is 96 pixels square, so this is drawn at its own size.
+                  Doubling it adds no detail — it only makes every pixel four
+                  times as obvious, and it pushed the numbers below the fold on
+                  a laptop, which is the one screen where the numbers are the
+                  reason you are looking. */}
+              <Sprite speciesId={id} variantId={creature.variantId} size={96} />
               <h3>
                 {entry.name} <GenderMark gender={creature.gender} />
               </h3>
