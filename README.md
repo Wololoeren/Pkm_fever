@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         574 tests, including the replay property everything rests on
+tests/         583 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -412,6 +412,74 @@ whole is somebody else's, and a line that lands because you know what it is
 "at least ten apiece" is a fact rather than an impression, and it is what stops
 a town quietly losing half its cast to a refactor that looked like it was about
 something else.
+
+### The Grey Line
+
+Twenty-four people in grey coats, one at every sort of place there is: the
+nearest copy of each of the twenty biomes, and each of the four towns. Talk to
+one, name another, and you are there.
+
+**One authored person, expanded by the world.** The same mechanism the nurse
+uses: `{ at: "station" }` is written once in the roster and `placeNpcs` turns
+it into twenty-four posts. Twenty-four near-identical entries would be one
+person written out twenty-four times, and a service with a uniform is exactly
+the case where that is the right answer rather than a shortcut — there is one
+Grey Line, not twenty-four people who coincidentally do the same job.
+
+**The *nearest* copy of each biome, which does the spreading for free.** A
+biome's tier decides both how many copies of it exist and roughly how far out
+it sits: four meadows near home, one Crystal Vault a long way past them. So
+"the first of each" is already a set of stops running from the doorstep to the
+edge of the map. Picking a copy at random would have bunched them.
+
+**They stand at the route's entry, which is the opposite of everybody else.**
+The rest of the cast wishes for a spot well inside a route, deliberately: an
+Angler you meet before you have seen the water is an Angler wasted. A travel
+post is the one person you want at the gate — a stop you have to hunt for is a
+stop you walk past, and the entry is the tile you arrive on, so stepping off
+one coach leaves the next in reach. Measured: sixty-eight posts in a hundred
+and twenty land one step from the door and the other fifty-two land two, which
+is the diagonals, because `nearestSpot` bars the entry tile itself to
+everybody.
+
+**No new state pays for any of it.** A post is open exactly when its route is
+in `visited`, which the save already records, so the network is derived from
+where you have walked rather than from a second list of what you have
+unlocked. Two lists is the shortest road to a coach that will not take you
+somewhere you are standing in. It also makes the return leg free: you cannot
+get anywhere without having walked there, and having walked there is what keeps
+the way back open.
+
+It is a separate input from `fly` because the two answer different questions.
+Fly asks whether you have the wing; this asks whether you are stood in front of
+a Greycoat and whether there is one at the other end. Sharing the input would
+mean sharing the predicate, and a coach that needed an HM would be a coach
+nobody rides. What they do share is `landAt`, so there is still one place that
+decides where you end up standing.
+
+The destination list is **filtered rather than greyed**, and that is the one
+place the house rule bends. The rule exists so a dead control explains itself;
+with twenty-four posts, obeying it literally would put a wall of twenty-three
+disabled rows in front of the first Greycoat you meet, and would hand over the
+name of every place in the world before you had walked to any of them. The
+count underneath keeps it honest — "1 of their posts you have already walked
+to. 22 more they keep, somewhere you have not been." The decision is still the
+engine's either way: a stop is listed exactly when `travelRefusal` has nothing
+to say about it.
+
+Grey is the point, and it is grey in the fiction before it is grey in the
+palette. Every other colour on the map means something *happens* at that tile
+— a gift, a job, a gym. The Grey Line is how you get to a different tile, so
+it is the one sort of person on the map who is infrastructure rather than an
+event.
+
+Adding them bumped `ENGINE_VERSION` to 22, and that is not a formality. People
+are solid: twenty-four new ones move the tiles every other person was placed on
+and block ground that used to be open, so a recorded walk can step into a
+conversation where it used to take a step. Without the bump an old save falls
+through the corrupt-log path and quietly starts a new game, which is the one
+thing that comment promises never happens. **Adding anybody to the roster is a
+bump.**
 
 ### What they are doing
 

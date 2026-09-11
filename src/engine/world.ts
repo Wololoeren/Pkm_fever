@@ -2,7 +2,7 @@ import { rollAbilities } from "./abilities";
 import { ALL_SPECIES, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
 import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
-import { nameOf, placesWanted, profileFor, typesFor } from "./biomes";
+import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
 import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
 import { TOWNS, TOWN_TRAINERS } from "./towns";
 import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
@@ -1271,7 +1271,41 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
     }));
   });
 
-  for (const entry of staffed) {
+  /**
+   * The Grey Line, expanded to one post per kind of place.
+   *
+   * Twenty-four of them: the nearest copy of each of the twenty biomes, and
+   * each of the four towns.
+   *
+   * The *nearest* copy rather than an arbitrary one, and that does the
+   * spreading for free. A biome's tier decides both how many copies it has and
+   * roughly how far out it sits — four meadows near home, one Crystal Vault a
+   * long way past them — so "the first of each" is already a set of stops
+   * running from the doorstep to the edge of the map. Picking a copy at random
+   * would have bunched them.
+   *
+   * The towns are in it because a travel network that cannot reach a town is a
+   * network that skips the only places worth travelling *to*. The other roads
+   * home — an Escape Rope, Teleport — both go to Hearth or the last Center you
+   * used, which is not the same as being able to name the town you meant.
+   */
+  const posted: NpcPlacement[] = staffed.flatMap((entry) => {
+    if (entry.where.at !== "station") return [entry];
+    const where = entry.where;
+
+    const stops = [
+      ...BIOME_IDS.map((biome) => routeId(biome, 1)),
+      ...TOWNS.map((town) => town.id),
+    ].filter((id) => routes.has(id));
+
+    return stops.map((id) => ({
+      ...entry,
+      id: `${entry.id}@${id}`,
+      where: { ...where, routeId: id },
+    }));
+  });
+
+  for (const entry of posted) {
     const target = (() => {
       switch (entry.where.at) {
         case "town":
@@ -1297,6 +1331,15 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
           const route = routes.get(routeId(entry.where.biome, entry.where.nth));
           if (!route) return null;
           return { route, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), route) };
+        }
+        case "station": {
+          // At the entry, not hidden away like everybody else out on a route.
+          // Both halves of that matter: it is the tile you arrive on, so
+          // getting off one coach leaves you beside the next, and it is the
+          // tile you walk in on, so the post is the first thing you meet
+          // rather than something you find on the way back.
+          const route = entry.where.routeId ? routes.get(entry.where.routeId) : undefined;
+          return route ? { route, wish: route.entry } : null;
         }
         case "cabin": {
           const outside = routes.get(routeId(entry.where.biome, entry.where.nth));

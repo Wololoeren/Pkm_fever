@@ -6,7 +6,9 @@ import {
   appraiseRefusal,
   offerRefusal,
   speakingTo,
+  stations,
   tradeRefusal,
+  travelRefusal,
   type GameState,
   type Input,
 } from "@/engine/engine";
@@ -38,6 +40,12 @@ import { displayName } from "@/lib/narrate";
 
 /** How long a sale stays armed before it forgets it was asked. */
 const ARMED_MS = 4000;
+
+/** How far out a stop is, in the unit the world measures distance in. */
+function hopText(depth: number): string {
+  if (depth === 0) return "home";
+  return depth === 1 ? "1 hop out" : `${depth} hops out`;
+}
 
 const ACCEPT: Record<string, string> = {
   gift: "Take it",
@@ -78,6 +86,44 @@ export function TalkPanel({
     return () => clearTimeout(timer);
   }, [armed]);
 
+  /**
+   * Where the Grey Line will actually take you from here, and how much of it
+   * you have not found.
+   *
+   * Split out of the option list because two readers want it: the buttons, and
+   * the line under them.
+   *
+   * Filtered rather than greyed, and that is the one place this panel departs
+   * from the house rule. The rule exists so a dead control explains itself,
+   * and with twenty-four posts obeying it literally would mean a wall of
+   * twenty-three disabled rows on the first one you meet — a list that is
+   * mostly dead is a list nobody reads to the end of, and it would hand over
+   * the name of every place in the world before the player had walked to any
+   * of them. The count underneath is what keeps it honest. The decision is
+   * still the engine's either way: a stop is listed exactly when
+   * `travelRefusal` has nothing to say about it.
+   */
+  const network = useMemo(() => {
+    if (!person || person.kind !== "travel") return { reachable: [], closed: 0 };
+
+    const stops = stations(world)
+      // Not the one you are standing at. Greyed with "you are already there"
+      // it would be the one row in the list that is dead for a reason the
+      // player can see out of the window.
+      .filter((id) => id !== state.route)
+      .map((id) => ({ id, route: world.routes.get(id), why: travelRefusal(world, state, id) }))
+      .sort(
+        (a, b) =>
+          (a.route?.depth ?? 0) - (b.route?.depth ?? 0) ||
+          (a.route?.label ?? a.id).localeCompare(b.route?.label ?? b.id),
+      );
+
+    return {
+      reachable: stops.filter((stop) => stop.why === null),
+      closed: stops.filter((stop) => stop.why !== null).length,
+    };
+  }, [world, state, person]);
+
   // Memoised because the key handler depends on it: rebuilt every render, the
   // listener would be torn down and re-added on every keystroke.
   const options: Option[] = useMemo(() => {
@@ -117,6 +163,14 @@ export function TalkPanel({
       }));
     }
 
+    if (person.kind === "travel") {
+      return network.reachable.map(({ id, route }) => ({
+        label: `${route?.label ?? id}${route ? ` · ${hopText(route.depth)}` : ""}`,
+        why: null,
+        run: () => onInput({ t: "npcTravel", route: id }),
+      }));
+    }
+
     return [
       {
         label: ACCEPT[person.kind] ?? "Yes",
@@ -124,7 +178,7 @@ export function TalkPanel({
         run: () => onInput({ t: "npcAccept" }),
       },
     ];
-  }, [world, state, person, onInput, payIn]);
+  }, [world, state, person, onInput, payIn, network]);
 
   // Pressing an arming option once arms it; pressing it again does it.
   const choose = (option: Option) => {
@@ -214,6 +268,17 @@ export function TalkPanel({
 
       {person.kind === "trade" && person.gives ? (
         <p className="muted">They will hand over {givesText(person.gives)}.</p>
+      ) : null}
+
+      {person.kind === "travel" ? (
+        <p className="muted">
+          {network.reachable.length
+            ? `${network.reachable.length} of their posts you have already walked to.`
+            : "Nowhere to send you yet — they only go back the way you have come."}
+          {network.closed
+            ? ` ${network.closed} more they keep, somewhere you have not been.`
+            : ""}
+        </p>
       ) : null}
 
       {options.length ? (

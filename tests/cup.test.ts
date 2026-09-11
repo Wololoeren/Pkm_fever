@@ -579,8 +579,24 @@ describe("the roster reads the same everywhere", () => {
       [...block.slice(0, block.indexOf("};")).matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]),
     );
 
-    const kinds: NpcKind[] = ["hint", "gift", "heal", "trade", "quest", "gym", "buy", "cup"];
+    // Read out of the union rather than written down here a second time. The
+    // hand-kept version was a list that agreed with the type on the day it was
+    // written: adding "travel" to NpcKind and a Greycoat to the roster left
+    // this test asserting that eight kinds have colours, which they did.
+    const npcSource = readFileSync(join(process.cwd(), "src", "engine", "npc.ts"), "utf8");
+    const union = npcSource
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .match(/export type NpcKind =([\s\S]*?);/);
+    expect(union, "the NpcKind union moved or was renamed").not.toBeNull();
+
+    const kinds = [...union![1].matchAll(/"(\w+)"/g)].map((one) => one[1] as NpcKind);
+    // If this ever collapses the test has stopped testing anything.
+    expect(kinds.length).toBeGreaterThan(7);
+
     for (const kind of kinds) expect(listed, kind).toContain(kind);
+    // And nothing is coloured that is not a kind, which is how a renamed kind
+    // leaves a dead entry behind.
+    for (const name of listed) expect(kinds, name).toContain(name);
     // And every kind the roster actually uses is one of those.
     for (const who of NPCS) expect(kinds, who.id).toContain(who.kind);
   });

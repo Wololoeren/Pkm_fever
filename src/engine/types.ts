@@ -13,8 +13,17 @@ import { BIOME_IDS } from "./biomes";
 
 /** Bumped whenever a rule changes in a way that would replay an old save
  * differently. Saves record it; a save from a different version replays under
- * that version's rules or is refused, never silently reinterpreted. */
-export const ENGINE_VERSION = 21;
+ * that version's rules or is refused, never silently reinterpreted.
+ *
+ * 22 is the Grey Line. Nothing about the *rules* changed — but people are
+ * solid, and twenty-four new ones standing on the map move the tiles every
+ * other person was placed on and block ground that used to be open, so a
+ * recorded walk can step into a conversation where it used to take a step.
+ * That is a log that replays differently, which is exactly what this number
+ * is for: without the bump an old save falls through the corrupt-log path and
+ * quietly starts a new game, which is the silent reinterpretation the comment
+ * above promises never happens. Adding anybody to the roster is a bump. */
+export const ENGINE_VERSION = 22;
 
 // ------------------------------------------------------------------ stats
 

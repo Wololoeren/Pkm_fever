@@ -14,7 +14,9 @@ import {
 } from "@/engine/engine";
 import { countOf } from "@/engine/items";
 import { GYMS } from "@/engine/gyms";
+import { BIOME_IDS } from "@/engine/biomes";
 import { matchesWant, NPCS } from "@/engine/npc";
+import { TOWNS } from "@/engine/towns";
 import { PROPS } from "@/engine/props";
 import { progressOf, QUESTS, quest as questSpec } from "@/engine/quests";
 import { walkable } from "@/engine/terrain";
@@ -65,7 +67,22 @@ describe("where people stand", () => {
         [...world.routes.values()].filter((route) => route.role === role).length;
       const staff = rooms("centre") - 1 + (rooms("mart") - 1);
       expect(staff, `${seed}: no staff was duplicated`).toBeGreaterThan(0);
-      expect(placed.length).toBe(NPCS.length + GYMS.length + staff);
+
+      // And the Grey Line, which the world expands the same way: one authored
+      // person standing at one post per kind of place — the nearest copy of
+      // each biome, and each of the four towns. Counted rather than assumed,
+      // because a post that failed to place is a destination you can ride to
+      // and not ride back from.
+      const posts = placed.filter((who) => who.kind === "travel");
+      expect(posts.length, `${seed}: the Grey Line was not expanded`).toBe(
+        BIOME_IDS.length + TOWNS.length,
+      );
+      expect(new Set(posts.map((who) => who.route)).size, `${seed}: two posts on one route`).toBe(
+        posts.length,
+      );
+
+      // Minus one, because the authored Greycoat is in NPCS already.
+      expect(placed.length).toBe(NPCS.length + GYMS.length + staff + posts.length - 1);
 
       for (const who of placed) {
         const route = world.routes.get(who.route)!;

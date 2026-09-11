@@ -395,6 +395,12 @@ export default function Page() {
           {state.notice?.t === "usedMove" ? (
             <p className="good">Used {moveById(state.notice.move).name}.</p>
           ) : null}
+          {state.notice?.t === "travelled" ? (
+            <p className="good">
+              The Grey Line walked you to{" "}
+              {session.world.routes.get(state.notice.route)?.label ?? state.notice.route}.
+            </p>
+          ) : null}
           {state.notice?.t === "used" ? (
             <p className="good">
               Used the {item(state.notice.item).name} on {state.notice.on}.

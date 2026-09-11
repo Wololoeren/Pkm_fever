@@ -494,6 +494,12 @@ const NPC_COLOURS: Record<NpcKind, string> = {
   buy: "#b09a5a",
   // The five at the end of the world, and the one who keeps their door.
   cup: "#a55ac9",
+  // Grey, and grey is the point. Every other colour here says something
+  // happens at this tile; the Grey Line is how you get to a different tile, so
+  // it is the one sort of person on the map who is infrastructure rather than
+  // an event. Light enough to read against a rock wall, which is where a good
+  // few of them stand.
+  travel: "#9aa4b0",
 };
 
 /** An item on the floor. A ball whatever it holds — finding out is the point

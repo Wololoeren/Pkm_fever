@@ -229,6 +229,16 @@ export type Input =
   /** Giving one of yours to a trader, by party slot. */
   | { t: "npcTrade"; index: number }
   /**
+   * Riding the Grey Line to another of their posts.
+   *
+   * Its own input rather than a `fly`, because the two answer different
+   * questions. Fly asks "do you have the wing, and have you been there"; this
+   * asks "are you stood in front of a Greycoat, is there one at the other end,
+   * and have you been there". Sharing the input would mean sharing the
+   * predicate, and a coach that needed an HM would be a coach nobody rides.
+   */
+  | { t: "npcTravel"; route: string }
+  /**
    * Selling the shine off one of yours, by party slot.
    *
    * `confirm` carries the creature's own uid for the same reason a release
@@ -331,6 +341,8 @@ export type Notice =
    * factory colours is the version of this bug that got noticed.
    */
   | { t: "evolved"; from: string; to: string; uid: number }
+  /** Put down somewhere else by the Grey Line. The route, for the UI to name. */
+  | { t: "travelled"; route: string }
   | { t: "given"; item: string; on: string }
   | { t: "took"; item: string; on: string }
   /** Walked up to something standing about that had nothing to offer. */
@@ -853,6 +865,8 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return npcAccept(world, state);
     case "npcTrade":
       return npcTrade(world, state, input.index);
+    case "npcTravel":
+      return npcTravel(world, state, input.route);
     case "npcSell":
       return npcSell(world, state, input.index, input.take, input.confirm);
     case "learnMove":
@@ -2370,6 +2384,54 @@ export function flyRefusal(world: World, state: GameState, id: string): string |
   return null;
 }
 
+/**
+ * Every place the Grey Line keeps somebody, in the order they were posted.
+ *
+ * Derived from the roster rather than written down twice. A second list of
+ * "where the stations are" would be a list that disagrees with where the
+ * people are standing the first time somebody moves one, and the symptom
+ * would be a destination you can ride to with nobody there to ride you back.
+ */
+export function stations(world: World): string[] {
+  const found: string[] = [];
+  for (const [route, here] of world.npcs) {
+    if (here.some((who) => who.kind === "travel")) found.push(route);
+  }
+  return found;
+}
+
+/**
+ * Why the Greycoat in front of you will not take you there, or null.
+ *
+ * One predicate, two callers, as everywhere: the destination is greyed out for
+ * exactly the reason the engine would refuse it, in the same words. The
+ * "never been there" wording is lifted from `flyRefusal` deliberately — it is
+ * the same rule about the same thing, and two phrasings of one rule read as
+ * two rules.
+ */
+export function travelRefusal(world: World, state: GameState, id: string): string | null {
+  if (state.phase !== "field") return "not right now";
+
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "travel") return "they are not going anywhere";
+
+  const route = world.routes.get(id);
+  if (!route) return "no such place";
+  if (!stations(world).includes(id)) return "nobody of ours is standing there";
+  if (!state.visited.includes(id)) return "you have never been there";
+  if (id === state.route) return "you are already there";
+  return null;
+}
+
+function npcTravel(world: World, state: GameState, id: string): GameState {
+  const refusal = travelRefusal(world, state, id);
+  if (refusal) throw new IllegalInput(refusal);
+  // Through the same landing Fly and an Escape Rope use, so there is one place
+  // that decides where you end up standing.
+  return { ...landAt(world, state, id), notice: { t: "travelled", route: id } };
+}
+
 function fly(world: World, state: GameState, id: string): GameState {
   const refusal = flyRefusal(world, state, id);
   if (refusal) throw new IllegalInput(refusal);
@@ -2636,6 +2698,13 @@ export function offerRefusal(world: World, state: GameState): string | null {
         return "nothing you are carrying has any shine on it";
       }
       return null;
+
+    // There is no yes to say to a Greycoat. They are not offering a thing,
+    // they are asking a question, and every answer to it is its own option
+    // with its own refusal — see `travelRefusal`. This branch exists so that
+    // `npcAccept` on one is refused rather than quietly doing nothing.
+    case "travel":
+      return "they want to know where to, not whether";
 
     case "trade":
       if (state.helped.includes(person.id)) return "they have already traded with you";

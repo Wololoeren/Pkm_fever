@@ -19,7 +19,17 @@ import { variant } from "./variants";
  * somebody decided what they would say.
  */
 
-export type NpcKind = "hint" | "gift" | "heal" | "trade" | "quest" | "gym" | "buy" | "cup";
+export type NpcKind =
+  | "hint"
+  | "gift"
+  | "heal"
+  | "trade"
+  | "quest"
+  | "gym"
+  | "buy"
+  | "cup"
+  /** The Grey Line: talk to one and pick another you have already walked to. */
+  | "travel";
 
 /**
  * What a buyer pays for one rung of the shine ladder.
@@ -158,6 +168,22 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
      * early. See `placeIndex` in layout.ts.
      */
     | { at: "route"; biome: string; nth: number }
+    /**
+     * A Grey Line post: one on every kind of place there is.
+     *
+     * Written once and expanded by the world, the way the nurse is — there is
+     * one Grey Line rather than twenty-four people who coincidentally do the
+     * same job, and twenty-four near-identical roster entries would be the
+     * same person written out twenty-four times. `routeId` is filled in by the
+     * expansion; see `placeNpcs`.
+     *
+     * They stand at the route's entry rather than tucked away like the rest of
+     * the people out on a route. Two reasons, and both are about the walking
+     * being the point: a post you have to hunt for is a post you will walk
+     * past, and arriving somewhere puts you on the entry tile, so stepping off
+     * one coach leaves you standing beside the next.
+     */
+    | { at: "station"; routeId?: string }
     /** Inside the cabin on that route — or, on a seed that grew no cabin
      * there, outside on the route itself. A person who exists on some seeds
      * and not others is not a person, it is a bug with a name. */
@@ -1391,6 +1417,29 @@ export const NPCS: readonly NpcPlacement[] = [
       "There was a sauce. It was available for a fortnight. Decades ago.",
       "A man in this town has built nine years of plans around getting another packet of it. Nine *years*.",
       "Bring me something worth a fortune and I will tell you where the last one is. That is the deal and I am not proud of it.",
+    ],
+  },
+
+  // --------------------------------------------------------- the Grey Line
+  //
+  // One person, written once, standing in twenty-four places — the twenty
+  // biomes and the four towns. See `{ at: "station" }` above for why it is one
+  // entry rather than twenty-four, and `placeNpcs` for the expansion.
+  //
+  // They are grey on purpose, in the fiction before the palette: the coat is
+  // the uniform of a service, and a service is exactly what this is. Every
+  // other colour on the map means "something happens here" — a gift, a job, a
+  // gym. Grey means "this is how you get somewhere else", which is the one
+  // thing on the map that is infrastructure rather than an event.
+  {
+    id: "greyline",
+    name: "Greycoat",
+    kind: "travel",
+    where: { at: "station" },
+    lines: [
+      "(Grey coat, grey hat, leaning on a post they look older than.)",
+      "Grey Line. We keep somebody at every sort of place there is, and we walk the long way so you do not have to.",
+      "Anywhere you have already been, we will take you back to. Somewhere you have not, you walk — that part is not ours to sell.",
     ],
   },
 
