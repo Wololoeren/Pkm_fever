@@ -1078,16 +1078,18 @@ kbd {
   position: relative;
   display: grid;
   place-items: center;
-  width: 200px;
-  height: 200px;
+  /* Sized around the 96-pixel sprite it holds, with a margin for the glow to
+     breathe in. It was 200 square for a sprite drawn at 192. */
+  width: 132px;
+  height: 132px;
 }
 
 /* The glow behind it, which is the whole of the build-up. */
 .evolveStage::before {
   content: "";
   position: absolute;
-  width: 190px;
-  height: 190px;
+  width: 126px;
+  height: 126px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(232, 214, 138, 0.55), transparent 65%);
   transform: scale(0.6);
@@ -1104,9 +1106,9 @@ kbd {
 /* The peak is a white-hot flash and a moving one, so a fractional scale on it
    costs nothing anybody can see. The reveal settles back to 1:1 on purpose:
    it is the one frame the whole twenty seconds is building to, and a sprite
-   held at 1.1x is 96-pixel art displayed at 211, which is the same uneven
-   division that made the battle sprites look distorted. The drama lives in
-   the glow behind it, which can scale by any amount it likes. */
+   held at any fraction is 96-pixel art divided unevenly, which is what made
+   the battle sprites look distorted. The drama lives in the glow behind it,
+   which can scale by any amount it likes. */
 .evolve-peak .evolveSprite { filter: brightness(4) saturate(0); transform: scale(1.15); }
 .evolve-reveal .evolveSprite { transform: none; }
 

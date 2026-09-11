@@ -10,8 +10,9 @@ import type { World } from "@/engine/world";
  *
  * Buying and selling both refuse through the engine's own predicates rather
  * than a second opinion computed here, so a row that looks affordable is one
- * the engine will accept — and a row that is greyed out says why in the same
- * words the refusal would have used.
+ * the engine will accept. The refusal itself is not printed on the shelf: the
+ * greying says "no" and the description says what the thing is, which is the
+ * half you came to read.
  */
 /**
  * The shelves, in the order somebody actually reaches for them.
@@ -130,13 +131,25 @@ export function MartPanel({
               className="itemCard"
               disabled={Boolean(refusal)}
               title={refusal ?? `Buy ${wanted} for ¤${(spec.price * wanted).toLocaleString()}`}
+              /* Sighted players get the refusal from the greying; a screen
+                 reader gets no greying, so it goes in the accessible name. */
+              aria-label={refusal ? `${spec.name} ¤${spec.price.toLocaleString()} · ${refusal}` : undefined}
               onClick={() => onInput({ t: "buyItem", item: spec.id, count: wanted })}
             >
               <span className="itemName">
                 {spec.name} · ¤{spec.price.toLocaleString()}
                 {held ? ` · have ${held}` : ""}
               </span>
-              <span className="muted itemBlurb">{refusal ?? spec.blurb}</span>
+              {/* The description, whether or not you can buy it — a row you
+                  cannot afford is exactly the row you are reading to decide
+                  whether it is worth saving for, and "you cannot afford that"
+                  is not news: the price is on the line above, the purse is at
+                  the top of the panel, and the row is greyed out. Every other
+                  refusal a rendered row can hit is equally redundant — "you
+                  already have one" is the `· have 1` the name already
+                  carries — and the rest cannot happen for a row that is on
+                  screen. */}
+              <span className="muted itemBlurb">{spec.blurb}</span>
             </button>
           );
         })}

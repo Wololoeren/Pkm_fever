@@ -121,7 +121,12 @@ export function EvolutionScene({
 
       <div className="evolveStage">
         <div className={`evolveSprite${silhouette ? " dark" : ""}`}>
-          <Sprite speciesId={shown.id} variantId="normal" size={192} />
+          {/* At the size the art was drawn. The scene used to show it at 192,
+              which is a clean doubling and so not *uneven* — but every pixel
+              four times the area, held still and lit from behind for twenty
+              seconds, is the one place blockiness has nowhere to hide. The
+              drama is the glow, which can be any size it likes. */}
+          <Sprite speciesId={shown.id} variantId="normal" size={96} />
         </div>
       </div>
 
