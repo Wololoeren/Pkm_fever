@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         487 tests, including the replay property everything rests on
+tests/         529 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -794,6 +794,69 @@ passed. Fighting the same creature twice from the same save gives the same
 criticals. Damage is integer arithmetic end to end: type effectiveness travels
 in quarters, stage multipliers as numerator/denominator pairs, and nothing
 ever produces a float that could round differently on another machine.
+
+### Status moves, and the 179 that did nothing
+
+The move manifest carries five effect fields — `status`, `boosts`, `secondary`,
+`drain`, `heal` — and Showdown keeps everything else in script:
+`volatileStatus`, `sideCondition`, `weather`, `terrain`, `onHit`. So of the
+manifest's 264 status moves, **179 arrived with nothing this engine could act
+on**, and were dealt out anyway.
+
+That is not a corner. Taking each species' last four learnable moves, which is
+exactly what `movesAtLevel` deals to a wild encounter, a trainer's team and a
+freshly given starter, **635 of 1134 species carried at least one slot that did
+nothing at all** — and Togekiss's four were *all* dead: Wish, Yawn, Encore,
+Bestow. A creature whose entire moveset was scenery, which could do nothing but
+Struggle. Leech Seed was simply the one somebody noticed.
+
+The hole is closed from both ends.
+
+**50 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
+shape `moves.ts` already used for the 39 attacks whose damage Showdown computes
+in a callback. Effects are data interpreted by one loop in `battle.ts`, not a
+switch per move. That needed three pieces of machinery the battle did not have:
+volatile conditions belonging to an *appearance* (seeded, confused, drowsy,
+dreaming, counting, trapped, braced), the two probability ladders that are not
+stats (accuracy and evasion, on thirds rather than halves), and side conditions
+that outlive whoever is standing (the screens, Safeguard, Mist, Lucky Chant,
+Tailwind).
+
+**The other 129 are no longer dealt.** `learnset()` filters them, which is the
+one gate every road to a moveset comes through — `movesAtLevel`, `learnableAt`,
+the level-up walk, the Cup, the Inspect panel. `MACHINE_MOVES` is filtered the
+same way, because `items.ts` builds one purchasable machine per entry and the
+Mart was selling 45 four-thousand-a-go lessons in wasting a turn.
+
+What is deliberately not implemented, and why, is written out at the top of
+`statusmoves.ts`: weather and terrain want a field condition of their own;
+entry hazards want an on-arrival hook; **move restriction** (Taunt, Disable,
+Encore, Torment) changes *which moves are legal*, which is the one class of
+effect that can make a battle unwinnable and wants its own pass with the
+deadlock probe watching; move calling wants a re-entrancy guard; and the
+doubles moves are meaningless in a game that is 1v1 throughout.
+
+Splash is kept. Doing nothing is what Splash is for, and `statusmoves.ts` says
+so out loud rather than leaving it to an exception list — an exception list is
+where the next Leech Seed hides.
+
+Two bugs fell out of building it, both invisible until something needed them:
+
+- **`cloneSide` named its four fields by hand**, so every field added to
+  `Combatant` was silently dropped at the turn boundary. A creature was seeded,
+  the turn ended, and the seed was gone before anything could drain it — the
+  same symptom Leech Seed had originally, from a completely different cause one
+  turn further on. It spreads now, so a new field is carried whether or not
+  anybody remembers the function.
+- **Nothing stopped a turn once a move had ended the battle.** No move could do
+  that before; Roar drives a wild creature off and Teleport walks out of the
+  grass. Left unguarded the residuals ticked for a battle nobody was in and
+  `settle` awarded experience for a creature that had walked away.
+
+And one wording fix worth naming, because it is the same mistake twice: landing
+a condition and the condition *biting* were the same sentence, so the turn a
+seed took hold read "Amaura was seeded! Amaura was seeded! Amaura took 5" — the
+game appearing to stutter rather than a seed taking hold and then drawing.
 
 ## Updating the roster
 

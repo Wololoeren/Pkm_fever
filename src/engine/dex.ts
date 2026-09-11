@@ -1,3 +1,4 @@
+import { actsOnSomething } from "./statusmoves";
 import learnsetData from "../data/learnsets.json";
 import machineData from "../data/machines.json";
 import moveData from "../data/moves.json";
@@ -96,7 +97,55 @@ export function move(id: string): MoveEntry {
   return found;
 }
 
+/**
+ * What this species learns, and when — minus anything that would do nothing.
+ *
+ * The one gate, because every road to a moveset comes through here:
+ * `movesAtLevel` deals a wild encounter and a trainer's team, `learnableAt`
+ * offers the player their four, `progression.ts` walks it on level-up, the Cup
+ * builds from it and the Inspect panel lists it. Filtering in five places is
+ * five places to forget.
+ *
+ * What it removes is measured in statusmoves.ts: 129 of the manifest's status
+ * moves carry an effect this engine has no machinery for — weather, terrain,
+ * hazards, move restriction, move calling, item swapping, or a second ally to
+ * aim at — and every one of them used to be dealt out anyway. **635 of 1134
+ * species walked around with at least one slot that did nothing**, and
+ * Togekiss's four were Wish, Yawn, Encore and Bestow: a creature whose entire
+ * moveset was scenery, which could do nothing at all but Struggle.
+ *
+ * A move is not dropped for being *weak* or situational, only for being unable
+ * to change the battle at all. Splash stays, because doing nothing is what
+ * Splash is for and `statusmoves.ts` says so out loud.
+ *
+ * Cached per species: the filter asks `actsOnSomething` once per entry, and a
+ * save asks about the same handful of species thousands of times.
+ */
+const liveLearnsets = new Map<string, [number, string][]>();
+
 export function learnset(speciesId: string): [number, string][] {
+  const held = liveLearnsets.get(speciesId);
+  if (held) return held;
+
+  const all = LEARNSETS[speciesId] ?? [];
+  const live = all.filter(([, moveId]) => {
+    const found = MOVES_BY_ID.get(moveId);
+    return found !== undefined && actsOnSomething(found);
+  });
+
+  // The floor. Nothing in the dex actually needs it now that Transform and
+  // Sketch are honoured — Ditto and Smeargle were the only two species whose
+  // whole learnset was a single inert move — but a creature with no moves at
+  // all is a battle nobody can act in, and that is not a thing to leave
+  // depending on a table in another file staying the way it is.
+  const kept = live.length ? live : all;
+  liveLearnsets.set(speciesId, kept);
+  return kept;
+}
+
+/** Everything the manifest lists, filter and all. For the guard that measures
+ * what the filter is doing. */
+export function rawLearnset(speciesId: string): [number, string][] {
   return LEARNSETS[speciesId] ?? [];
 }
 
@@ -169,8 +218,17 @@ export function learnableAt(speciesId: string, level: number): string[] {
  */
 const MACHINES = machineData as { moves: string[]; learners: Record<string, string> };
 
-/** Every move a machine can teach, sorted. This is the TM list. */
-export const MACHINE_MOVES: readonly string[] = MACHINES.moves;
+/**
+ * Every move a machine can teach, sorted. This is the TM list.
+ *
+ * Filtered the same way a learnset is, and it has to be: `items.ts` builds one
+ * purchasable item per entry, so an unhonoured move here is a machine on the
+ * Mart's shelf, at four thousand a go, that teaches a creature to waste a turn.
+ */
+export const MACHINE_MOVES: readonly string[] = MACHINES.moves.filter((id) => {
+  const found = MOVES_BY_ID.get(id);
+  return found !== undefined && actsOnSomething(found);
+});
 
 const MACHINE_INDEX = new Map(MACHINES.moves.map((id, at) => [id, at]));
 const decodedBits = new Map<string, Uint8Array>();
@@ -191,6 +249,12 @@ function machineBits(speciesId: string): Uint8Array | null {
 
 /** Whether a machine will teach this move to this species. */
 export function canLearnMachine(speciesId: string, moveId: string): boolean {
+  // Asked before the bitset, so the answer agrees with MACHINE_MOVES: a list
+  // that offers a machine and a predicate that refuses it is a purchase the
+  // player cannot use.
+  const spec = MOVES_BY_ID.get(moveId);
+  if (!spec || !actsOnSomething(spec)) return false;
+
   const at = MACHINE_INDEX.get(moveId);
   if (at === undefined) return false;
 
@@ -201,7 +265,7 @@ export function canLearnMachine(speciesId: string, moveId: string): boolean {
 
 /** Every machine move this species will take, sorted. */
 export function machinesFor(speciesId: string): string[] {
-  return MACHINES.moves.filter((moveId) => canLearnMachine(speciesId, moveId));
+  return MACHINE_MOVES.filter((moveId) => canLearnMachine(speciesId, moveId));
 }
 
 /**

@@ -26,6 +26,56 @@ const BLOCKED_TEXT: Record<string, string> = {
   par: "is paralysed and cannot move",
 };
 
+/**
+ * The two probability ladders, which are not stats and do not read like them.
+ *
+ * Kept apart from STAT_NAMES on purpose: "its Attack fell" and "its accuracy
+ * fell" are different sentences, and the engine emits a different event for
+ * each so this file can tell them apart.
+ */
+const AIM_NAMES: Record<string, string> = {
+  accuracy: "accuracy",
+  evasion: "evasiveness",
+};
+
+/**
+ * What each condition sounds like when it lands, and when it bites.
+ *
+ * One entry per `VolatileKind`, because a condition the player cannot see is a
+ * condition they will report as broken — which is exactly what happened to
+ * Leech Seed. The words are here rather than in the engine so that changing
+ * them cannot invalidate a save.
+ */
+const VOLATILE_TEXT: Record<string, string> = {
+  seeded: "was seeded",
+  // Landing and biting are two sentences. Sharing one made the turn a seed
+  // took hold read as the game stuttering.
+  sapped: "had its health sapped",
+  confused: "became confused",
+  // Not the same line as becoming confused. They were both "became confused"
+  // for a moment, which reads as the game repeating itself rather than as the
+  // creature having just punched itself.
+  selfhit: "hurt itself in its confusion",
+  snapped: "shook it off",
+  shield: "protected itself",
+  endure: "braced itself",
+  crit: "is getting pumped",
+  yawn: "grew drowsy",
+  nightmare: "fell into a nightmare",
+  dreaming: "is caught in a nightmare",
+  trapped: "can no longer escape",
+  drowsy: "grew drowsy",
+};
+
+const SCREEN_TEXT: Record<string, string> = {
+  reflect: "Reflect came up",
+  lightscreen: "Light Screen came up",
+  mist: "a mist gathered",
+  safeguard: "Safeguard is watching",
+  luckychant: "a chant went up",
+  tailwind: "the wind is behind it",
+};
+
 const STAT_NAMES: Record<string, string> = {
   // HP is here for effort, which can land in it. Stat stages never do.
   hp: "HP",
@@ -141,6 +191,36 @@ export function narrate(
         // weaker, Counter with nothing to answer — the move happened and came
         // to nothing, and saying "it took 0" would be a different claim.
         lines.push(`${moveById(event.moveId).name} came to nothing.`);
+        break;
+      case "aim": {
+        const direction = event.delta > 0 ? "rose" : "fell";
+        const sharply = Math.abs(event.delta) > 1 ? " sharply" : "";
+        lines.push(`${nameOf(event.side)}'s ${AIM_NAMES[event.which]} ${direction}${sharply}!`);
+        break;
+      }
+      case "volatile":
+        lines.push(`${nameOf(event.side)} ${VOLATILE_TEXT[event.which] ?? "was affected"}!`);
+        break;
+      case "screen":
+        lines.push(`On ${nameOf(event.side)}'s side, ${SCREEN_TEXT[event.which] ?? "something went up"}!`);
+        break;
+      case "shielded":
+        lines.push(`${nameOf(event.side)} protected itself!`);
+        break;
+      case "perish":
+        // Counted down out loud, because a number nobody can see is a creature
+        // that faints for no reason three turns later.
+        lines.push(
+          event.turns > 0
+            ? `${nameOf(event.side)}'s count fell to ${event.turns}.`
+            : `${nameOf(event.side)}'s count reached zero!`,
+        );
+        break;
+      case "transformed":
+        lines.push(`${nameOf(event.side)} transformed into ${speciesById(event.into).name}!`);
+        break;
+      case "sketched":
+        lines.push(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
         break;
     }
   }

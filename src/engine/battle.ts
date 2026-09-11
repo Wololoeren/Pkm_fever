@@ -12,6 +12,12 @@ import { abilitiesOf, effectApplies, type AbilityEffect } from "./abilities";
 import { heldEffects, isConsumedOnUse } from "./carry";
 import { canStillEvolve } from "./progression";
 import { hasVariableDamage, variableDamage, type DamageContext } from "./moves";
+import {
+  extraEffects,
+  type AimStat,
+  type MoveEffect,
+  type SideConditionId,
+} from "./statusmoves";
 import { anyPp, hasPp, ppLeft, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
 import { intBelow, rngFor } from "./rng";
 import { computeStats } from "./stats";
@@ -41,6 +47,56 @@ import { STAT_IDS, type Individual, type StatId, type StatusId } from "./types";
 export type SideIndex = 0 | 1;
 export type Stages = Record<StageStat, number>;
 
+/**
+ * The other two ladders.
+ *
+ * Accuracy and evasion are stages like the five stats, but they are not stats:
+ * they multiply a *probability* rather than a number, on their own
+ * `(3 + n) / 3` rungs rather than the stats' `(2 + n) / 2`. Kept separate from
+ * `Stages` for that reason and one more — `StageStat` is what the ability
+ * table is written against, and widening it would make every ability that
+ * raises a stat have to say what it means about accuracy.
+ */
+export type AimStages = Record<AimStat, number>;
+
+/**
+ * Everything true of a creature's *appearance* rather than of the creature.
+ *
+ * Gone the moment it switches out, exactly like stat stages and for the same
+ * reason: being seeded is a fact about standing there, not about the animal.
+ * Anything that must outlive a switch belongs on the side (see `screens`) and
+ * anything that must outlive the battle belongs on the Individual.
+ *
+ * Optional throughout, and absent rather than zero when nothing is going on,
+ * so a battle with none of this in it hashes exactly as it did before any of
+ * it existed — every saved duel and every replayed battle log still checks.
+ */
+export interface Volatiles {
+  /** Leech Seed. Drained at the end of every turn, into whoever is opposite. */
+  seeded?: boolean;
+  /** Turns of confusion left. */
+  confusion?: number;
+  /** Shielded for this turn only; `endure` survives at one instead. */
+  shield?: "protect" | "endure";
+  /**
+   * Consecutive turns a shield has been put up.
+   *
+   * What stops Protect from being an answer to everything: the second one in a
+   * row works one time in three, the third one in nine.
+   */
+  shieldStreak?: number;
+  /** Stages up the critical ladder, from Focus Energy. */
+  crit?: number;
+  /** Turns until Yawn puts it to sleep. */
+  yawn?: number;
+  /** Nightmare, which only bites while it sleeps. */
+  nightmare?: boolean;
+  /** Perish Song's count, on both sides at once. */
+  perish?: number;
+  /** Mean Look: it cannot switch and it cannot run. */
+  trapped?: boolean;
+}
+
 export type BattleOutcome =
   | { t: "win"; side: SideIndex }
   | { t: "caught" }
@@ -64,6 +120,31 @@ export type BattleAction =
   | { t: "flee" }
   /** Nothing to do — a side with a fainted active that owes no replacement. */
   | { t: "pass" };
+
+/** What `volatile` events can be about. */
+export type VolatileKind =
+  | "seeded"
+  /**
+   * The seed *biting*, which is a different sentence from being seeded.
+   *
+   * Both were "was seeded!" for a moment, so the turn it landed read
+   * "Amaura was seeded! Amaura was seeded! Amaura took 5." — the game
+   * appearing to stutter rather than a seed taking hold and then drawing.
+   */
+  | "sapped"
+  | "confused"
+  /** Hit itself, which is a different sentence from having become confused. */
+  | "selfhit"
+  | "snapped"
+  | "shield"
+  | "endure"
+  | "crit"
+  | "yawn"
+  | "nightmare"
+  /** And the nightmare biting, for the same reason as `sapped`. */
+  | "dreaming"
+  | "trapped"
+  | "drowsy";
 
 export type BattleEvent =
   | { t: "use"; side: SideIndex; moveId: string }
@@ -92,6 +173,27 @@ export type BattleEvent =
   | { t: "damage"; side: SideIndex; amount: number; quarters: number; crit: boolean }
   | { t: "status"; side: SideIndex; status: StatusId }
   | { t: "boost"; side: SideIndex; stat: StageStat; delta: number }
+  /**
+   * A move of one of the two probability ladders.
+   *
+   * Its own event rather than a `boost` with a wider stat, because the log
+   * phrases them differently — "its Attack fell" and "its accuracy fell" are
+   * not the same sentence — and because `boost` is typed against the ability
+   * table's `StageStat`.
+   */
+  | { t: "aim"; side: SideIndex; which: AimStat; delta: number }
+  /** Something happened to a creature that is not a stat and not a status. */
+  | { t: "volatile"; side: SideIndex; which: VolatileKind }
+  /** And something happened to a whole side. */
+  | { t: "screen"; side: SideIndex; which: SideConditionId }
+  /** A screen, a shield or a trap said no. */
+  | { t: "shielded"; side: SideIndex }
+  /** Perish Song's count, spoken once per turn per side. */
+  | { t: "perish"; side: SideIndex; turns: number }
+  /** Ditto, mid-battle. */
+  | { t: "transformed"; side: SideIndex; into: string }
+  /** Smeargle, for good. */
+  | { t: "sketched"; side: SideIndex; moveId: string }
   | { t: "heal"; side: SideIndex; amount: number }
   | { t: "recoil"; side: SideIndex; amount: number }
   | { t: "blocked"; side: SideIndex; reason: StatusId }
@@ -140,6 +242,35 @@ export interface Combatant {
    * Individual would follow the creature into the box.
    */
   locked?: string | null;
+  /**
+   * The last move this side actually got off.
+   *
+   * Beside `locked` rather than in `volatiles`, because it is the same kind of
+   * thing — a memory of what was used, not a condition the creature is under
+   * — and because putting it in `volatiles` meant every battle in the game
+   * had a volatile record from its first turn, which threw away the
+   * absent-unless-something-is-happening property the rest of them depend on.
+   *
+   * Sketch is the only reader today. Mirror Move and Encore want it too, when
+   * move restriction gets its pass.
+   */
+  lastMove?: string | null;
+  /**
+   * The two probability ladders, which belong to the slot like `stages` does.
+   */
+  aim?: AimStages;
+  /**
+   * Everything true only while this one is standing there.
+   */
+  volatiles?: Volatiles;
+  /**
+   * Conditions that belong to the *side* and outlive whoever is out.
+   *
+   * Reflect does not stop mattering because you switched — that is the whole
+   * point of a screen, and it is why these are here rather than in
+   * `volatiles`. Turn counts, decremented once per turn and deleted at nought.
+   */
+  screens?: Partial<Record<SideConditionId, number>>;
 }
 
 export interface BattleState {
@@ -195,6 +326,42 @@ export const DUEL_RULES: BattleRules = { catchable: false, awardsExp: false };
 export const MAX_TURNS = 300;
 
 const NO_STAGES: Stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+const NO_AIM: AimStages = { accuracy: 0, evasion: 0 };
+
+/** Leech Seed's bite, and Nightmare's. An eighth and a quarter. */
+const SEED_SHARE = 8;
+const NIGHTMARE_SHARE = 4;
+
+/** Rest, and how long Yawn takes to land. */
+const REST_TURNS = 3;
+const YAWN_TURNS = 2;
+
+/** Power points a copied moveset comes out with. */
+const TRANSFORM_PP = 5;
+
+/** Named because `applyMoveEffect` has to find the slot it is standing in. */
+const SKETCH = "sketch";
+
+/** Perish Song's count, and confusion's. */
+const PERISH_TURNS = 4;
+const CONFUSED_TURNS = 4;
+
+/** How often a confused creature hits itself instead, in percent. */
+const CONFUSED_CHANCE = 33;
+
+/** What a confused creature hits itself with, as base power. */
+const CONFUSED_POWER = 40;
+
+/**
+ * The accuracy and evasion ladder.
+ *
+ * Thirds rather than the stats' halves, which is the real ladder and not a
+ * simplification: at +6 a stat is four times itself, but evasion is three.
+ */
+function aimFactor(stage: number): [number, number] {
+  const clamped = Math.max(-6, Math.min(6, stage));
+  return clamped >= 0 ? [3 + clamped, 3] : [3, 3 - clamped];
+}
 
 /**
  * Everything a creature's abilities say about one question.
@@ -412,6 +579,15 @@ function effectiveStat(individual: Individual, stat: StageStat, stage: number): 
 interface Turn {
   battle: BattleState;
   events: BattleEvent[];
+  /**
+   * What this battle allows.
+   *
+   * On the turn because two moves need it: Roar drives a *wild* creature off
+   * for good and merely replaces a trainer's, and Teleport is an escape out of
+   * the grass and a free switch against a person. Neither can be written
+   * without knowing which kind of battle it is in.
+   */
+  rules: BattleRules;
   /** Which side moves second this turn, once that is known. Analytic asks. */
   movingLast?: SideIndex;
   /**
@@ -444,6 +620,19 @@ function chance(turn: Turn, tag: string, percent: number): boolean {
 
 function other(side: SideIndex): SideIndex {
   return side === 0 ? 1 : 0;
+}
+
+/**
+ * How fast a side is right now, Tailwind included.
+ *
+ * Three places asked for speed and all three had the stage read written out
+ * by hand: who moves first, how well running works, and the two moves that
+ * divide one speed by the other. Tailwind has to be in all three or it is a
+ * move that helps you strike first and not escape, which is not what it says.
+ */
+function speedOf(turn: Turn, side: SideIndex): number {
+  const base = effectiveStat(active(turn, side), "spe", turn.battle.sides[side].stages.spe);
+  return screened(turn, side, "tailwind") ? base * 2 : base;
 }
 
 // --------------------------------------------------------------- mechanics
@@ -481,7 +670,13 @@ function landDamage(
       return effect.mille === undefined || roll(turn, `${side}-brace`) * 1000 < effect.mille;
     });
 
-    if (saving) {
+    // Endure the move, folded into the same branch as Sturdy and a Focus
+    // Sash: three ways to ask for the same thing, and one place that grants
+    // it, so they cannot come to disagree about what "survive at one" means.
+    if (volatiles(turn, other(side)).shield === "endure") {
+      amount = Math.max(0, defender.hp - 1);
+      turn.events.push({ t: "volatile", side: other(side), which: "endure" });
+    } else if (saving) {
       amount = Math.max(0, defender.hp - 1);
       const named = whichAbility(defender, "endure");
       if (named) turn.events.push({ t: "ability", side: other(side), abilityId: named });
@@ -590,6 +785,13 @@ function applyHeal(turn: Turn, side: SideIndex, amount: number): number {
 }
 
 function applyStatus(turn: Turn, side: SideIndex, status: StatusId, tag: string): boolean {
+  // Safeguard, which is the one thing that answers every condition at once.
+  // Here rather than at each call site for the same reason the type immunity
+  // is: every road to a status goes down this predicate.
+  if (screened(turn, side, "safeguard")) {
+    turn.events.push({ t: "screen", side, which: "safeguard" });
+    return false;
+  }
   const target = active(turn, side);
   if (target.status || isFainted(target)) return false;
   const immune = STATUS_IMMUNE[status] ?? [];
@@ -623,6 +825,13 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = fals
   const target = active(turn, side);
   const held = new Set(effects(target, "hold").flatMap((effect) => effect.stats));
 
+  // Mist: nothing the other side does lowers a stage. Its own boosts still
+  // work, which is what separates a mist from a Clear Body.
+  if (byOther && Object.values(boosts).some((delta) => (delta ?? 0) < 0) && screened(turn, side, "mist")) {
+    turn.events.push({ t: "screen", side, which: "mist" });
+    return;
+  }
+
   const stages = { ...turn.battle.sides[side].stages };
   for (const stat of Object.keys(boosts) as StageStat[]) {
     const delta = boosts[stat] ?? 0;
@@ -647,6 +856,498 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = fals
  * be a build problem for no gain. So the one place that knows about stages and
  * maximum health fills in the form.
  */
+
+/* ------------------------------------------------------------------ volatiles
+ *
+ * Accessors and one interpreter, so nothing else in this file has to think
+ * about the fields being optional. Absent-rather-than-zero is what keeps a
+ * battle with none of this in it hashing the way it did before any of it
+ * existed, and that property is worth a little plumbing.
+ */
+
+function volatiles(turn: Turn, side: SideIndex): Volatiles {
+  return turn.battle.sides[side].volatiles ?? {};
+}
+
+function setVolatiles(turn: Turn, side: SideIndex, next: Volatiles): void {
+  // Dropped entirely when there is nothing in it, so an empty record and a
+  // missing one are never both reachable for the same state.
+  const live = Object.fromEntries(
+    Object.entries(next).filter(
+      ([, value]) => value !== undefined && value !== 0 && value !== false,
+    ),
+  ) as Volatiles;
+  turn.battle.sides[side].volatiles = Object.keys(live).length ? live : undefined;
+}
+
+function mergeVolatiles(turn: Turn, side: SideIndex, patch: Volatiles): void {
+  setVolatiles(turn, side, { ...volatiles(turn, side), ...patch });
+}
+
+function aimOf(turn: Turn, side: SideIndex): AimStages {
+  return turn.battle.sides[side].aim ?? NO_AIM;
+}
+
+/** Whether a side is under a given screen. */
+function screened(turn: Turn, side: SideIndex, id: SideConditionId): boolean {
+  return (turn.battle.sides[side].screens?.[id] ?? 0) > 0;
+}
+
+function raiseScreen(turn: Turn, side: SideIndex, id: SideConditionId, turns: number): boolean {
+  const screens = { ...(turn.battle.sides[side].screens ?? {}) };
+  if ((screens[id] ?? 0) > 0) return false;
+  screens[id] = turns;
+  turn.battle.sides[side].screens = screens;
+  return true;
+}
+
+/**
+ * A turn off every screen, and the expired ones gone.
+ *
+ * Deleted rather than left at nought for the same reason volatiles are: one
+ * representation per state, so the hash cannot see a difference the rules
+ * cannot.
+ */
+function ageScreens(turn: Turn, side: SideIndex): void {
+  const held = turn.battle.sides[side].screens;
+  if (!held) return;
+
+  const next: Partial<Record<SideConditionId, number>> = {};
+  for (const [id, left] of Object.entries(held) as [SideConditionId, number][]) {
+    if (left > 1) next[id] = left - 1;
+  }
+  turn.battle.sides[side].screens = Object.keys(next).length ? next : undefined;
+}
+
+/**
+ * Whether the move about to land is stopped by something the target did.
+ *
+ * Protect and its family. Endure is *not* handled here — it does not stop the
+ * move, it survives it, which happens down in `landDamage`.
+ */
+function behindShield(turn: Turn, side: SideIndex): boolean {
+  return volatiles(turn, side).shield === "protect";
+}
+
+/**
+ * Confusion, which is the one condition that costs a turn without being a
+ * status.
+ *
+ * Asked by `canAct` after sleep and paralysis rather than before: a creature
+ * that is asleep is not awake enough to be confused, and the games agree.
+ */
+function confusionStops(turn: Turn, side: SideIndex): boolean {
+  const state = volatiles(turn, side);
+  const left = state.confusion ?? 0;
+  if (left <= 0) return false;
+
+  if (left <= 1) {
+    mergeVolatiles(turn, side, { confusion: undefined });
+    turn.events.push({ t: "volatile", side, which: "snapped" });
+    return false;
+  }
+  mergeVolatiles(turn, side, { confusion: left - 1 });
+
+  if (!chance(turn, `${side}-confuse`, CONFUSED_CHANCE)) return false;
+
+  // Into itself, with its own Attack against its own Defence and no type at
+  // all. Through `applyDamage` so a Focus Sash still answers.
+  const creature = active(turn, side);
+  const attack = effectiveStat(creature, "atk", turn.battle.sides[side].stages.atk);
+  const defence = effectiveStat(creature, "def", turn.battle.sides[side].stages.def);
+  let value = Math.floor((2 * creature.level) / 5) + 2;
+  value = Math.floor((value * CONFUSED_POWER * attack) / Math.max(1, defence));
+  value = Math.floor(value / 50) + 2;
+
+  const taken = applyDamage(turn, side, Math.max(1, value));
+  turn.events.push({ t: "volatile", side, which: "selfhit" });
+  if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
+  return true;
+}
+
+/**
+ * One effect, applied.
+ *
+ * The whole interpreter for `statusmoves.ts`. `side` is whoever used the move;
+ * every effect decides for itself which side it lands on, because half of them
+ * are about the user and half about the target and a single "target" argument
+ * would be wrong for one of the two.
+ *
+ * Returns whether anything actually happened, so a move that finds nothing to
+ * do can say `fizzled` rather than claim a hit.
+ */
+function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boolean {
+  const foe = other(side);
+
+  switch (effect.t) {
+    case "seed": {
+      // A Grass type cannot be seeded, which is the one immunity this move has
+      // and the reason it is not simply another status.
+      if (speciesById(active(turn, foe).speciesId).types.includes("grass")) return false;
+      if (volatiles(turn, foe).seeded) return false;
+      mergeVolatiles(turn, foe, { seeded: true });
+      turn.events.push({ t: "volatile", side: foe, which: "seeded" });
+      return true;
+    }
+
+    case "confuse": {
+      if (screened(turn, foe, "safeguard")) {
+        turn.events.push({ t: "screen", side: foe, which: "safeguard" });
+        return false;
+      }
+      if ((volatiles(turn, foe).confusion ?? 0) > 0) return false;
+      mergeVolatiles(turn, foe, { confusion: CONFUSED_TURNS });
+      turn.events.push({ t: "volatile", side: foe, which: "confused" });
+      return true;
+    }
+
+    case "nightmare": {
+      const target = active(turn, foe);
+      // Only bites while it sleeps, so it fails outright on anything awake
+      // rather than sitting there waiting to become relevant.
+      if (target.status !== "slp") return false;
+      if (volatiles(turn, foe).nightmare) return false;
+      mergeVolatiles(turn, foe, { nightmare: true });
+      turn.events.push({ t: "volatile", side: foe, which: "nightmare" });
+      return true;
+    }
+
+    case "yawn": {
+      const target = active(turn, foe);
+      if (target.status || (volatiles(turn, foe).yawn ?? 0) > 0) return false;
+      if (screened(turn, foe, "safeguard")) {
+        turn.events.push({ t: "screen", side: foe, which: "safeguard" });
+        return false;
+      }
+      mergeVolatiles(turn, foe, { yawn: YAWN_TURNS });
+      turn.events.push({ t: "volatile", side: foe, which: "drowsy" });
+      return true;
+    }
+
+    case "perish": {
+      // Both sides, which is what makes it a song rather than an attack. It
+      // fails only if both are already counting.
+      let sang = false;
+      for (const at of [side, foe] as SideIndex[]) {
+        if ((volatiles(turn, at).perish ?? 0) > 0) continue;
+        mergeVolatiles(turn, at, { perish: PERISH_TURNS });
+        turn.events.push({ t: "perish", side: at, turns: PERISH_TURNS });
+        sang = true;
+      }
+      return sang;
+    }
+
+    case "trap": {
+      if (volatiles(turn, foe).trapped) return false;
+      mergeVolatiles(turn, foe, { trapped: true });
+      turn.events.push({ t: "volatile", side: foe, which: "trapped" });
+      return true;
+    }
+
+    case "shield": {
+      // The streak is the cost. A shield put up on consecutive turns works one
+      // time in three, then one in nine, which is what stops it being the
+      // answer to everything without making it useless once.
+      const streak = volatiles(turn, side).shieldStreak ?? 0;
+      const odds = Math.min(100, Math.max(1, Math.floor(100 / 3 ** streak)));
+      if (streak > 0 && !chance(turn, `${side}-shield`, odds)) {
+        mergeVolatiles(turn, side, { shieldStreak: 0 });
+        return false;
+      }
+      mergeVolatiles(turn, side, {
+        shield: effect.endure ? "endure" : "protect",
+        shieldStreak: streak + 1,
+      });
+      turn.events.push({ t: "volatile", side, which: effect.endure ? "endure" : "shield" });
+      return true;
+    }
+
+    case "crit": {
+      const held = volatiles(turn, side).crit ?? 0;
+      if (held >= effect.stages) return false;
+      mergeVolatiles(turn, side, { crit: effect.stages });
+      turn.events.push({ t: "volatile", side, which: "crit" });
+      return true;
+    }
+
+    case "aim": {
+      const at = effect.onSelf ? side : foe;
+      if (!effect.onSelf && effect.delta < 0 && screened(turn, at, "mist")) {
+        turn.events.push({ t: "screen", side: at, which: "mist" });
+        return false;
+      }
+      const current = aimOf(turn, at);
+      const next = Math.max(-6, Math.min(6, current[effect.which] + effect.delta));
+      if (next === current[effect.which]) return false;
+
+      const updated: AimStages = { ...current, [effect.which]: next };
+      turn.battle.sides[at].aim =
+        updated.accuracy === 0 && updated.evasion === 0 ? undefined : updated;
+      turn.events.push({ t: "aim", side: at, which: effect.which, delta: effect.delta });
+      return true;
+    }
+
+    case "heal": {
+      const user = active(turn, side);
+      if (user.hp >= maxHp(user)) return false;
+      const mended = applyHeal(turn, side, Math.max(1, Math.floor(maxHp(user) / effect.share)));
+      if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
+      return mended > 0;
+    }
+
+    case "rest": {
+      const user = active(turn, side);
+      // Refuses at full health with nothing to cure, because sleeping for two
+      // turns to gain nothing is a trap rather than a decision.
+      if (user.hp >= maxHp(user) && !user.status) return false;
+      const mended = maxHp(user) - user.hp;
+      setActive(turn, side, { ...user, hp: maxHp(user), status: "slp", sleepTurns: REST_TURNS });
+      if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
+      turn.events.push({ t: "status", side, status: "slp" });
+      return true;
+    }
+
+    case "painSplit": {
+      const user = active(turn, side);
+      const target = active(turn, foe);
+      const between = Math.floor((user.hp + target.hp) / 2);
+      if (between === user.hp && between === target.hp) return false;
+
+      // Capped at each side's own maximum, so splitting with something huge
+      // cannot overfill the smaller of the two.
+      setActive(turn, side, { ...user, hp: Math.min(maxHp(user), between) });
+      setActive(turn, foe, { ...target, hp: Math.min(maxHp(target), between) });
+      for (const at of [side, foe] as SideIndex[]) {
+        const before = at === side ? user : target;
+        const now = active(turn, at);
+        if (now.hp > before.hp) {
+          turn.events.push({ t: "heal", side: at, amount: now.hp - before.hp });
+        } else if (now.hp < before.hp) {
+          turn.events.push({
+            t: "damage",
+            side: at,
+            amount: before.hp - now.hp,
+            quarters: 4,
+            crit: false,
+          });
+        }
+      }
+      return true;
+    }
+
+    case "bellyDrum": {
+      const user = active(turn, side);
+      const cost = Math.floor(maxHp(user) / 2);
+      // Half your health is not a price worth paying for nothing, so it fails
+      // rather than kill you for an Attack stage you already have.
+      if (user.hp <= cost || turn.battle.sides[side].stages.atk >= 6) return false;
+      applyDamage(turn, side, cost);
+      turn.events.push({ t: "recoil", side, amount: cost });
+      turn.battle.sides[side].stages = { ...turn.battle.sides[side].stages, atk: 6 };
+      turn.events.push({ t: "boost", side, stat: "atk", delta: 6 });
+      return true;
+    }
+
+    case "haze": {
+      // Both sides, both ladders. Nothing else in the game undoes a stage.
+      let cleared = false;
+      for (const at of [0, 1] as SideIndex[]) {
+        const combatant = turn.battle.sides[at];
+        const stats = ["atk", "def", "spa", "spd", "spe"] as StageStat[];
+        if (stats.some((stat) => combatant.stages[stat] !== 0)) {
+          combatant.stages = { ...NO_STAGES };
+          cleared = true;
+        }
+        if (combatant.aim) {
+          combatant.aim = undefined;
+          cleared = true;
+        }
+      }
+      return cleared;
+    }
+
+    case "cure": {
+      if (effect.who === "self") {
+        const user = active(turn, side);
+        if (!user.status) return false;
+        setActive(turn, side, { ...user, status: null, sleepTurns: 0 });
+        turn.events.push({ t: "volatile", side, which: "snapped" });
+        return true;
+      }
+      // The whole team, including the ones in reserve, which is the only
+      // reason anybody carries a bell.
+      const combatant = turn.battle.sides[side];
+      if (!combatant.team.some((one) => one.status)) return false;
+      combatant.team = combatant.team.map((one) =>
+        one.status ? { ...one, status: null, sleepTurns: 0 } : one,
+      );
+      turn.events.push({ t: "volatile", side, which: "snapped" });
+      return true;
+    }
+
+    case "purify": {
+      const target = active(turn, foe);
+      // Cures *them* and mends you, and only if there was something to cure.
+      if (!target.status) return false;
+      setActive(turn, foe, { ...target, status: null, sleepTurns: 0 });
+      turn.events.push({ t: "volatile", side: foe, which: "snapped" });
+      const user = active(turn, side);
+      const mended = applyHeal(turn, side, Math.max(1, Math.floor(maxHp(user) / 2)));
+      if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
+      return true;
+    }
+
+    case "side": {
+      if (!raiseScreen(turn, side, effect.id, effect.turns)) return false;
+      turn.events.push({ t: "screen", side, which: effect.id });
+      return true;
+    }
+
+    case "forceOut": {
+      // A wild creature driven off ends the encounter; a trainer's is replaced.
+      if (turn.rules.catchable) {
+        turn.battle.outcome = { t: "fled" };
+        turn.events.push({ t: "fled" });
+        return true;
+      }
+      const combatant = turn.battle.sides[foe];
+      const next = combatant.team.findIndex((one, at) => at !== combatant.active && !isFainted(one));
+      if (next < 0) return false;
+      switchTo(turn, foe, next);
+      return true;
+    }
+
+    case "retreat": {
+      // Out of a wild battle entirely, which is what Teleport is for. Against
+      // a trainer it is a free switch, and it fails with nobody to switch to.
+      if (turn.rules.catchable) {
+        turn.battle.outcome = { t: "fled" };
+        turn.events.push({ t: "fled" });
+        return true;
+      }
+      const combatant = turn.battle.sides[side];
+      const next = combatant.team.findIndex((one, at) => at !== combatant.active && !isFainted(one));
+      if (next < 0) return false;
+      switchTo(turn, side, next);
+      return true;
+    }
+
+    case "transform": {
+      const user = active(turn, side);
+      const target = active(turn, foe);
+      if (user.speciesId === target.speciesId) return false;
+
+      // Its shape, its numbers and its moves; its own level and its own
+      // health. Power points come out at five apiece, as they do in the games:
+      // a copied moveset is not a fresh one.
+      const copied = target.moves.slice(0, 4);
+      setActive(turn, side, {
+        ...user,
+        speciesId: target.speciesId,
+        ivs: { ...target.ivs },
+        evs: { ...target.evs },
+        natureId: target.natureId,
+        abilities: [...target.abilities],
+        moves: copied,
+        pp: copied.map((id) => Math.min(TRANSFORM_PP, moveById(id).pp)),
+      });
+      turn.events.push({ t: "transformed", side, into: target.speciesId });
+      return true;
+    }
+
+    case "sketch": {
+      const user = active(turn, side);
+      const target = active(turn, foe);
+      // What they last did, or the first thing they know if they have not
+      // moved yet, so Smeargle moving first is not Smeargle wasting a turn.
+      const learn = turn.battle.sides[foe].lastMove ?? target.moves[0];
+      if (!learn || user.moves.includes(learn)) return false;
+
+      const slot = user.moves.indexOf(SKETCH);
+      if (slot < 0) return false;
+      const moves = [...user.moves];
+      const pp = [...user.pp];
+      moves[slot] = learn;
+      pp[slot] = moveById(learn).pp;
+      setActive(turn, side, { ...user, moves, pp });
+      turn.events.push({ t: "sketched", side, moveId: learn });
+      return true;
+    }
+
+    case "nothing":
+      // Splash. It is supposed to do this.
+      return false;
+  }
+}
+
+/**
+ * What the end of a turn does to whatever is standing there.
+ *
+ * Ordered on purpose: the seed drains before Nightmare bites, so a creature
+ * that is both seeded and dreaming goes down to the seed and the healing still
+ * happens. Perish counts last, because it is the one thing nothing prevents
+ * and it should have the last word.
+ */
+function tickVolatiles(turn: Turn, side: SideIndex): void {
+  if (volatiles(turn, side).seeded) {
+    const creature = active(turn, side);
+    const drawn = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(creature) / SEED_SHARE)));
+    if (drawn > 0) {
+      turn.events.push({ t: "volatile", side, which: "sapped" });
+      turn.events.push({ t: "damage", side, amount: drawn, quarters: 4, crit: false });
+      // Into whoever is opposite, which is the whole point of a seed rather
+      // than a poison. Capped by their room, so a full creature gains nothing
+      // and no health appears out of nowhere.
+      if (!isFainted(active(turn, other(side)))) {
+        const mended = applyHeal(turn, other(side), drawn);
+        if (mended > 0) turn.events.push({ t: "heal", side: other(side), amount: mended });
+      }
+    }
+  }
+
+  if (isFainted(active(turn, side))) return;
+
+  if (volatiles(turn, side).nightmare) {
+    const creature = active(turn, side);
+    // It ends when the sleep does, rather than lingering on something awake.
+    if (creature.status !== "slp") {
+      mergeVolatiles(turn, side, { nightmare: undefined });
+    } else {
+      const taken = applyDamage(
+        turn,
+        side,
+        Math.max(1, Math.floor(maxHp(creature) / NIGHTMARE_SHARE)),
+      );
+      if (taken > 0) {
+        turn.events.push({ t: "volatile", side, which: "dreaming" });
+        turn.events.push({ t: "damage", side, amount: taken, quarters: 4, crit: false });
+      }
+    }
+  }
+
+  if (isFainted(active(turn, side))) return;
+
+  const drowsy = volatiles(turn, side).yawn ?? 0;
+  if (drowsy > 0) {
+    if (drowsy <= 1) {
+      mergeVolatiles(turn, side, { yawn: undefined });
+      // Through the one predicate every road to a status goes down, so an
+      // Insomnia or a Safeguard still says no at the last moment.
+      applyStatus(turn, side, "slp", `${side}-yawn`);
+    } else {
+      mergeVolatiles(turn, side, { yawn: drowsy - 1 });
+    }
+  }
+
+  const perish = volatiles(turn, side).perish ?? 0;
+  if (perish > 0) {
+    const left = perish - 1;
+    mergeVolatiles(turn, side, { perish: left || undefined });
+    turn.events.push({ t: "perish", side, turns: left });
+    if (left === 0) applyDamage(turn, side, active(turn, side).hp);
+  }
+}
+
 function damageContext(turn: Turn, side: SideIndex, moveId: string): DamageContext {
   const attacker = active(turn, side);
   const defender = active(turn, other(side));
@@ -657,8 +1358,8 @@ function damageContext(turn: Turn, side: SideIndex, moveId: string): DamageConte
     defender,
     attackerMaxHp: maxHp(attacker),
     defenderMaxHp: maxHp(defender),
-    attackerSpeed: effectiveStat(attacker, "spe", turn.battle.sides[side].stages.spe),
-    defenderSpeed: effectiveStat(defender, "spe", theirStages.spe),
+    attackerSpeed: speedOf(turn, side),
+    defenderSpeed: speedOf(turn, other(side)),
     defenderBoosts: (["atk", "def", "spa", "spd", "spe"] as StageStat[]).reduce(
       (sum, stat) => sum + Math.max(0, theirStages[stat]),
       0,
@@ -721,12 +1422,23 @@ function damageFor(
   value = Math.floor((value * power * attack) / defence);
   value = Math.floor(value / 50) + 2;
 
+  // Reflect and Light Screen, each against its own half of the split. Applied
+  // to the running value rather than to the defence, so the halving is exact
+  // and integer either way — doubling a defence would round differently for
+  // an odd one.
+  const screen: SideConditionId = physical ? "reflect" : "lightscreen";
+  if (screened(turn, other(side), screen)) value = Math.floor(value / 2);
+
   // Super Luck, a Scope Lens, a Razor Claw: one stage up the same ladder the
-  // move's own ratio walks.
+  // move's own ratio walks. Focus Energy walks the same ladder, which is why
+  // it is added here rather than given odds of its own.
   const luck = effects(attacker, "luck").reduce((sum, effect) => sum + effect.stages, 0);
-  const ratio = move.critRatio + luck;
+  const ratio = move.critRatio + luck + (volatiles(turn, side).crit ?? 0);
   const odds = CRIT_ODDS[Math.max(0, Math.min(CRIT_ODDS.length - 1, ratio - 1))];
-  const crit = intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-crit`), odds) === 0;
+  // Lucky Chant: no critical hits against this side at all.
+  const crit =
+    !screened(turn, other(side), "luckychant") &&
+    intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-crit`), odds) === 0;
   if (crit) value = Math.floor((value * 3) / 2);
 
   // 85..100, the damage roll every one of these games has.
@@ -830,6 +1542,10 @@ function canAct(turn: Turn, side: SideIndex): boolean {
     return false;
   }
 
+  // Last, because everything above it is a reason it never woke up to be
+  // confused in the first place.
+  if (confusionStops(turn, side)) return false;
+
   return true;
 }
 
@@ -859,7 +1575,23 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
 
   turn.events.push(struggling ? { t: "struggling", side } : { t: "use", side, moveId });
 
+  // Remembered whatever else happens, because Sketch copies what was *used*
+  // rather than what worked.
+  turn.battle.sides[side].lastMove = moveId;
+
   const defender = active(turn, other(side));
+
+  // Protect and its family. Before the type chart and before accuracy, because
+  // a shield is not a dodge: it stops the move outright, and a move that was
+  // going to miss anyway should still read as blocked.
+  //
+  // A move that targets the user goes through — you cannot Protect yourself
+  // out of your own Swords Dance, and in a game that is 1v1 throughout every
+  // other move is aimed at the one creature opposite.
+  if (move.target !== "self" && behindShield(turn, other(side))) {
+    turn.events.push({ t: "shielded", side: other(side) });
+    return;
+  }
 
   // Absorb and Levitate. Checked before the type chart, because an ability
   // that grants an immunity the chart does not have is the whole point of it —
@@ -921,6 +1653,15 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   // unmissable, and a powder does not make it a coin flip.
   for (const effect of effects(active(turn, other(side)), "graze")) {
     accuracy = scaled(accuracy, effect.mille);
+  }
+
+  // The two stage ladders, which is what Sand Attack and Double Team move.
+  // One combined fraction rather than two roundings, so lowering accuracy by a
+  // stage and raising evasion by a stage cancel exactly.
+  if (!unmissable && accuracy > 0) {
+    const [an, ad] = aimFactor(aimOf(turn, side).accuracy);
+    const [en, ed] = aimFactor(aimOf(turn, other(side)).evasion);
+    accuracy = Math.max(1, Math.min(100, Math.floor((accuracy * an * ed) / (ad * en))));
   }
 
   if (!unmissable && accuracy > 0 && !chance(turn, `${side}-acc`, accuracy)) {
@@ -1013,6 +1754,25 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   if (move.boosts) {
     const onSelf = move.target === "self";
     applyBoosts(turn, onSelf ? side : other(side), move.boosts, !onSelf);
+  }
+
+  // Everything the manifest could not say. Asked for every move rather than
+  // only for status moves, because Swagger is a boost move missing its
+  // confusion and Dynamic Punch is an attack missing the same thing.
+  //
+  // `did` starts at whether the row itself accomplished anything, so a move
+  // whose only content is here can report `fizzled` when it finds nothing to
+  // do, and one that hit for damage never claims to have failed.
+  const extras = extraEffects(moveId);
+  if (extras.length) {
+    let did = dealt > 0 || Boolean(move.status) || Boolean(move.boosts) || Boolean(move.heal);
+    for (const effect of extras) {
+      if (applyMoveEffect(turn, side, effect)) did = true;
+      // A move that ended the battle — Roar in the grass — has nothing more
+      // to do, and the events after it would read as happening afterwards.
+      if (turn.battle.outcome) return;
+    }
+    if (!did) turn.events.push({ t: "fizzled", side, moveId });
   }
 
   // Shield Dust: the side effects of a move used on it never land. Its own
@@ -1211,8 +1971,8 @@ function firstMover(turn: Turn, moveA: string | null, moveB: string | null): Sid
     }
   }
 
-  const speedA = effectiveStat(active(turn, 0), "spe", turn.battle.sides[0].stages.spe);
-  const speedB = effectiveStat(active(turn, 1), "spe", turn.battle.sides[1].stages.spe);
+  const speedA = speedOf(turn, 0);
+  const speedB = speedOf(turn, 1);
   if (speedA !== speedB) return speedA > speedB ? 0 : 1;
 
   return roll(turn, "speedtie") < 0.5 ? 0 : 1;
@@ -1260,6 +2020,7 @@ export function resolveTurn(
   if (state.outcome) throw new IllegalAction("battle is already over");
 
   const turn: Turn = {
+    rules,
     taken: [
       { physical: 0, special: 0 },
       { physical: 0, special: 0 },
@@ -1320,8 +2081,8 @@ export function resolveTurn(
       }
       turn.events.push({ t: "catchFailed" });
     } else {
-      const own = effectiveStat(active(turn, 0), "spe", turn.battle.sides[0].stages.spe);
-      const theirs = effectiveStat(active(turn, 1), "spe", turn.battle.sides[1].stages.spe);
+      const own = speedOf(turn, 0);
+      const theirs = speedOf(turn, 1);
       const odds = own >= theirs ? 100 : Math.max(35, Math.floor((own * 100) / theirs));
       if (chance(turn, "flee", odds)) {
         turn.events.push({ t: "fled" });
@@ -1362,11 +2123,44 @@ export function resolveTurn(
   turn.movingLast = second;
 
   if (moves[first]) executeMove(turn, first, moves[first]!);
+  // Nothing happens after the battle has ended.
+  //
+  // A new possibility: until Roar and Teleport, no *move* could finish a
+  // battle — only a fainting could, and that is settled at the bottom. Left
+  // unguarded, the residuals tick for a battle nobody is in, a berry is eaten
+  // for it, and `settle` awards experience for a creature that walked away.
+  //
+  // Both checks, though only the second is reachable today: Roar, Whirlwind
+  // and Teleport all have priority -6, so they are always the later of the
+  // two. The first is here because "stop when the battle is over" is a fact
+  // about the loop rather than about which moves happen to be slow, and the
+  // next move that ends a battle will not necessarily be.
+  if (turn.battle.outcome) return finish(turn, caught, ballsUsed);
+
   if (moves[second] && !isFainted(active(turn, second))) executeMove(turn, second, moves[second]!);
+  if (turn.battle.outcome) return finish(turn, caught, ballsUsed);
 
   for (const side of [0, 1] as SideIndex[]) {
     if (!isFainted(active(turn, side))) residual(turn, side);
   }
+
+  // What was put up this turn comes down at the end of it, before anything
+  // reads it again: a shield lasts exactly the turn it was raised.
+  for (const side of [0, 1] as SideIndex[]) {
+    const held = volatiles(turn, side);
+    if (held.shield) mergeVolatiles(turn, side, { shield: undefined });
+    // The streak only survives an unbroken run of them, so a turn spent doing
+    // anything else resets the price back to nothing.
+    if (!held.shield && held.shieldStreak) mergeVolatiles(turn, side, { shieldStreak: undefined });
+  }
+
+  // Seeds, nightmares, drowsiness and the song. After the burn and the poison,
+  // because that is the order these games resolve them in, and before the held
+  // items so a berry can answer what the seed just took.
+  for (const side of [0, 1] as SideIndex[]) {
+    if (!isFainted(active(turn, side))) tickVolatiles(turn, side);
+  }
+  for (const side of [0, 1] as SideIndex[]) ageScreens(turn, side);
 
   // What a held item does at the end of a turn, in a fixed order so two of
   // them on opposite sides always resolve the same way: the thing that hurts
@@ -1401,12 +2195,31 @@ function chosenMove(turn: Turn, side: SideIndex, action: BattleAction): string |
   return STRUGGLE;
 }
 
+/**
+ * A side, copied so the turn can mutate it without touching the caller's.
+ *
+ * Spread first, then the mutable parts copied over it. It used to name all
+ * four fields by hand, which meant every field added to `Combatant` was
+ * silently dropped at the turn boundary — and that is exactly what happened
+ * when the volatiles arrived: a creature was seeded, the turn ended, and the
+ * seed was gone before anything could drain it. Leech Seed appeared to work
+ * and did nothing, which is the same symptom from a completely different
+ * cause, one turn further on.
+ *
+ * With the spread, a new field is carried whether or not anybody remembers
+ * this function. It still has to be *copied* here if the turn mutates it,
+ * which the three below are; being carried by reference is wrong but visible,
+ * where being dropped was neither.
+ */
 function cloneSide(side: Combatant): Combatant {
   return {
+    ...side,
     team: side.team.map((creature) => ({ ...creature })),
-    active: side.active,
     stages: { ...side.stages },
     locked: side.locked ?? null,
+    aim: side.aim ? { ...side.aim } : undefined,
+    volatiles: side.volatiles ? { ...side.volatiles } : undefined,
+    screens: side.screens ? { ...side.screens } : undefined,
   };
 }
 
@@ -1438,6 +2251,17 @@ function hasLegalMove(state: BattleState, side: SideIndex): boolean {
 }
 
 export function actionRefusal(state: BattleState, side: SideIndex, action: BattleAction): string | null {
+  // Mean Look and its two friends. Refused here so the menu greys the button
+  // the engine is going to refuse anyway — one predicate, two callers. Owing
+  // a replacement beats it: a fainted creature has already left, and being
+  // held by a trap that is about to be cleared anyway would be a dead end.
+  if (
+    (action.t === "switch" || action.t === "flee") &&
+    !state.awaitingSwitch[side] &&
+    state.sides[side].volatiles?.trapped
+  ) {
+    return action.t === "flee" ? "there is no getting away" : "it cannot be called back";
+  }
   if (state.outcome) return "the battle is over";
   const creature = activeOf(state, side);
 
@@ -1521,8 +2345,14 @@ function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
   onLeaving(turn, side);
 
   combatant.active = partyIndex;
-  // Stat stages belong to the slot, not the creature, so they reset.
+  // Stat stages belong to the slot, not the creature, so they reset. So do the
+  // two probability ladders and everything volatile: being seeded, confused or
+  // counting down is a fact about standing there, and switching is how you
+  // stop standing there. Screens are *not* cleared — they belong to the side,
+  // which is the whole point of a screen.
   combatant.stages = { ...NO_STAGES };
+  combatant.aim = undefined;
+  combatant.volatiles = undefined;
   turn.events.push({ t: "switch", side, partyIndex });
 
   // And whatever the one arriving does on arrival. After the event, so a log
@@ -1677,6 +2507,20 @@ export function battleHash(state: BattleState): string {
       combatant.active,
       combatant.team.map(creature).join("|"),
       (["atk", "def", "spa", "spd", "spe"] as const).map((stat) => combatant.stages[stat]).join(","),
+      // The two ladders, what is volatile and what the side is under. Written
+      // as sorted key/value pairs rather than as JSON of the object, because
+      // two peers that inserted the same keys in a different order would
+      // disagree about a battle they agree about.
+      (["accuracy", "evasion"] as const).map((which) => combatant.aim?.[which] ?? 0).join(","),
+      combatant.lastMove ?? "-",
+      Object.entries(combatant.volatiles ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join("+"),
+      Object.entries(combatant.screens ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join("+"),
     ].join("/");
   };
 

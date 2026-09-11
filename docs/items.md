@@ -1,6 +1,10 @@
 # Items
 
-**550 of them**, of which 312 are machines. The other 238 are below.
+**505 of them**, of which 267 are machines. The other 238 are below.
+
+The machine count fell from 312 when status moves were audited: 45 of them
+taught a move this engine has no machinery for, so the shelf was selling a
+four-thousand-a-go lesson in wasting a turn. See `src/engine/statusmoves.ts`.
 
 The bag sorts by what an item *is for*, because that is the only question a
 player has when they open it: something you use, something you throw,
@@ -13,7 +17,7 @@ something you give to a creature to keep, something you use on the world.
 | Tonics | 37 | Moves a number on a stat screen |
 | Stones | 22 | Turns one creature into another |
 | Breeding | 19 | Applied to a pairing at the daycare |
-| Machines | 312 | Teaches a move, and keeps |
+| Machines | 267 | Teaches a move, and keeps |
 | Lures | 9 | Draws one kind of thing out of the grass |
 | Medicine | 11 | Health, and what ails it |
 | Field | 5 | Used on the world rather than on a creature |

@@ -2352,7 +2352,7 @@ function placeCritters(
         //
         // And never a line already used on this route. Two of a species share
         // a pool of three, so a pair of them collided about one route in
-        // thirty @@D@@ which is exactly where a repeat is noticed, because both of
+        // thirty — which is exactly where a repeat is noticed, because both of
         // them are on the same small map. Anywhere else in the world it does
         // not matter and is not worth the arithmetic.
         line: freshLine(said, route.id, speciesId, rngFor(seed, "critterline", id)),
@@ -2584,9 +2584,9 @@ function buildTrainers(seed: string, route: Route, allSpecies: readonly SpeciesE
 
   // Four to six of them, and one more again out past the halfway band.
   //
-  // It was one to three, chosen when a route was 44x34. A route is 88x68 now @@D@@
+  // It was one to three, chosen when a route was 44x34. A route is 88x68 now —
   // four times the ground, a real maze through it, and a walk from one side to
-  // the other of about eighty steps @@D@@ so one or two people on it read as a
+  // the other of about eighty steps — so one or two people on it read as a
   // corridor with encounters rather than as somewhere anybody lives. Doubling
   // them is the difference between "there might be somebody" and "there is
   // somebody round most corners", which is what makes a route worth combing
