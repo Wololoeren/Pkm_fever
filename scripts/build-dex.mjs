@@ -301,6 +301,29 @@ function multihitOf(move) {
   return [raw, raw];
 }
 
+/**
+ * What a move costs — or gives — its own user, and how often.
+ *
+ * Seventeen moves carry this, and sixteen of them are a drawback: Close
+ * Combat's guard dropping, Overheat burning out its own Sp. Atk, Superpower
+ * spending the very Attack it just hit with. Data upstream, and dropped on the
+ * way across, so every one of them was **strictly better in this game than it
+ * is meant to be** — a 120-power move with no downside at all.
+ *
+ * It is *not* folded into `secondary`, which is the obvious-looking move and
+ * wrong twice over. A secondary is gated on the target still standing, so a
+ * Close Combat that knocked something out would skip its own cost; and it is
+ * gated on a shield, which is a fact about the target rather than about the
+ * user. `chance` is here because Diamond Storm's is a coin flip — the other
+ * sixteen are certainties, and default to 100.
+ */
+function selfBoostsOf(move) {
+  if (!move.self?.boosts) return null;
+  const boosts = boostsOf(move.self.boosts);
+  if (!boosts) return null;
+  return { chance: move.self.chance ?? 100, boosts };
+}
+
 /** Showdown models a secondary as a chance plus whatever it inflicts. Only
  * the parts the battle system understands are carried across, so a move never
  * claims an effect the engine will silently drop. */
@@ -373,6 +396,7 @@ const moves = [...usedMoves]
     drain: move.drain ?? null,
     recoil: move.recoil ?? null,
     heal: move.heal ?? null,
+    selfBoosts: selfBoostsOf(move),
     multihit: multihitOf(move),
     /**
      * Three moves check accuracy again for every blow rather than once for

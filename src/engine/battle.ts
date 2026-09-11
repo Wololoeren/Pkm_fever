@@ -1898,6 +1898,41 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     if (taken > 0) turn.events.push({ t: "recoil", side, amount: taken });
   }
 
+  /*
+   * What the move cost the creature that used it.
+   *
+   * Close Combat's guard, Overheat's Sp. Atk, Superpower spending the very
+   * Attack it just hit with — and Diamond Storm's coin-flip reward, which is
+   * the same shape read the other way. Seventeen moves, and every one of them
+   * was strictly better in this game than it is meant to be.
+   *
+   * Three things about where and how this is applied:
+   *
+   * **Gated on having dealt damage**, and that gate is a floor rather than a
+   * live case. A miss, an immunity and a shield all return long before here,
+   * so the only thing it excludes is a move that landed for nothing at all —
+   * which today means a variable-damage move that fizzled, and none of the
+   * seventeen have variable damage. It was kept after being measured, not
+   * before: a `selfBoosts` added to an Endeavor later should not charge a
+   * stage for a blow that did nothing, and that is not a thing to leave
+   * depending on nobody ever doing it.
+   *
+   * **Not gated on the target surviving.** A Close Combat that knocks
+   * something out still drops the guard, which is exactly the trade the move
+   * is: the cost is paid for having swung, and the swing landed.
+   *
+   * **`byOther` left false**, so a Mist and a Clear Body do not block it.
+   * Those answer "can the other side lower my stages", and this is not the
+   * other side.
+   */
+  if (
+    move.selfBoosts &&
+    dealt > 0 &&
+    chance(turn, `${side}-selfboost`, move.selfBoosts.chance)
+  ) {
+    applyBoosts(turn, side, move.selfBoosts.boosts);
+  }
+
   if (move.status) {
     // Through the normaliser, so a condition the manifest has and this engine
     // does not lands as the nearest one it does rather than as a crash.

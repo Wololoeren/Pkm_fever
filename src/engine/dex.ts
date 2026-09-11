@@ -49,6 +49,19 @@ export interface MoveEntry {
   /** [numerator, denominator] of max HP restored. */
   heal: [number, number] | null;
   /**
+   * What the move does to its own user's stages, and how often.
+   *
+   * Seventeen moves, sixteen of them a cost: Close Combat's guard, Overheat's
+   * Sp. Atk, Superpower spending the Attack it just hit with. Its own field
+   * rather than a `secondary` with `self` set, because a secondary is gated on
+   * the target still standing and on the target's shield — neither of which
+   * has anything to do with what a move costs the creature that used it.
+   *
+   * `chance` is 100 for sixteen of them. Diamond Storm is the exception at 50,
+   * and it is the one that is a reward rather than a cost.
+   */
+  selfBoosts: { chance: number; boosts: Boosts } | null;
+  /**
    * How many times it lands: [least, most], inclusive, or null for once.
    *
    * A fixed count comes through as a pair with both halves equal, so the

@@ -15,6 +15,10 @@ import { BIOME_IDS } from "./biomes";
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted.
  *
+ * 24 is the seventeen moves that carry a cost to their own user — Close
+ * Combat, Superpower, Overheat and fourteen more. They had none, so any
+ * recorded battle in which one of them landed resolves differently from here.
+ *
  * 23 is multi-strike. Thirty-one moves that landed once now land two to five
  * times, three of them roll accuracy for every blow, and five always crit — so
  * a recorded battle with a Fury Swipes in it resolves differently, and one
@@ -31,7 +35,7 @@ import { BIOME_IDS } from "./biomes";
  * is for: without the bump an old save falls through the corrupt-log path and
  * quietly starts a new game, which is the silent reinterpretation the comment
  * above promises never happens. Adding anybody to the roster is a bump. */
-export const ENGINE_VERSION = 23;
+export const ENGINE_VERSION = 24;
 
 // ------------------------------------------------------------------ stats
 

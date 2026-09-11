@@ -141,6 +141,12 @@ Paralysis is applied to Speed *after* the stage multiplier and *before* the
 abilities, which is why a paralysed creature with Quick Feet ends up faster
 than one that is merely paralysed — that ordering is what carrying it is for.
 
+Seventeen moves move the **user's own** stages rather than the target's, and
+sixteen of those are a cost: Close Combat's guard, Overheat's Sp. Atk,
+Superpower spending the Attack it just hit with. Paid after the damage, and
+deliberately not blocked by a Clear Body or a Mist — those answer "can the
+other side lower my stages", and this is not the other side.
+
 ---
 
 ## The six screens

@@ -180,6 +180,20 @@ export function MoveNote({
           .
         </span>
       ) : null}
+      {entry.selfBoosts ? (
+        // Red when it is a cost, which sixteen of the seventeen are. Diamond
+        // Storm's is a reward and reads as one.
+        <span
+          className={
+            Object.values(entry.selfBoosts.boosts).some((delta) => (delta ?? 0) < 0)
+              ? "error"
+              : undefined
+          }
+        >
+          {entry.selfBoosts.chance < 100 ? `${entry.selfBoosts.chance}% chance of ` : ""}
+          {boostText(entry.selfBoosts.boosts as Record<string, number>)} on itself.
+        </span>
+      ) : null}
       {entry.drain ? (
         <span>
           Heals back {entry.drain[0]}/{entry.drain[1]} of the damage it deals.

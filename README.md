@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         606 tests, including the replay property everything rests on
+tests/         615 tests, including the replay property everything rests on
 docs/          the four reference pages: status, abilities, items, and what is deferred
 ```
 
@@ -1144,11 +1144,45 @@ numbers.
 `ENGINE_VERSION` 22 → 23. A recorded battle with a Fury Swipes in it resolves
 differently now, and so does one with a Frost Breath.
 
-**Still missing, and measured while in there:** seventeen moves carry a
-`self.boosts` drawback the manifest also drops — Close Combat, Superpower,
-Overheat, Draco Meteor, Leaf Storm, Hammer Arm and eleven more. Every one of
-them is currently strictly better than it should be. Same shape of bug, same
-one-field fix, and not done here because it is a different bug from this one.
+**Measured while in there, and fixed next:** seventeen moves carried a
+`self.boosts` drawback the manifest was also dropping. See below.
+
+### What a move costs the creature that used it
+
+The third field in the same family, and the one with the most on it. Seventeen
+moves tell the user's own stat stages to move, sixteen of them downward: Close
+Combat's guard, Overheat burning out its own Sp. Atk, Superpower spending the
+very Attack it just hit with, V-create giving up three stages at once. All
+seventeen were being dropped on the way across, so **every one of them was
+strictly better in this game than it is meant to be** — Close Combat at 120
+power with no downside is not a trade, it is simply the best physical move in
+the game. 187 of 1134 species learn at least one, and five of the seventeen
+are machines, so anything that can be taught can have one.
+
+It is deliberately **not** folded into `secondary`, which is the
+obvious-looking move and wrong twice over:
+
+- A secondary is gated on **the target still standing**, so a Close Combat
+  that knocked something out would keep its guard — the one case where the
+  move would be free.
+- A secondary is gated on **the target's shield**, which has nothing to do
+  with what a move costs the creature that used it.
+
+And it goes through `applyBoosts` with `byOther` left false, so a Clear Body
+or a Mist does not cancel it. Those answer "can the other side lower my
+stages", and this is not the other side; handing them this would make every
+drawback move free on anything that happens to carry one.
+
+`chance` is carried because Diamond Storm's is a coin flip — 50% for +2
+Defence, the one of the seventeen that is a reward rather than a cost. The
+other sixteen are certainties and default to 100.
+
+The ordering matters too, and W7 pins it: the cost is paid **after** the
+damage. Superpower spends the Attack it just hit with, not the Attack it is
+about to hit with, and the other way round would be a different and much
+worse move.
+
+`ENGINE_VERSION` 23 → 24.
 
 ### The reveal shows the creature that earned it
 
