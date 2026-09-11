@@ -961,6 +961,124 @@ on a different bestiary without an engine change.
 
 ## What is next
 
-The build order, roughly: the battle system, then a renderer over Tiled maps,
-then the sprite variant pipeline, then save/load as a hash-chained input log,
-then peer-to-peer battles over WebRTC.
+*The old version of this section listed the build order as "the battle system,
+then a renderer, then the variant pipeline, then save/load, then peer-to-peer
+battles". All five shipped. What follows is what is actually left, with the
+numbers measured rather than remembered — re-measure before trusting them.*
+
+### The largest single gap: 125 status moves
+
+The manifest carries five effect fields and Showdown keeps the rest in script,
+so of its **264 status moves, 54 are honoured in battle** (`statusmoves.ts`) and
+**7 out in the world** (`fieldmoves.ts`). The remaining **125 are filtered out
+of every pool** rather than dealt as dead slots — which means no creature ever
+holds a move that does nothing, but it also means **888 of 1134 species lose at
+least one learnset entry**, 2,209 entries in total.
+
+That is the honest cost of the current design, and closing it is mostly a
+matter of adding one *capability* at a time. Grouped by what each group needs
+first, most-learned first, with the number of species that learn each:
+
+**Cheap: more of the machinery that already exists.** Volatiles on an
+appearance, which `statusmoves.ts` already has. No new concepts, and probably
+the best value per hour in the whole list.
+
+| Move | Learners | Shape |
+| --- | --- | --- |
+| Aqua Ring, Ingrain | 32, 30 | a per-turn heal, which is Leech Seed backwards |
+| Attract | 23 | a lost-turn volatile, which is confusion with a gender check |
+| Heal Pulse, Floral Healing, Strength Sap | 30, 1, 8 | heal the *target* rather than the user |
+| Psych Up, and the stat swaps and splits | 30, 17+13+12+10+3+2 | copy or exchange stages |
+| Stockpile / Swallow / Spit Up | 28, 25 | one counter volatile, three doors onto it |
+| Lock-On, Mind Reader | 22, 12 | an unmissable volatile |
+| Destiny Bond | 30 | a volatile read at faint time |
+| Wish, Healing Wish, Lunar Dance, Revival Blessing | 19, 23, 1, 2 | a delayed or on-switch heal |
+| Magnet Rise, Telekinesis | 20, 8 | a ground-immunity volatile |
+
+**Needs types to belong to the appearance rather than the species.** Types are
+read off `speciesById(...).types` everywhere, so nothing can change them.
+Unlocks Soak (35), Camouflage (10), Reflect Type (7), Forest's Curse (2),
+Trick-or-Treat, Conversion and Conversion 2 — and the three "ignore immunity"
+moves, Odor Sleuth (43), Foresight (33) and Miracle Eye (11), which are the
+same lookup from the other side.
+
+**Needs abilities to belong to the appearance.** Same shape, different field.
+Unlocks Worry Seed (27), Gastro Acid (25), Entrainment (23), Role Play (17),
+Skill Swap (12), Simple Beam (7), Doodle (1).
+
+**Needs a field condition.** Weather and terrain are one feature that changes
+damage, residuals and a dozen abilities — half of it is worse than none of it.
+Unlocks the five weathers, the four terrains, Water Sport (49), Mud Sport (30),
+Aurora Veil (8) and Chilly Reception.
+
+**Needs stage-passing on a switch.** Baton Pass (47) and Shed Tail (3).
+
+**Needs a contact flag in the manifest.** A `scripts/build-dex.mjs` change, and
+the smallest job on this list. It is what King's Shield, Spiky Shield, Baneful
+Bunker, Burning Bulwark, Obstruct and Silk Trap are missing: all six currently
+block the move and none of them punishes the attacker, which is written up in
+`statusmoves.ts`. The `barb` items (Jaboca, Rowap) answer by *category* for the
+same reason and would be more faithful with it.
+
+**Needs an on-arrival hook that survives the switch path.** Spikes, Stealth
+Rock, Sticky Web, Toxic Spikes.
+
+**Needs a re-entrancy guard on `executeMove`.** Metronome, Sleep Talk, Copycat,
+Mirror Move, Assist, Me First, Nature Power, Instruct. Do the depth limit
+*first*; a move that calls a move that calls itself is a hang, not a bug.
+
+**Needs items to move in battle.** The bag is engine state and the battle does
+not touch it. Trick, Switcheroo, Bestow, Recycle, Stuff Cheeks, Embargo (25),
+Magic Room, Snatch, Magic Coat.
+
+**Risky, and worth doing carefully.** Move restriction — Taunt (83), Disable,
+Encore, Torment, Imprison, Heal Block — changes *which moves are legal*, and
+that is the one class of effect that can make a battle unwinnable. Struggle and
+`hasLegalMove` are the safety net; run the deadlock probe while building it, and
+expect it to earn its keep. Substitute (15) is in the same bracket for a
+different reason: it sits in front of every damage path in the file.
+
+**Not worth doing.** The 16 doubles-only moves (Helping Hand, Ally Switch, Wide
+Guard, Follow Me, the ally heals) are meaningless in a game that is 1v1
+throughout. Rototiller wants soft soil and Secret Power wants a base. Curse (66)
+is a genuine oddity: it is two different moves depending on whether the user is
+a Ghost, and the manifest has no way to say so.
+
+A `docs/moves-deferred.md` alongside `items-deferred.md` and
+`abilities-deferred.md` would fit the pattern, and H29's guard — "nothing on
+the deferred list is quietly implemented after all" — would then cover moves
+too. That guard is the reason those documents are worth keeping.
+
+### The census has not grown with the world
+
+`CENSUS_PLAN` places **58 decorated creatures**. The world was 120 routes in a
+star, is now 50 in a graph, and each route holds 120 census slots — so a
+decorated creature is about one encounter in a hundred inside the census window,
+and a whole route often holds none. Whether that is too thin is a judgement
+call about how long a hunt should take, which is why it has not simply been
+scaled: the honest options are more placements, a narrower slot range, or
+accepting that most routes are ordinary.
+
+### The deadlock probe's coverage fell
+
+It walks 60,000 field steps and now reaches **17 of 50 routes**, down from 43,
+because tripling the trainers means those steps go on fighting — roughly 4,000
+trainer battles a run. It still finds real bugs (it caught the Toxic crash on
+its first run with the rival in the world), but it is covering a third of the
+map. Loosening the walker's rival-chase was tried and measured and made no
+difference, so it was reverted rather than kept as a comment claiming a result
+it did not get. The likely fix is more steps or a second probe that only walks.
+
+### Smaller things, in no order
+
+- The three outer towns have no idle creatures of their own beyond the two
+  themed ones each. Hearth's are much of what makes it feel inhabited.
+- Transform copies the species, the numbers, the abilities and the moves, but
+  deliberately not `variantId` — so a transformed Ditto takes the target's shape
+  in its own colours, and a chroma Ditto stays a chroma. That reads correctly
+  and is cheap to change if it ever reads wrong; it has not been playtested
+  enough to know which.
+- Milk Drink and Soft-Boiled give a fifth of the user's maximum out in the
+  world, which is a number chosen rather than derived.
+- `Facing` is not stored anywhere, so Headbutt works on any adjacent tree. With
+  a facing direction it could want the tree you are looking at.
