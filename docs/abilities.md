@@ -16,6 +16,8 @@ of `src/engine/abilities.ts` for why. What that means in play:
 
 The companion to this file is [`abilities-deferred.md`](./abilities-deferred.md):
 the 223 that are *not* here, grouped by the one mechanic each is waiting for.
+For the conditions and ladders several of these read and modify, see
+[`status.md`](./status.md).
 
 ---
 

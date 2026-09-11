@@ -48,7 +48,8 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         599 tests, including the replay property everything rests on
+tests/         606 tests, including the replay property everything rests on
+docs/          the four reference pages: status, abilities, items, and what is deferred
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -862,6 +863,23 @@ passed. Fighting the same creature twice from the same save gives the same
 criticals. Damage is integer arithmetic end to end: type effectiveness travels
 in quarters, stage multipliers as numerator/denominator pairs, and nothing
 ever produces a float that could round differently on another machine.
+
+### Every status effect, and its arithmetic
+
+[`docs/status.md`](./docs/status.md) is the page: the five conditions, the nine
+volatiles, both stat ladders and the six screens, each with the exact integer
+arithmetic and where in the damage formula it lands.
+
+It is guarded differently from the other two reference pages, because it fails
+differently. `abilities.md` and `items.md` are lists, and the way a list goes
+wrong is by losing a row — so those are checked by asking whether they name
+everything. This one is a page of arithmetic, and the way it goes wrong is by
+saying an eighth where the engine says a quarter, months after somebody changed
+a constant and had no reason to think a document was reading it. So
+`tests/statusdoc.test.ts` reads the numbers out of `battle.ts` and asserts the
+document is written in terms of them: change `SEED_SHARE` to 6 and the expected
+phrase becomes "maxHp / 6", which the page does not contain, and the test fails
+naming the constant.
 
 ### Status moves, and the 179 that did nothing
 
