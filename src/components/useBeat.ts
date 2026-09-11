@@ -45,6 +45,63 @@ function stillness(): boolean {
 
 const EASE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
 
+/** How long a creature takes to walk on. */
+const ENTRANCE_MS = 380;
+
+/**
+ * Walks a creature on from its own side of the field.
+ *
+ * Creatures used to appear: one frame nothing, the next frame standing there
+ * fully drawn, which is the one moment in a battle where something genuinely
+ * arrives and the screen said nothing about it. Now it comes in from the edge
+ * it belongs to — the foe from the right, where the foe stands, and yours from
+ * the left — so a switch reads as one creature having been sent out rather
+ * than as the plate above it changing its mind about whose it is.
+ *
+ * Keyed on *who is standing there* rather than on the turn, which is the whole
+ * difference between this and `useBeat`: a turn spent switching and a turn
+ * spent attacking are both one turn, and only one of them is an arrival.
+ *
+ * Added before `useBeat` in the component on purpose. Both animate the same
+ * element's transform, and the Web Animations API gives the last-added
+ * animation precedence while they overlap — so a creature sent out into a move
+ * that was already aimed at it flinches rather than finishing its walk, which
+ * is the right way round.
+ */
+export function useEntrance(
+  sprite: RefObject<HTMLElement | null>,
+  /** Changes when a different creature is out. Its uid, and the battle's. */
+  who: string,
+  facing: Facing,
+): void {
+  useEffect(() => {
+    const element = sprite.current;
+    if (!element || typeof element.animate !== "function") return;
+    if (stillness()) return;
+
+    // Percentages of its own width rather than pixels, so the walk is the same
+    // walk whether the sprite is 48 across or 192.
+    //
+    // A hundred and ten percent and no further, with the fade finished well
+    // before the walk is: nothing in the battle clips, so a longer run-up
+    // would have the sprite visibly cross the field's own border and pass over
+    // the party panel beside it. Clipping the field is not the fix — the two
+    // hover panels are anchored below their slots and would go with it.
+    const away = facing === "right" ? -1 : 1;
+    const animation = element.animate(
+      [
+        { transform: `translateX(${away * 110}%)`, opacity: "0" },
+        // Visible from here on, and by here it is all but home.
+        { transform: `translateX(${away * 8}%)`, opacity: "1", offset: 0.55 },
+        { transform: "translateX(0)", opacity: "1" },
+      ],
+      { duration: ENTRANCE_MS, easing: EASE, fill: "none" },
+    );
+
+    return () => animation.cancel();
+  }, [sprite, who, facing]);
+}
+
 export function useBeat(
   sprite: RefObject<HTMLElement | null>,
   flash: RefObject<HTMLElement | null>,

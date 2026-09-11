@@ -438,6 +438,69 @@ function usedItem(turn: Turn, side: SideIndex, kind: AbilityEffect["t"]): void {
   turn.events.push({ t: "item", side, itemId, spent });
 }
 
+/**
+ * The defender's types as *this* attacker sees them.
+ *
+ * One place, because two callers want it: the immunity check and the damage
+ * multiplier, which have to agree or a move announces that it cannot touch
+ * something and then touches it. Scrappy is applied by pretending the target
+ * has no Ghost in it, which is exactly what the ability says.
+ */
+function typesAgainst(
+  attacker: Individual,
+  defender: Individual,
+  move: MoveEntry,
+): readonly string[] {
+  const reaching =
+    has(attacker, "reach") && (move.type === "normal" || move.type === "fighting");
+  const types = speciesById(defender.speciesId).types;
+  return reaching ? types.filter((type) => type !== "ghost") : types;
+}
+
+/**
+ * The ability that drinks this move rather than taking it, or null.
+ *
+ * Absorb and Levitate. Asked before the type chart, because an ability that
+ * grants an immunity the chart does not have is the whole point of it.
+ */
+function drinker(defender: Individual, move: MoveEntry) {
+  if (move.category === "status" || move.id === STRUGGLE) return null;
+  return (
+    abilitiesOf(defender.abilities).find(
+      (spec) =>
+        (spec.effect.t === "absorb" || spec.effect.t === "immune") &&
+        spec.effect.type === move.type,
+    ) ?? null
+  );
+}
+
+/**
+ * How a move lands on what is actually standing there, in quarters.
+ *
+ * Exported because the move buttons draw an arrow from it, and the type chart
+ * alone cannot answer the question. Two things sit either side of it: Scrappy,
+ * which takes the Ghost out of the defender before the chart is consulted, and
+ * the absorb-and-immune abilities, which stop a move the chart has nothing to
+ * say about — a Levitate is not a Flying type. A button asking
+ * `effectiveness` directly would cross out a Scrappy's Tackle against a Gengar
+ * and promise full damage from an Earthquake into a Levitate, which is the UI
+ * holding a second opinion about a question the engine already answers.
+ *
+ * Null when the chart does not apply. A status move has no multiplier, and
+ * Struggle is outside the chart by design so that a creature out of moves
+ * always has a way to end the fight.
+ */
+export function landsAs(
+  attacker: Individual,
+  defender: Individual,
+  moveId: string,
+): number | null {
+  const move = moveById(moveId);
+  if (move.category === "status" || move.id === STRUGGLE) return null;
+  if (drinker(defender, move)) return 0;
+  return effectiveness(move.type, typesAgainst(attacker, defender, move));
+}
+
 /** Multiplying by per-mille, kept in integers like everything else. */
 function scaled(value: number, mille: number): number {
   return Math.floor((value * mille) / 1000);
@@ -1397,15 +1460,10 @@ function damageFor(
   // fight. Four quarters is neutral, which is what "types do not apply" means
   // in this arithmetic.
   const struggling = move.id === STRUGGLE;
-  // Scrappy: Normal and Fighting reach a Ghost. Applied by pretending the
-  // target has no Ghost in it, which is exactly what the ability says.
-  const reaching =
-    has(attacker, "reach") && (move.type === "normal" || move.type === "fighting");
-  const defenderTypes = reaching
-    ? speciesById(defender.speciesId).types.filter((type) => type !== "ghost")
-    : speciesById(defender.speciesId).types;
 
-  const quarters = struggling ? 4 : effectiveness(move.type, defenderTypes);
+  const quarters = struggling
+    ? 4
+    : effectiveness(move.type, typesAgainst(attacker, defender, move));
   if (move.category === "status" || power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
   }
@@ -1593,37 +1651,26 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     return;
   }
 
-  // Absorb and Levitate. Checked before the type chart, because an ability
-  // that grants an immunity the chart does not have is the whole point of it —
-  // and the healing has to happen even though nothing landed.
-  if (!struggling && move.category !== "status") {
-    const drinking = abilitiesOf(defender.abilities).find(
-      (spec) =>
-        (spec.effect.t === "absorb" || spec.effect.t === "immune") &&
-        spec.effect.type === move.type,
-    );
-    if (drinking) {
-      turn.events.push({ t: "ability", side: other(side), abilityId: drinking.id });
-      if (drinking.effect.t === "absorb") {
-        const mended = applyHeal(
-          turn,
-          other(side),
-          Math.max(1, Math.floor(maxHp(defender) / drinking.effect.share)),
-        );
-        if (mended > 0) turn.events.push({ t: "heal", side: other(side), amount: mended });
-      } else {
-        turn.events.push({ t: "immune", side: other(side) });
-      }
-      return;
+  // The healing has to happen even though nothing landed, which is why this
+  // is not folded into `landsAs` — that answers a question, and this one has
+  // a consequence.
+  const drinking = drinker(defender, move);
+  if (drinking) {
+    turn.events.push({ t: "ability", side: other(side), abilityId: drinking.id });
+    if (drinking.effect.t === "absorb") {
+      const mended = applyHeal(
+        turn,
+        other(side),
+        Math.max(1, Math.floor(maxHp(defender) / drinking.effect.share)),
+      );
+      if (mended > 0) turn.events.push({ t: "heal", side: other(side), amount: mended });
+    } else {
+      turn.events.push({ t: "immune", side: other(side) });
     }
+    return;
   }
 
-  const reaching =
-    has(attacker, "reach") && (move.type === "normal" || move.type === "fighting");
-  const defenderTypes = reaching
-    ? speciesById(defender.speciesId).types.filter((type) => type !== "ghost")
-    : speciesById(defender.speciesId).types;
-  const quarters = effectiveness(move.type, defenderTypes);
+  const quarters = effectiveness(move.type, typesAgainst(attacker, defender, move));
   // Struggle is the exception to the type chart. It has to be: a creature out
   // of moves facing something its last resort cannot touch would be stuck in
   // a battle with no way to act and no way to lose.

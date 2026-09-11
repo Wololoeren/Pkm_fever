@@ -80,10 +80,10 @@ export function crispSize(wanted: number): number {
 /**
  * Draws a creature at a given size.
  *
- * Real art when it has arrived, and the generated placeholder until then — so
- * a slow connection shows a creature-shaped thing rather than a hole, and the
- * game still runs with no network at all. Both go through the same variant
- * pipeline, so a tint is a tint either way.
+ * Real art when it has arrived, and a flat shadow of the right shape until
+ * then — so a slow connection shows something standing there rather than a
+ * hole in the layout, and the game still runs with no network at all. The
+ * shadow is deliberately not art: see `render/creature`.
  *
  * The size asked for is snapped to one the art divides into. See CRISP_SIZES.
  */
@@ -123,7 +123,7 @@ export function Sprite({
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
-    const sprite = cachedSprite(speciesId, variantId) ?? creatureSprite(speciesId, variantId);
+    const sprite = cachedSprite(speciesId, variantId) ?? creatureSprite(speciesId);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!sprite) return;
 

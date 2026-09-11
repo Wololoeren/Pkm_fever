@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         559 tests, including the replay property everything rests on
+tests/         571 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -942,6 +942,101 @@ panel that is already there is now the thing you click: it takes a callback,
 says "Send out who?", and withholds reordering and the stat sheet while it is
 choosing, because a click meant to send a creature out should not sometimes open
 a stat screen instead.
+
+### Reading a battle at a glance
+
+Three things on the battle screen answer questions a player has every single
+turn, and all three were answerable only by reading the log or hovering.
+
+**How a move lands.** A green ▲ for double, ▲▲ for quadruple, a red ▼ for
+half, ▼▼ for a quarter, and a red ✕ for nothing at all — and deliberately
+*nothing* for a neutral hit, because four buttons each wearing a badge that
+says "normal" is four badges nobody reads, and then the one that matters is
+just another badge. Silence is what makes the arrow loud. The tooltip already
+said this in words; choosing between four moves is a decision made four times
+a turn, and hovering all four to make it is not a decision, it is a survey.
+
+The number comes from `landsAs` in the engine, exported for exactly this, and
+that matters more than it looks. **The type chart alone cannot answer the
+question.** Two things sit either side of it: Scrappy takes the Ghost out of
+the defender before the chart is consulted, and the absorb-and-immune
+abilities stop a move the chart has nothing to say about — a Levitate is not
+a Flying type. A button asking `effectiveness` directly would cross out a
+Scrappy's Tackle against a Gengar and promise full damage from an Earthquake
+into a Levitate. One predicate, two callers, again: the arrow and the tooltip
+under it read the same number, and the engine is where that number lives.
+Extracting it also collapsed the Scrappy rule, which had been written out
+twice — once for the immunity check and once for the damage multiplier, the
+pair that has to agree or a move announces it cannot touch something and then
+touches it.
+
+**What is happening to a creature.** A burn had shown a "BRN" under the name
+since the first battle screen and nothing else ever did, so a creature two
+Defense stages down, seeded, drowsy and standing behind a Reflect looked
+exactly like one in perfect health. All of it was in the log, once, on the turn
+it happened, and then it scrolled away. `lib/tags.ts` derives a badge per
+condition — `DEF ↓`, `SPE ↑2`, `ACC ↓`, `SEEDED`, `CONFUSED`, `DROWSY`,
+`PERISH 3`, `REFLECT 4` — red for anything that moved against the creature
+wearing it and green for anything that moved for it, so the colour says
+direction rather than whose side it helps: the foe's Attack going up is green
+on the foe's plate and still bad news for you. The five statuses keep the `st-`
+colours they have always had, because they are conditions rather than
+directions.
+
+It reads the `Combatant` rather than the `Individual`, which is where the game
+keeps them — and where a condition is kept is a statement about how long it
+lasts. Stages and volatiles belong to the appearance and go the moment it
+switches out; screens belong to the side and survive it; only `status` belongs
+to the creature and follows it into the box. Three lifetimes, one row, and most
+of the row emptying out on a switch is the explanation.
+
+The screens and the two stat tables are exhaustive `Record`s, so a sixth stat
+ladder cannot be added without the compiler asking what its badge says. The
+volatiles have no such gate, so M9 reads the `Volatiles` interface out of
+`battle.ts` and fails if any field of it has nothing to show — which is the
+Leech Seed lesson written down as a test: it worked, and nothing said so, and
+so it was reported as doing nothing at all.
+
+**And the plate got wider** to hold the row: 200px to 264, with the health bar
+as wide as the plate and a touch taller. At the old width a burned, seeded,
+two-stages-down creature wrapped its badges onto three lines.
+
+### Creatures arrive rather than appear
+
+The placeholder art is now a **silhouette**. It used to be a body, a head,
+ears, a tail and two eyes in the species' own type colours, run through the
+variant transform, from back when there were no real sprites and the ladder of
+eleven appearances had to be visible somehow. The real pipeline shipped, and
+the moment it did that became a liability: every creature arrived as a brightly
+coloured two-ellipse snowman with eyes, held the frame for as long as the
+download took, and then turned into something that looked nothing like it. A
+placeholder that looks like art gets read as art and reported as a bug, which
+is exactly what happened.
+
+The shape is still generated the same way and still seeded on the species id,
+so a long creature and a round one cast different shadows and the same species
+always casts its own. Every pixel of it is one dark colour — #101218 rather
+than black, because the field is a dark gradient and true black reads as a hole
+punched in the panel. The eyes and the belly are gone: a face is the one thing
+you cannot put on a silhouette and still have it stay a silhouette. One
+consequence worth naming — a shadow has no colour, so it has no variant
+either, and the cache is keyed on the species alone. The variant marks beside
+the sprite still say which one it is.
+
+And a creature **walks on** from its own side: the foe in from the right where
+the foe stands, yours in from the left, 380ms, keyed on *who is standing there*
+rather than on the turn. That last part is the whole difference from
+`useBeat` — a turn spent switching and a turn spent attacking are both one
+turn, and only one of them is an arrival. It is added *before* the beat hook on
+purpose: both animate the same transform, the later-added animation wins while
+they overlap, and a creature sent out into a move already aimed at it should
+flinch rather than keep strolling.
+
+A hundred and ten percent of its own width and no further, because nothing on
+the battle screen clips. A longer run-up would have the sprite visibly cross
+the field's border and pass over the party panel beside it, and clipping the
+field is not the fix — both hover panels are anchored below their slots and
+would go with it.
 
 ## Updating the roster
 

@@ -102,6 +102,44 @@ describe("hover panels", () => {
   });
 });
 
+describe("colour as meaning", () => {
+  it("Y5: the classes that carry a meaning by colour alone have a rule", () => {
+    // The move arrows and the badge row say what they say almost entirely
+    // through colour: a green ▲ and a red ▼ are the same glyph turned over,
+    // and "DEF ↓" beside "SPE ↑" is only legible because one of them is red.
+    // Lose the rule and the markup still renders — same text, same layout, in
+    // the body colour — so there is nothing to notice and nothing to report
+    // except that the screen is somehow harder to read than it was.
+    //
+    // Named rather than scraped out of the components on purpose: a test that
+    // collects every className in the app would flag the dozens that are
+    // layout hooks with no styling of their own, and a test that flags
+    // everything gets an exception list instead of a fix.
+    const needed = [
+      // How a move lands on what is out.
+      ".eff",
+      ".eff.up",
+      ".eff.down",
+      ".eff.none",
+      // And everything happening to a creature, under its health bar.
+      ".badgeRow",
+      ".tag.rise",
+      ".tag.fall",
+    ];
+
+    const all = rules();
+    for (const name of needed) {
+      const wanted = classesIn(name);
+      const styled = all.some((rule) =>
+        rule.selector
+          .split(",")
+          .some((one) => [...wanted].every((part) => classesIn(one).has(part))),
+      );
+      expect(styled, `${name} is in the markup and nothing in the stylesheet`).toBe(true);
+    }
+  });
+});
+
 describe("pixel art", () => {
   it("Y3: every sprite is asked for at a size the art divides into", () => {
     // The sprites are 96 pixels square. At the battle's old 148 the

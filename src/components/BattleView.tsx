@@ -1,18 +1,26 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { activeOf, type BattleAction, type BattleState, type SideIndex } from "@/engine/battle";
+import {
+  activeOf,
+  landsAs,
+  type BattleAction,
+  type BattleState,
+  type Combatant,
+  type SideIndex,
+} from "@/engine/battle";
 import { move as moveById, species as speciesById, type MoveEntry } from "@/engine/dex";
 import { displayPower } from "@/engine/moves";
 import { anyPp, ppLeft, maxPp } from "@/engine/pp";
 import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
 import { displayName, narrate } from "@/lib/narrate";
+import { badgesFor } from "@/lib/tags";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, TeamBalls, VariantTag } from "./PartyStrip";
 import { EvolutionScene } from "./EvolutionScene";
 import { beatsFor } from "@/lib/beats";
-import { useBeat } from "./useBeat";
+import { useBeat, useEntrance } from "./useBeat";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
@@ -39,19 +47,64 @@ function powerText(entry: MoveEntry): string {
   return shown === null ? "power varies" : `${shown} pow`;
 }
 
+/**
+ * How this move lands on what is standing opposite, as one glyph.
+ *
+ * The tooltip has said "double damage against what is out" for a while, which
+ * is the right amount of detail and the wrong amount of effort: choosing a
+ * move is a decision you make four times a turn, and hovering four buttons to
+ * find the one that works is not a decision, it is a survey. An arrow is
+ * readable without stopping.
+ *
+ * Nothing for a neutral hit, deliberately. Four buttons each wearing a badge
+ * that says "normal" is four badges nobody reads, and then the one that
+ * matters is just another badge. Silence is what makes the arrow loud.
+ *
+ * Doubled for the extremes, because quadruple and double are genuinely
+ * different answers — one of them ends the fight this turn — and the type
+ * chart produces both often enough to be worth telling apart.
+ */
+function EffectMark({ quarters }: { quarters: number | null }) {
+  if (quarters === null || quarters === 4) return null;
+
+  const [glyph, cls, title] =
+    quarters === 0
+      ? ["✕", "eff none", "No effect at all on what is out"]
+      : quarters >= 16
+        ? ["▲▲", "eff up", "Quadruple damage against what is out"]
+        : quarters >= 8
+          ? ["▲", "eff up", "Double damage against what is out"]
+          : quarters === 2
+            ? ["▼", "eff down", "Half damage against what is out"]
+            : ["▼▼", "eff down", "A quarter damage against what is out"];
+
+  return (
+    <span className={cls} title={title} aria-label={title}>
+      {glyph}
+    </span>
+  );
+}
+
 function Nameplate({
   creature,
-  team,
-  active,
+  side,
   right,
 }: {
   creature: Individual;
-  /** Everything this side can still send out, for the row of balls. */
-  team: readonly Individual[];
-  active: number;
+  /**
+   * The whole side rather than just the creature.
+   *
+   * Most of what is happening to it is kept on the side and not on the animal
+   * — stat stages, screens, everything volatile — because that is how long
+   * those things last. The badge row is the one place in the game that shows
+   * all of it at once, so this is the one component that needs all of it.
+   */
+  side: Combatant;
   right?: boolean;
 }) {
   const stats = computeStats(speciesById(creature.speciesId), creature);
+  const badges = badgesFor(side, creature);
+
   return (
     <div className={`plate${right ? " right" : ""}`}>
       <div className="plateTop">
@@ -60,15 +113,27 @@ function Nameplate({
         </strong>
         <span className="muted">Lv{creature.level}</span>
       </div>
-      <TeamBalls team={team} active={active} />
+      <TeamBalls team={side.team} active={side.active} />
       <HpBar creature={creature} />
       <div className="plateFoot">
         <span className="muted">
           {creature.hp}/{stats.hp}
         </span>
-        {creature.status ? <span className={`tag st-${creature.status}`}>{creature.status.toUpperCase()}</span> : null}
         <VariantTag variantId={creature.variantId} />
       </div>
+      {/* Its own row rather than in the foot, and absent when there is
+          nothing in it. A creature in perfect health has the plate it always
+          had; one that is seeded, drowsy and two stages down grows a row
+          instead of squeezing the numbers beside it. */}
+      {badges.length ? (
+        <div className="badgeRow">
+          {badges.map((badge) => (
+            <span key={badge.key} className={`tag ${badge.cls}`} title={badge.title}>
+              {badge.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -140,12 +205,18 @@ export function BattleView({
   const foe = activeOf(battle, them);
   const mustSwitch = battle.awaitingSwitch[role];
   const ourTeam = battle.sides[role].team;
-  const theirTeam = battle.sides[them].team;
   const wildBattle = balls !== undefined;
 
   // The foe stands top-right and lunges left; we stand bottom-left and lunge
   // right. Handed in rather than read off a class, because the direction is
   // the one thing about the animation the layout decides.
+  //
+  // Walking on comes first so that being hit comes second: they animate the
+  // same transform, and the later animation wins while the two overlap. A
+  // creature sent out into a move already aimed at it should flinch rather
+  // than keep strolling.
+  useEntrance(foeSprite, `${battle.tag}:${foe.uid}`, "left");
+  useEntrance(mySprite, `${battle.tag}:${player.uid}`, "right");
   useBeat(foeSprite, foeFlash, beats[them], battle.turn, "left");
   useBeat(mySprite, myFlash, beats[role], battle.turn, "right");
 
@@ -183,6 +254,9 @@ export function BattleView({
               {player.moves.map((moveId, index) => {
                 const entry = moveById(moveId);
                 const left = ppLeft(player, index);
+                // Asked once and handed to both the arrow and the tooltip
+                // under it, so the two cannot disagree about the same move.
+                const lands = landsAs(player, foe, moveId);
                 return (
                   <button
                     key={moveId}
@@ -198,7 +272,10 @@ export function BattleView({
                     <span className="moveKey" aria-hidden="true">
                       {index + 1}
                     </span>
-                    <span className="moveName">{entry.name}</span>
+                    <span className="moveHead">
+                      <span className="moveName">{entry.name}</span>
+                      <EffectMark quarters={lands} />
+                    </span>
                     <span className="moveMeta">
                       {entry.type} · {powerText(entry)}
                     </span>
@@ -209,7 +286,7 @@ export function BattleView({
                     </span>
                     {/* The rest of it, including how it lands on whatever is
                         actually standing there. */}
-                    <MoveNote moveId={moveId} against={speciesById(foe.speciesId).types} />
+                    <MoveNote moveId={moveId} lands={lands} />
                   </button>
                 );
               })}
@@ -296,7 +373,7 @@ export function BattleView({
                 large and four times as obvious. Small and sharp beats
                 big and soft. */}
             <div className="slot wild hoverable" tabIndex={0}>
-              <Nameplate creature={foe} team={theirTeam} active={battle.sides[them].active} />
+              <Nameplate creature={foe} side={battle.sides[them]} />
               {/* The sprite is wrapped rather than animated directly so the
                   nameplate and the hover panel hold still while it moves — a
                   shaking health bar is unreadable. */}
@@ -311,7 +388,7 @@ export function BattleView({
                 <Sprite speciesId={player.speciesId} variantId={player.variantId} size={96} flip faint={player.hp <= 0} />
                 <span className="flash" ref={myFlash} aria-hidden="true" />
               </span>
-              <Nameplate creature={player} team={ourTeam} active={battle.sides[role].active} right />
+              <Nameplate creature={player} side={battle.sides[role]} right />
               <StatHover creature={player} />
             </div>
           </div>

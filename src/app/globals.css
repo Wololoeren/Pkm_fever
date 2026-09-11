@@ -325,12 +325,21 @@ button.ghost { background: transparent; }
   .flash { display: none; }
 }
 
+/*
+ * Wider than it was, because the health bar is as wide as the plate and the
+ * plate now has a row of badges under it. At 200px a creature that was burned,
+ * two stages down and seeded wrapped its badges onto three lines and pushed
+ * the bar up; 264 fits four of them across, which covers nearly every turn.
+ * The bar got longer for free, and a longer bar is a bar you can read a
+ * fifteen-percent change on.
+ */
 .plate {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 9px 12px;
-  min-width: 200px;
+  min-width: 264px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -341,12 +350,14 @@ button.ghost { background: transparent; }
   gap: 8px;
   justify-content: space-between;
 }
-.plateFoot, .cardFoot { justify-content: flex-start; }
+.plateFoot, .cardFoot { justify-content: flex-start; flex-wrap: wrap; }
 
+/* A touch taller along with the extra width, so the two keep their
+   proportions and the low-health red is still a shape rather than a line. */
 .hpTrack {
   background: #0e1215;
   border-radius: 999px;
-  height: 7px;
+  height: 9px;
   overflow: hidden;
 }
 .hp { background: var(--good); height: 100%; border-radius: 999px; transition: width 180ms ease; }
@@ -498,7 +509,29 @@ button.ghost { background: transparent; }
   padding: 9px 34px 9px 12px;
   text-align: left;
 }
+/* The name and how it lands, on one line. */
+.moveHead { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .moveName { font-weight: 600; }
+
+/*
+ * How a move lands on what is out.
+ *
+ * Bigger than the text beside it on purpose: this is the one thing on the
+ * button that changes depending on what you are looking at, and it has to win
+ * against a name, a type, a power and a PP count. Nothing at all is drawn for
+ * a neutral hit, so the arrow only ever appears when it has something to say.
+ */
+.eff {
+  font-size: 0.8rem;
+  line-height: 1;
+  letter-spacing: -0.15em;
+  font-weight: 700;
+}
+.eff.up { color: var(--good); }
+.eff.down { color: var(--danger); }
+/* The cross is not an arrow and should not read as one: it is the case where
+   pressing the button wastes the turn entirely. */
+.eff.none { color: var(--danger); font-size: 0.9rem; letter-spacing: 0; }
 .moveMeta { color: var(--muted); font-size: 0.75rem; text-transform: capitalize; }
 
 /* ------------------------------------------------------------------ party */
@@ -563,6 +596,24 @@ button.card:hover:not(:disabled) { border-color: var(--accent); }
 .tag.tint   { background: #2c3a34; border-color: #3f5a4d; color: #9fd8bf; }
 .tag.chroma { background: #3a2c3e; border-color: #5a3f5f; color: #d8a8e0; }
 .tag.shiny  { background: #443722; border-color: #7a6231; color: #f0cd76; }
+
+/*
+ * Everything happening to a creature, under its health bar.
+ *
+ * Wraps, because there is no bound on how many of these there can be at once
+ * — five stat ladders, two aim ladders, eight volatiles and six screens — and
+ * a row that cannot wrap would push the badges off the side of the plate
+ * rather than onto a second line. Mirrored on the player's plate for the same
+ * reason the ball row is: that plate is read from its right edge.
+ */
+.badgeRow { display: flex; flex-wrap: wrap; gap: 4px; }
+.plate.right .badgeRow { justify-content: flex-end; }
+
+/* Which way it moved, for whoever is wearing it. Green on the foe's plate
+   when the foe's Attack goes up, which is bad news for you and still an
+   increase — the colour says direction, not whose side it helps. */
+.tag.rise { color: var(--good); border-color: #3f6b46; }
+.tag.fall { color: var(--danger); border-color: #6b3630; }
 
 .tag.st-brn { color: #e8956a; border-color: #6b432c; }
 .tag.st-psn { color: #c98ad8; border-color: #573463; }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { effectiveness, move as moveById } from "@/engine/dex";
+import { move as moveById } from "@/engine/dex";
 import { displayPower } from "@/engine/moves";
 import { typeColor } from "@/render/palette";
 
@@ -15,8 +15,12 @@ import { typeColor } from "@/render/palette";
  * way always.
  *
  * When there is something across from you it also says how the move lands
- * against it. That is the one fact here the move alone cannot tell you, and
- * the type chart is right there.
+ * against it. That is the one fact here the move alone cannot tell you — and
+ * it is handed in rather than worked out, because the type chart is not the
+ * whole answer: a Scrappy reaches a Ghost and a Levitate turns aside an
+ * Earthquake the chart says nothing about. `landsAs` in the engine knows all
+ * three, the button's arrow reads the same number, and so the tooltip and the
+ * arrow above it cannot come apart.
  *
  * It is placed rather than anchored, and that is not a style choice. The stat
  * screen's move list is a scroll box, and a scroll box clips what hangs out of
@@ -67,9 +71,15 @@ function effectText(quarters: number): string {
   return "a quarter damage";
 }
 
-export function MoveNote({ moveId, against }: { moveId: string; against?: readonly string[] }) {
+export function MoveNote({
+  moveId,
+  /** Quarters, from the engine. Null wherever there is nothing to land on. */
+  lands = null,
+}: {
+  moveId: string;
+  lands?: number | null;
+}) {
   const entry = moveById(moveId);
-  const lands = against && entry.category !== "status" ? effectiveness(entry.type, against) : null;
   const note = useRef<HTMLSpanElement>(null);
 
   // Above the row where there is room for it, below where there is not, and
