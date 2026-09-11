@@ -15,6 +15,14 @@ import { BIOME_IDS } from "./biomes";
  * differently. Saves record it; a save from a different version replays under
  * that version's rules or is refused, never silently reinterpreted.
  *
+ * 23 is multi-strike. Thirty-one moves that landed once now land two to five
+ * times, three of them roll accuracy for every blow, and five always crit — so
+ * a recorded battle with a Fury Swipes in it resolves differently, and one
+ * with a Frost Breath in it resolves differently even where the count has not
+ * changed. The per-blow rolls are suffixed tags, so the *first* blow of
+ * everything rolls exactly what it always rolled; that is what keeps the
+ * change to the thirty-one rather than to every move in the game.
+ *
  * 22 is the Grey Line. Nothing about the *rules* changed — but people are
  * solid, and twenty-four new ones standing on the map move the tiles every
  * other person was placed on and block ground that used to be open, so a
@@ -23,7 +31,7 @@ import { BIOME_IDS } from "./biomes";
  * is for: without the bump an old save falls through the corrupt-log path and
  * quietly starts a new game, which is the silent reinterpretation the comment
  * above promises never happens. Adding anybody to the roster is a bump. */
-export const ENGINE_VERSION = 22;
+export const ENGINE_VERSION = 23;
 
 // ------------------------------------------------------------------ stats
 

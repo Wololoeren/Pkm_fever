@@ -11,7 +11,7 @@ import { awardExp, expYield } from "./progression";
 import { abilitiesOf, effectApplies, type AbilityEffect } from "./abilities";
 import { heldEffects, isConsumedOnUse } from "./carry";
 import { canStillEvolve } from "./progression";
-import { hasVariableDamage, variableDamage, type DamageContext } from "./moves";
+import { hasVariableDamage, powerOfBlow, variableDamage, type DamageContext } from "./moves";
 import {
   extraEffects,
   type AimStat,
@@ -188,6 +188,17 @@ export type BattleEvent =
   | { t: "screen"; side: SideIndex; which: SideConditionId }
   /** A screen, a shield or a trap said no. */
   | { t: "shielded"; side: SideIndex }
+  /**
+   * How many times a multi-strike move landed.
+   *
+   * Said once at the end rather than folded into the blows, because each blow
+   * already has its own `damage` event and needs one: they roll their own crit
+   * and their own spread, so three hits are three different numbers and a log
+   * that added them up would be hiding the interesting part. This is the
+   * summary on top — "Hit 3 times!" — and it is only emitted when there was
+   * more than one, so nothing in the log ever says a move hit once.
+   */
+  | { t: "hits"; side: SideIndex; count: number }
   /** Perish Song's count, spoken once per turn per side. */
   | { t: "perish"; side: SideIndex; turns: number }
   /** Ditto, mid-battle. */
@@ -520,6 +531,42 @@ function statusSticks(target: Individual, status: StatusId): boolean {
 
 /** One in this many, by the move's crit ratio. */
 const CRIT_ODDS = [24, 8, 2, 1];
+
+/**
+ * How many times this move lands.
+ *
+ * The manifest says either a fixed number — Double Kick twice, Surging
+ * Strikes three times, Population Bomb ten — or a range, which in practice is
+ * always two to five, and the two are the same field so this reads one shape.
+ *
+ * The range is not uniform, and the shape of it is the whole character of the
+ * move: **three eighths two, three eighths three, one eighth four, one eighth
+ * five**. That is the classic distribution, and eighths are used rather than
+ * the later games' 35/35/15/15 for one reason worth stating — eighths divide
+ * exactly into a single roll of eight, and this codebase does not have a
+ * rounding step to spare. It averages three hits and a bit, so Fury Swipes at
+ * 18 power is a little over 54, which is where a move of that shape should
+ * sit.
+ *
+ * The roll is named like every other, so a battle stays a pure function of its
+ * seed. A wider range than two-to-five would need more of the die; nothing in
+ * the manifest has one, and a move that did would fall back to its floor
+ * rather than silently mis-rolling.
+ */
+function hitsOf(turn: Turn, side: SideIndex, move: MoveEntry): number {
+  const range = move.multihit;
+  if (!range) return 1;
+
+  const [least, most] = range;
+  if (most <= least) return Math.max(1, least);
+  if (most - least !== 3) return Math.max(1, least);
+
+  const die = intBelow(
+    rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-hits`),
+    8,
+  );
+  return least + (die < 3 ? 0 : die < 6 ? 1 : die < 7 ? 2 : 3);
+}
 
 /** Types that simply cannot catch a given condition. */
 const STATUS_IMMUNE: Record<StatusId, string[]> = {
@@ -1449,7 +1496,19 @@ function damageFor(
   side: SideIndex,
   move: MoveEntry,
   power: number,
+  /**
+   * Which blow of a multi-strike this is, folded into the two rolls that make
+   * one blow differ from another.
+   *
+   * Without it every hit of a Fury Swipes is the same number with the same
+   * crit, which reads as the screen repeating itself rather than as five
+   * separate blows. The first blow keeps the bare tag — deliberately, because
+   * that is what every single-hit move in the game already rolls against, and
+   * a suffix on all of them would have re-rolled every battle in every save.
+   */
+  blow = 0,
 ): { amount: number; quarters: number; crit: boolean } {
+  const at = blow === 0 ? "" : `-${blow}`;
   const attacker = active(turn, side);
   const defender = active(turn, other(side));
 
@@ -1493,14 +1552,19 @@ function damageFor(
   const luck = effects(attacker, "luck").reduce((sum, effect) => sum + effect.stages, 0);
   const ratio = move.critRatio + luck + (volatiles(turn, side).crit ?? 0);
   const odds = CRIT_ODDS[Math.max(0, Math.min(CRIT_ODDS.length - 1, ratio - 1))];
-  // Lucky Chant: no critical hits against this side at all.
+  // Lucky Chant: no critical hits against this side at all — including the
+  // five that always crit, because a chant that the five strongest crits in
+  // the game walked through would be a chant that protects against nothing
+  // anybody uses it for.
   const crit =
     !screened(turn, other(side), "luckychant") &&
-    intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-crit`), odds) === 0;
+    (move.alwaysCrit ||
+      intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-crit${at}`), odds) ===
+        0);
   if (crit) value = Math.floor((value * 3) / 2);
 
   // 85..100, the damage roll every one of these games has.
-  const spread = 85 + intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-roll`), 16);
+  const spread = 85 + intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-roll${at}`), 16);
   value = Math.floor((value * spread) / 100);
 
   const attackerTypes: readonly string[] = speciesById(attacker.speciesId).types;
@@ -1740,8 +1804,50 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
         turn.events.push({ t: "recoil", side, amount: spent.hp });
       }
     } else if (variable.power > 0) {
-      const result = damageFor(turn, side, move, variable.power);
-      dealt = landDamage(turn, side, move, result.amount, result.quarters, result.crit);
+      // Once for nearly everything, and two to five times for the
+      // thirty-one moves the manifest says otherwise about.
+      //
+      // The loop is here rather than around the whole move on purpose. Each
+      // blow rolls its own damage, its own crit and its own type multiplier,
+      // which is what makes five of them read as five; but the accuracy check
+      // above happens once for the move, and everything below — drain,
+      // recoil, a Life Orb's cut, the secondary effect — happens once for the
+      // move as well, off the *total*. Draining a fifth of each blow
+      // separately and rounding five times is not the same number.
+      const swings = hitsOf(turn, side, move);
+      let landed = 0;
+
+      for (let blow = 0; blow < swings; blow++) {
+        // Nothing swings at something already down. A five-hit move that
+        // knocked the target out on its second blow would otherwise go on
+        // hitting a fainted creature three more times, and the log would say
+        // so.
+        if (isFainted(active(turn, other(side)))) break;
+
+        // Triple Kick, Triple Axel and Population Bomb roll again for every
+        // blow and stop at the first one that misses. The check above was the
+        // first blow's; this is the rest of them, against the same odds,
+        // because everything that went into `accuracy` is a fact about the
+        // turn rather than about the blow.
+        if (blow > 0 && move.multiaccuracy && !unmissable && accuracy > 0) {
+          if (!chance(turn, `${side}-acc-${blow}`, accuracy)) break;
+        }
+
+        const result = damageFor(
+          turn,
+          side,
+          move,
+          powerOfBlow(move, variable.power, blow),
+          blow,
+        );
+        dealt += landDamage(turn, side, move, result.amount, result.quarters, result.crit);
+        landed++;
+      }
+
+      // Said for every multi-strike move, even the one that landed once,
+      // because for these thirty-one "how many" is the interesting half of
+      // what happened and a silent single hit reads as an ordinary blow.
+      if (move.multihit && landed > 0) turn.events.push({ t: "hits", side, count: landed });
     }
   }
 

@@ -334,6 +334,25 @@ export function variableDamage(move: MoveEntry, ctx: DamageContext): Damage {
  * the ones that do get theirs from here and the ones that do not say nothing
  * at all — one place, so the button and the damage cannot disagree.
  */
+/**
+ * Two moves whose blows get harder as they land.
+ *
+ * Triple Kick is 10, 20, 30 and Triple Axel is 20, 40, 60 — the manifest can
+ * only say "power 10, three times", which is a third of the move. Showdown
+ * computes it in a `basePowerCallback`, which is the same reason the
+ * thirty-nine formulas above are here rather than in the data, so this is the
+ * same answer in the same place.
+ *
+ * Both are `base * (blow + 1)`, which is not a coincidence worth flattening
+ * into a table of six numbers: it is the rule the pair share, and a table
+ * would hide it.
+ */
+const RISING = new Set(["triplekick", "tripleaxel"]);
+
+export function powerOfBlow(move: MoveEntry, power: number, blow: number): number {
+  return RISING.has(move.id) ? power * (blow + 1) : power;
+}
+
 export function displayPower(move: MoveEntry): number | null {
   if (move.category === "status") return null;
   if (move.power > 0) return move.power;

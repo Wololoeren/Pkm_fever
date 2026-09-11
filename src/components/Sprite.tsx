@@ -93,12 +93,25 @@ export function Sprite({
   size = 96,
   flip = false,
   faint = false,
+  marks = true,
 }: {
   speciesId: string;
   variantId: string;
   size?: number;
   flip?: boolean;
   faint?: boolean;
+  /**
+   * Whether to put the star and the colour letter on it.
+   *
+   * On everywhere by default, because everywhere else the sprite is one of
+   * many and the badges are how you pick the interesting one out of a list.
+   * Off for the evolution reveal, which is the one place the sprite is not in
+   * a list: it is alone, in the middle of the screen, with nothing to be
+   * picked out from and twenty seconds of build-up behind it. A badge there is
+   * an interface element in the middle of the only moment this game asks you
+   * to just look at something.
+   */
+  marks?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [, setLoaded] = useState(0);
@@ -141,7 +154,7 @@ export function Sprite({
   return (
     <span className="spriteWrap" style={{ width: drawn, height: drawn }} title={variantSummary(variantId)}>
       <canvas ref={ref} width={drawn} height={drawn} style={{ width: drawn, height: drawn }} />
-      <VariantMark variantId={variantId} size={drawn} />
+      {marks ? <VariantMark variantId={variantId} size={drawn} /> : null}
     </span>
   );
 }

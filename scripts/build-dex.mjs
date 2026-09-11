@@ -281,6 +281,26 @@ function boostsOf(raw) {
   return Object.keys(out).length ? out : null;
 }
 
+/**
+ * How many times a move lands, as a fixed count or an inclusive range.
+ *
+ * Showdown holds this as a plain data field — `2` for Double Kick, `[2, 5]`
+ * for Fury Swipes — so unlike the thirty-nine formulas in `moves.ts` this is
+ * something the manifest *can* say, and the manifest is therefore where it
+ * belongs. It was simply not being copied across, which is why Fury Swipes
+ * spent a turn landing exactly once.
+ *
+ * Normalised to a pair so the engine has one shape to read rather than two.
+ * Null for the seven hundred and eighty-nine moves that hit once, because
+ * absent is how everything optional in these files says "nothing to see".
+ */
+function multihitOf(move) {
+  const raw = move.multihit;
+  if (raw === undefined || raw === null) return null;
+  if (Array.isArray(raw)) return [raw[0], raw[raw.length - 1]];
+  return [raw, raw];
+}
+
 /** Showdown models a secondary as a chance plus whatever it inflicts. Only
  * the parts the battle system understands are carried across, so a move never
  * claims an effect the engine will silently drop. */
@@ -353,6 +373,21 @@ const moves = [...usedMoves]
     drain: move.drain ?? null,
     recoil: move.recoil ?? null,
     heal: move.heal ?? null,
+    multihit: multihitOf(move),
+    /**
+     * Three moves check accuracy again for every blow rather than once for
+     * the move: Triple Kick, Triple Axel and Population Bomb. Data, not
+     * script, and without it a ten-hit move at ninety percent lands all ten
+     * every single time — two hundred base power for ten power points.
+     */
+    multiaccuracy: Boolean(move.multiaccuracy),
+    /**
+     * Five moves always land a critical hit: Frost Breath, Storm Throw,
+     * Wicked Blow, Flower Trick and Surging Strikes. `willCrit` upstream,
+     * renamed here because this manifest says what is true rather than what
+     * is about to happen.
+     */
+    alwaysCrit: Boolean(move.willCrit),
   }))
   .sort((a, b) => (a.id < b.id ? -1 : 1));
 

@@ -150,8 +150,14 @@ export function EvolutionScene({
               blows it white, both through a filter on the whole
               `.evolveSprite`, so the colour and the variant marks are hidden
               until the reveal for free. The reveal is the one frame that shows
-              the creature as it actually is, which is the whole point of it. */}
-          <Sprite speciesId={shown.id} variantId={variantId} size={96} />
+              the creature as it actually is, which is the whole point of it.
+
+              The badges are off, though. Everywhere else they are how you pick
+              the interesting creature out of a list of six; here there is no
+              list, and a star in the corner of the one moment the game asks
+              you to just look at something is an interface element standing in
+              front of it. The colours already say which one it is. */}
+          <Sprite speciesId={shown.id} variantId={variantId} size={96} marks={false} />
         </div>
       </div>
 

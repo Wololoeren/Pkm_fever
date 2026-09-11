@@ -41,10 +41,19 @@ import { Sprite } from "./Sprite";
  * is computed from the battle — so printing `move.power` showed "0 pow" and
  * read as a bug. The ones with an honest stand-in show it; the rest say so.
  */
-function powerText(entry: MoveEntry): string {
+export function powerText(entry: MoveEntry): string {
   if (entry.category === "status") return "status";
   const shown = displayPower(entry);
-  return shown === null ? "power varies" : `${shown} pow`;
+  if (shown === null) return "power varies";
+
+  // Thirty-one moves land more than once, and the manifest's power is one
+  // blow's worth. Printed bare it makes Fury Swipes look like the worst move
+  // in the game at 18, when three blows of it is a little over fifty.
+  const hits = entry.multihit;
+  if (!hits) return `${shown} pow`;
+  return hits[0] === hits[1]
+    ? `${shown} pow ×${hits[0]}`
+    : `${shown} pow ×${hits[0]}–${hits[1]}`;
 }
 
 /**

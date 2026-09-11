@@ -1657,6 +1657,8 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
   }
 
   let next: Individual = target;
+  /** What a candy grew it into, if it grew into anything. */
+  let became: string | null = null;
 
   if (spec.revives) {
     next = { ...next, hp: Math.max(1, Math.floor(max / spec.revives)), status: null, sleepTurns: 0 };
@@ -1668,6 +1670,7 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
     // the point it should have changed and leave it exactly as it was.
     const want = Math.min(MAX_LEVEL, next.level + spec.levels);
     const growth = awardExp(next, Math.max(0, expForLevel(want) - next.exp));
+    became = growth.evolvedTo;
     next = atFullHealth(growth.individual);
     offered = growth.movesOffered.map((moveId) => ({ uid: next.uid, moveId }));
   } else {
@@ -1683,7 +1686,23 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
     party,
     bag: removeItem(state.bag, itemId),
     pendingMoves: withOffers(state, offered),
-    notice: { t: "used", item: itemId, on: speciesById(next.speciesId).name },
+    /*
+     * A candy that grew it into something else says so, and gets the reveal.
+     *
+     * `awardExp` has always evolved on a candy — the level path is the same
+     * one a battle uses, deliberately — but the notice said "Used the Rare
+     * Candy on Gloom" and stopped there, so the one road to an evolution in
+     * this game that said nothing about it was the one where you had gone to
+     * a shop and paid for it. A stone gets twenty seconds; a candy doing the
+     * same thing was a line of small text naming the wrong species.
+     *
+     * The `from` is `target`, before growth, because by here `next` has
+     * already changed — the same reason the battle event and the stone's
+     * notice both carry two names.
+     */
+    notice: became
+      ? { t: "evolved", from: target.speciesId, to: became, uid: next.uid }
+      : { t: "used", item: itemId, on: speciesById(next.speciesId).name },
   };
 }
 

@@ -140,6 +140,18 @@ export function MoveNote({
               ? "Power depends on the battle"
               : `${displayPower(entry)} power`}
         </span>
+        {/* Per blow, for the thirty-one that land more than once — the power
+            beside it is one hit's worth, which reads as a feeble move until
+            you know that. */}
+        {entry.multihit ? (
+          <span>
+            {entry.multihit[0] === entry.multihit[1]
+              ? `Hits ${entry.multihit[0]} times`
+              : `Hits ${entry.multihit[0]} to ${entry.multihit[1]} times`}
+            {entry.multiaccuracy ? ", each rolled to miss" : ""}
+          </span>
+        ) : null}
+        {entry.alwaysCrit ? <span>Always a critical hit</span> : null}
         <span>{entry.accuracy === 0 ? "Never misses" : `${entry.accuracy}% accurate`}</span>
         <span>{entry.pp} PP</span>
         {entry.priority !== 0 ? (

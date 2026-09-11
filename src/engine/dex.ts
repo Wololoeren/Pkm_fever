@@ -48,6 +48,34 @@ export interface MoveEntry {
   recoil: [number, number] | null;
   /** [numerator, denominator] of max HP restored. */
   heal: [number, number] | null;
+  /**
+   * How many times it lands: [least, most], inclusive, or null for once.
+   *
+   * A fixed count comes through as a pair with both halves equal, so the
+   * engine reads one shape rather than two — Double Kick is `[2, 2]` and Fury
+   * Swipes is `[2, 5]`. Null rather than `[1, 1]` for the other seven hundred
+   * and eighty-nine, because absent is how everything optional in this
+   * manifest says "nothing to see", and a field that said `[1, 1]` on every
+   * row would be a field nobody reads.
+   */
+  multihit: [number, number] | null;
+  /**
+   * Whether accuracy is checked again for every blow rather than once.
+   *
+   * Three moves: Triple Kick, Triple Axel and Population Bomb. It is what
+   * stops a ten-hit move at ninety percent accuracy from being two hundred
+   * base power every single time — the chance of all ten landing is 0.9^10,
+   * which is about one swing in three.
+   */
+  multiaccuracy: boolean;
+  /**
+   * Whether it always lands a critical hit.
+   *
+   * Five moves: Frost Breath, Storm Throw, Wicked Blow, Flower Trick and
+   * Surging Strikes. Their whole identity, and until this field existed they
+   * critted one time in twenty-four like anything else.
+   */
+  alwaysCrit: boolean;
 }
 
 export const ALL_SPECIES = speciesData as unknown as SpeciesEntry[];

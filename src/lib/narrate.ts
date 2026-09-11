@@ -115,6 +115,12 @@ export function narrate(
         lines.push(`${nameOf(event.side)} took ${event.amount}.${crit}${effectivenessText(event.quarters)}`);
         break;
       }
+      // After the blows rather than before them, which is the order they
+      // happened in: five numbers and then the count that explains why there
+      // were five. `side` is the attacker here, unlike `damage`.
+      case "hits":
+        lines.push(event.count === 1 ? "It hit once." : `It hit ${event.count} times!`);
+        break;
       case "status":
         lines.push(`${nameOf(event.side)} ${STATUS_TEXT[event.status] ?? "was afflicted"}!`);
         break;

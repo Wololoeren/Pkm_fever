@@ -119,6 +119,33 @@ describe("the stones", () => {
     expect(() => applyInput(world, state, { t: "useItem", item: "stone-firestone", index: 0 })).toThrow();
   });
 
+  it("K2b: a candy that grows it into something says so, and the rest do not", () => {
+    // The other road to an evolution, and the one that said nothing about it.
+    // `awardExp` has always evolved on a Rare Candy — the level path is the
+    // same one a battle uses, deliberately — but the notice read "Used the
+    // Rare Candy on Metapod" and stopped, naming the creature it had already
+    // become. So the one evolution in this game you had gone to a shop and
+    // paid for was the one that got no reveal.
+    const { world, state } = carrying("caterpie", { rarecandy: 2 }, { level: 6 });
+    const grown = applyInput(world, state, { t: "useItem", item: "rarecandy", index: 0 });
+
+    expect(grown.party[0].speciesId).toBe("metapod");
+    expect(grown.notice).toEqual({
+      t: "evolved",
+      from: "caterpie",
+      to: "metapod",
+      uid: state.party[0].uid,
+    });
+
+    // `from` is what it was, not what it is. By the time anything reads this
+    // the creature has already changed, which is why both names are carried
+    // here exactly as they are on the battle's event and the stone's notice.
+    const again = applyInput(world, grown, { t: "useItem", item: "rarecandy", index: 0 });
+    expect(again.party[0].level).toBe(8);
+    // A level that changes nothing is still a level, and says so the old way.
+    expect(again.notice).toEqual({ t: "used", item: "rarecandy", on: "Metapod" });
+  });
+
   it("K3: a stone keeps the proportion of health, not the number", () => {
     // The same rule levelling into an evolution follows: a Magikarp on its
     // last legs comes out of it a Gyarados on its last legs. A stone that

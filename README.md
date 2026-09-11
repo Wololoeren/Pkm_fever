@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         583 tests, including the replay property everything rests on
+tests/         599 tests, including the replay property everything rests on
 ```
 
 Working: world generation and the census, the overworld — a town you walk
@@ -1069,6 +1069,69 @@ so it was reported as doing nothing at all.
 as wide as the plate and a touch taller. At the old width a burned, seeded,
 two-stages-down creature wrapped its badges onto three lines.
 
+### The thirty-one moves that land more than once
+
+Fury Swipes is 18 power, which is the worst number on any move button in the
+game and is *meant* to be: it is 18 power five times over. It was landing once.
+
+The cause is worth naming because it is a different one from the status moves
+above. Those are script — Showdown computes them in callbacks the manifest
+cannot hold, which is why `statusmoves.ts` exists. **This was plain data the
+build script simply was not copying.** `multihit: [2, 5]` sits in the dex
+beside `power` and `accuracy`; `scripts/build-dex.mjs` listed fourteen fields
+and this was not one of them. Regenerating with it added the field to 31 moves
+and changed **nothing else in any of the six data files** — which is what the
+script's "byte-identical on a rebuild" property is for.
+
+Two more fields came with it, both data and both missing for the same reason.
+`multiaccuracy` (Triple Kick, Triple Axel, Population Bomb) rolls accuracy
+again for every blow; without it a ten-hit move at ninety percent is two
+hundred base power for ten power points, every time. `alwaysCrit` (Frost
+Breath, Storm Throw, Wicked Blow, Flower Trick, Surging Strikes) is those five
+moves' entire identity, and they had been critting one time in twenty-four
+like anything else.
+
+**356 of 1134 species learn at least one**, across 438 learnset slots.
+
+The range is three eighths two, three eighths three, one eighth four, one
+eighth five — the classic distribution, and eighths rather than the later
+games' 35/35/15/15 because eighths divide exactly into one roll of eight and
+this codebase has no rounding step to spare. It averages exactly three, so
+Fury Swipes is a little over fifty and lands where a move of that shape
+should.
+
+What makes five blows read as five rather than as one blow times five:
+
+- **Each rolls its own damage and its own crit.** The roll tags are suffixed
+  per blow — and the *first* blow keeps the bare tag, deliberately, because
+  that is what every single-hit move in the game already rolls against. A
+  suffix on all of them would have re-rolled every battle in every save.
+- **The sequence stops when the target goes down.** Otherwise three more blows
+  land on a fainted creature and the log says so three more times.
+- **Everything downstream reads the total.** Drain, recoil and a Life Orb's cut
+  are outside the loop, because draining a fifth of each blow separately and
+  rounding five times is not the same number.
+- **The log says how many.** "It hit 3 times!", after the blows rather than
+  before them, and said even when only one landed — for these thirty-one, how
+  many is the interesting half of what happened.
+- **The button says so too.** `18 pow ×2–5`, because the manifest's power is
+  one blow's worth and printed bare it is a lie by omission.
+
+The one thing the manifest genuinely cannot say is Triple Kick's rising power
+— 10, 20, 30, and Triple Axel's 20, 40, 60. That is a `basePowerCallback`
+upstream, so it lives in `moves.ts` beside the other thirty-nine formulas, as
+`base * (blow + 1)`: the rule the pair share rather than a table of six
+numbers.
+
+`ENGINE_VERSION` 22 → 23. A recorded battle with a Fury Swipes in it resolves
+differently now, and so does one with a Frost Breath.
+
+**Still missing, and measured while in there:** seventeen moves carry a
+`self.boosts` drawback the manifest also drops — Close Combat, Superpower,
+Overheat, Draco Meteor, Leaf Storm, Hammer Arm and eleven more. Every one of
+them is currently strictly better than it should be. Same shape of bug, same
+one-field fix, and not done here because it is a different bug from this one.
+
 ### The reveal shows the creature that earned it
 
 The evolution scene asked for `variantId="normal"` and got it, for as long as
@@ -1087,9 +1150,21 @@ widening it costs no save compatibility and no version bump.
 
 The variant needs no staging of its own. The earlier stages flatten the sprite
 to black and the peak blows it white, both through a filter on the whole
-`.evolveSprite` — so the colour *and* the variant marks stay hidden until the
-reveal for free, and the reveal is the one frame that shows the creature as it
-actually is.
+`.evolveSprite`, so the colour stays hidden until the reveal for free and the
+reveal is the one frame that shows the creature as it actually is.
+
+The **badges are off** for that frame, though, through a `marks` prop on
+`Sprite` that is on everywhere else. Everywhere else a sprite is one of six in
+a list and the star is how you pick the interesting one out of it; here there
+is no list, and a badge in the corner of the only moment this game asks you to
+just look at something is an interface element standing in front of it. The
+colours already say which one it is.
+
+And a **Rare Candy gets the scene too**. `awardExp` has always evolved on a
+candy — the level path is the same one a battle uses, deliberately — but the
+notice read "Used the Rare Candy on Metapod" and stopped, naming the creature
+it had already become. So the one road to an evolution you had gone to a shop
+and paid for was the one that said nothing about it.
 
 Guarded three ways, because the bug was invisible: S18 and S19 check that an
 appearance survives both roads to an evolution (levelling in a battle, and a
