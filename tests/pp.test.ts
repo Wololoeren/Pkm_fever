@@ -9,7 +9,6 @@ import {
   aiAction,
   MAX_TURNS,
   TRAINER_RULES,
-  WILD_RULES,
   type BattleAction,
   type BattleState,
 } from "@/engine/battle";

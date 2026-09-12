@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BattleView } from "@/components/BattleView";
 import { CheatMenu } from "@/components/CheatMenu";
 import { EvolutionScene } from "@/components/EvolutionScene";
@@ -23,16 +23,17 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, critterDoing, fishRefusal, initialState, rivalCountdown, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, rivalCountdown, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
   clearAutosave,
   downloadSave,
+  flushAutosave,
   normaliseSeed,
   readAutosave,
-  writeAutosave,
+  scheduleAutosave,
   type SaveFile,
 } from "@/lib/save";
 import { routeLabel } from "@/render/tiles";
@@ -54,6 +55,23 @@ const KEY_DIRECTIONS: Record<string, Direction> = {
   a: "w",
   d: "e",
 };
+
+/**
+ * How long a held direction waits before the next step.
+ *
+ * Holding a key used to walk you at **the operating system's** key-repeat
+ * rate, which is a setting in a control panel somewhere: typically half a
+ * second of nothing and then thirty steps a second. So the walk began with a
+ * stutter, ran at a speed nobody chose, and was a different speed on the next
+ * machine — which makes it not a game feel at all, it is whatever the player
+ * happened to have configured for repeating a letter in a word processor.
+ *
+ * 120ms is about eight tiles a second, and it is *ours*: the first step is
+ * immediate, the rest are evenly spaced, and a route is eighty-eight tiles
+ * across, so crossing one is eleven seconds of holding a key rather than
+ * eighty-eight presses.
+ */
+const STEP_INTERVAL = 120;
 
 /**
  * What a room with no panel of its own says.
@@ -119,13 +137,68 @@ export default function Page() {
       if (!current) return current;
       try {
         const state = applyInput(current.world, current.state, input);
-        const inputs = [...current.inputs, input];
-        writeAutosave(current.seed, inputs);
-        return { ...current, inputs, state };
-      } catch {
+        return { ...current, inputs: [...current.inputs, input], state };
+      } catch (error) {
+        /**
+         * A refusal is ordinary. Anything else is a bug wearing a refusal's
+         * clothes, and it says so out loud.
+         *
+         * `IllegalInput` is the engine saying no — walking into a tree, a
+         * potion in a battle, a deposit outside the daycare — and it happens
+         * constantly and correctly. Every *other* throw that lands here is a
+         * crash, and this `catch` is exactly wide enough to hide one: the
+         * Toxic bug spent months reaching the player as "that move is not
+         * legal" because `STATUS_IMMUNE["tox"]` was undefined and `.includes`
+         * threw from a move that was perfectly legal. It took a hundred
+         * battles of a probe to find something a single line here would have
+         * named on the first occurrence.
+         *
+         * The session is still kept rather than torn down. A crash in one
+         * input should cost that input, not the playthrough — the log is
+         * intact and the state is the last good one, which is the most
+         * recoverable position there is.
+         */
+        if (!(error instanceof IllegalInput)) {
+          console.error("[pkm-fever] input crashed the engine", input, error);
+        }
         return current;
       }
     });
+  }, []);
+
+  /**
+   * The autosave, on a timer rather than on every keystroke.
+   *
+   * It used to be written from inside the state updater above, once per input.
+   * That is a side effect in a function React is allowed to call twice, and it
+   * serialises the *entire* log every step — which is nothing at a hundred
+   * inputs and a dropped frame every step by the time a save is worth having.
+   *
+   * Here it is an effect over the log, debounced, so the cost is proportional
+   * to how long you play rather than to how fast you walk. `flushAutosave`
+   * pays whatever is owed when the tab goes away, which is the one moment a
+   * debounce would otherwise cost real progress.
+   */
+  useEffect(() => {
+    if (!session) return;
+    scheduleAutosave(session.seed, session.inputs);
+  }, [session]);
+
+  useEffect(() => {
+    // `pagehide` rather than `beforeunload`: it fires on a mobile tab being
+    // backgrounded, which is how a phone ends a session, and `beforeunload`
+    // does not.
+    const flush = () => flushAutosave();
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") flushAutosave();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHidden);
+      flushAutosave();
+    };
   }, []);
 
   const state = session?.state;
@@ -142,12 +215,82 @@ export default function Page() {
   const evolved =
     state?.notice?.t === "evolved" && seenEvolution !== state.notice ? state.notice : null;
 
+  /**
+   * Which directions are held, in the order they were pressed.
+   *
+   * A list rather than one direction, and the **last** one wins. Rolling a
+   * thumb from one arrow to the next without letting go of the first is how
+   * anybody actually turns a corner at speed, and with a single slot that
+   * reads as the turn being ignored until the old key comes up.
+   */
+  const held = useRef<Direction[]>([]);
+  const walkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * Whether a step is legal at all, in a ref.
+   *
+   * The timer below must not be torn down and rebuilt every time the state
+   * changes — which is every step — so it reads this instead of closing over
+   * `state`.
+   */
+  const canWalk = useRef(false);
+  useEffect(() => {
+    canWalk.current = state?.phase === "field";
+  }, [state?.phase]);
+
+  const stopWalking = useCallback(() => {
+    if (walkTimer.current === null) return;
+    clearInterval(walkTimer.current);
+    walkTimer.current = null;
+  }, []);
+
+  const startWalking = useCallback(() => {
+    if (walkTimer.current !== null) return;
+    walkTimer.current = setInterval(() => {
+      const dir = held.current[held.current.length - 1];
+      // Nothing held, or a battle started under us. Either way the walk is
+      // over: stepping out of an encounter because a key was still down is
+      // exactly the input nobody meant to give.
+      if (!dir || !canWalk.current) {
+        stopWalking();
+        return;
+      }
+      dispatch({ t: "move", dir });
+    }, STEP_INTERVAL);
+  }, [dispatch, stopWalking]);
+
+  // A key held while the window loses focus never sends its keyup, so without
+  // this, alt-tabbing away mid-stride leaves the player walking forever.
+  useEffect(() => {
+    const release = () => {
+      held.current = [];
+      stopWalking();
+    };
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("blur", release);
+      release();
+    };
+  }, [stopWalking]);
+
   useEffect(() => {
     if (!state) return;
+
+    function onKeyUp(event: KeyboardEvent) {
+      const dir = KEY_DIRECTIONS[event.key.length === 1 ? event.key.toLowerCase() : event.key];
+      if (!dir) return;
+      held.current = held.current.filter((one) => one !== dir);
+      if (!held.current.length) stopWalking();
+    }
 
     function onKey(event: KeyboardEvent) {
       if (!state) return;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+
+      // Somebody typing a room code should not be walking across a route at
+      // eight tiles a second, which is what WASD in a text box became the
+      // moment holding a key meant something.
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
       // Three modifiers and a letter, so nothing reaches it by accident.
       if (event.ctrlKey && event.shiftKey && event.altKey && key === "z") {
@@ -161,7 +304,13 @@ export default function Page() {
         const dir = KEY_DIRECTIONS[key];
         if (!dir) return;
         event.preventDefault();
+        // The operating system's own repeat, thrown away. The cadence is
+        // `STEP_INTERVAL`'s to set, and honouring both would be two walks
+        // racing each other.
+        if (event.repeat) return;
+        if (!held.current.includes(dir)) held.current.push(dir);
         dispatch({ t: "move", dir });
+        startWalking();
         return;
       }
 
@@ -192,8 +341,12 @@ export default function Page() {
     }
 
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [state, dispatch]);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [state, dispatch, startWalking, stopWalking]);
 
   // What you can do is a property of where you are standing. The daycare and
   // the centre are buildings now, so their panels appear when you are inside

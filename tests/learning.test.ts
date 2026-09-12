@@ -126,7 +126,7 @@ describe("growing into a move", () => {
   });
 
   it("L5: it refuses what it should refuse", () => {
-    const { world, state } = started("LEARN3");
+    const { state } = started("LEARN3");
     const mine = creature("pidgey", { uid: 702, moves: ["tackle", "gust", "growl", "quickattack"] });
     const waiting: GameState = {
       ...state,
