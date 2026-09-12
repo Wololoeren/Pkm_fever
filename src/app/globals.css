@@ -1401,3 +1401,77 @@ button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
 .gender.male { color: #7fa8e0; }
 .gender.female { color: #e08ab0; }
 .gender.trans { color: #a98ae0; }
+
+/* ---------------------------------------------------------- field notes
+
+   Where you have looked, and what was standing there. Folded shut by default:
+   it grows all game, and it is somewhere you go rather than something you read
+   while walking. */
+
+.notesPanel > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.notesPanel > summary::-webkit-details-marker { display: none; }
+
+/* The triangle is drawn rather than inherited, because the native marker sits
+   outside the summary box and cannot be lined up with a heading. */
+.notesPanel > summary h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.notesPanel > summary h3::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 0.8em;
+  transition: transform 120ms ease;
+}
+
+.notesPanel[open] > summary h3::before {
+  transform: rotate(90deg);
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.notesCount { margin: 0; }
+
+.notesPlace {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: color-mix(in oklab, var(--panel) 60%, transparent);
+}
+
+.notesTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.notesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+/* Underlined in the creature's own first type colour, which is how every other
+   list of creatures in this game is coloured. A border rather than
+   `text-decoration`, so the colour is the line and the text stays readable. */
+.notesName {
+  font-size: 0.84rem;
+  color: var(--text);
+  border-bottom: 2px solid transparent;
+  padding-bottom: 1px;
+}

@@ -446,6 +446,39 @@ export interface GameState {
   /** Routes stepped on, sorted. Drives the one-off item finds, and is the
    * beginning of an exploration record. */
   visited: string[];
+  /**
+   * Every species you have met, and where you first met it.
+   *
+   * The other half of the exploration record `visited` began. `visited` says
+   * which of the fifty places you have stood in; this says what was standing
+   * there — so between them they answer "have I combed this route" rather than
+   * merely "have I crossed it", which is the question a world with fifty-eight
+   * decorated creatures hidden in it actually asks.
+   *
+   * A route id rather than a boolean, because *where* is the useful half. A
+   * list of names you have seen is a collection; a list of names against the
+   * places they were is a map of where you have actually looked.
+   *
+   * Folded centrally in `noted`, for the reason `cloneSide` taught this
+   * codebase the hard way: there are nine roads to a battle in this file —
+   * grass, a rod, a tree, Sweet Scent, a person on a path, a gym, the Cup, a
+   * creature standing about, and the rival, who starts his from inside the
+   * funnel itself — and a fold written at each of them is nine chances to
+   * forget the tenth.
+   *
+   * In the hash, and for the same reason `seen` is: it is state, and a claim
+   * that two logs produce the same state should not have an exception in it.
+   * It is deliberately **not** an `ENGINE_VERSION` bump, because no input does
+   * anything different — nobody has moved, nothing new is solid, and an old
+   * log replays to exactly the game it always did, now also carrying a record
+   * of what it met on the way.
+   *
+   * `whereMet` rather than `met`, because `met` was taken: that one is the
+   * list of idle creatures already walked up to, which is a fact about the
+   * *map* rather than about the player's knowledge. Two records with the same
+   * name would be the shortest road to reading one and meaning the other.
+   */
+  whereMet: Record<string, string>;
   /** Trainers already beaten, sorted. They stay beaten. */
   beaten: string[];
   /** Who you are mid-conversation with, if anyone. */
@@ -642,6 +675,7 @@ export function initialState(world: World): GameState {
     wins: {},
     roamers: {},
     met: [],
+    whereMet: {},
     cheated: false,
   });
 }
@@ -711,7 +745,44 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return followed(world, checkedIn(world, look(world, applyOne(world, state, input))));
+  return noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))));
+}
+
+/**
+ * What you have met, written down.
+ *
+ * Outermost in the funnel on purpose. `followed` can *start* a battle — the
+ * rival catches up from in there — so a fold placed inside it would miss the
+ * one opponent in the game you cannot walk away from.
+ *
+ * Both sides of the battlefield, and the party and the box. Both sides because
+ * a creature somebody else sent out is one you have met; the party and the box
+ * because a gift, an egg and a trade are all roads to owning something you
+ * never fought, and releasing it later should not unwrite having had it.
+ *
+ * Returns the *same object* when nothing is new, which is not an optimisation
+ * detail: `reduce` calls this once per input and a long save is ninety
+ * thousand of them, so allocating a fresh record ninety thousand times to
+ * write nothing into it is the whole cost of the feature.
+ */
+function noted(state: GameState): GameState {
+  const here = new Set<string>();
+  for (const one of state.party) here.add(one.speciesId);
+  for (const one of state.box) here.add(one.speciesId);
+  if (state.battle) {
+    for (const side of state.battle.sides) {
+      for (const one of side.team) here.add(one.speciesId);
+    }
+  }
+
+  let whereMet: Record<string, string> | null = null;
+  for (const speciesId of here) {
+    if (state.whereMet[speciesId] !== undefined) continue;
+    whereMet ??= { ...state.whereMet };
+    whereMet[speciesId] = state.route;
+  }
+
+  return whereMet ? { ...state, whereMet } : state;
 }
 
 /**
@@ -3277,6 +3348,53 @@ export function opponentHint(world: World, battle: BattleState | null): Hint | n
   return who?.hintId ? hint(who.hintId) : null;
 }
 
+/** A place you have looked, and what you found standing there. */
+export interface FieldNote {
+  routeId: string;
+  /** Species first met here, in dex order. */
+  speciesIds: string[];
+}
+
+/**
+ * What you have met, by where you met it.
+ *
+ * In the engine rather than in the panel because it is the same grouping every
+ * caller wants, and this codebase has been bitten twice by one question with
+ * two implementations — the Scrappy rule written out either side of the type
+ * chart, and the crossing arithmetic that disagreed with itself about which
+ * gap in town a walk home arrived at.
+ *
+ * Ordered by how far out the place is, so the list reads as the journey did.
+ * Within a place, dex order, because that is the order every other list of
+ * creatures in this game is in.
+ *
+ * Deliberately carries **no denominator.** It would be easy to say "7 of the
+ * 23 that live here", and it would turn a record of where you have looked into
+ * a checklist of where to look — which is the whole of what this game is
+ * trying not to be. What lives on a route is for the route to tell you.
+ */
+export function fieldNotes(world: World, state: GameState): FieldNote[] {
+  const byRoute = new Map<string, string[]>();
+  for (const speciesId of Object.keys(state.whereMet)) {
+    const routeId = state.whereMet[speciesId];
+    const here = byRoute.get(routeId);
+    if (here) here.push(speciesId);
+    else byRoute.set(routeId, [speciesId]);
+  }
+
+  const order = (id: string) => {
+    const route = world.routes.get(id);
+    return route ? route.depth * 100 + route.ring : 9999;
+  };
+
+  return [...byRoute.entries()]
+    .map(([routeId, speciesIds]): FieldNote => ({
+      routeId,
+      speciesIds: speciesIds.sort((a, b) => speciesById(a).num - speciesById(b).num),
+    }))
+    .sort((a, b) => order(a.routeId) - order(b.routeId) || a.routeId.localeCompare(b.routeId));
+}
+
 /** Which quest puts your name down for the Cup. */
 const CUP_QUEST = "the-cup";
 
@@ -3926,6 +4044,13 @@ export function stateHash(state: GameState): string {
     Object.keys(state.seen)
       .sort()
       .map((id) => `${id}=${state.seen[id]}`)
+      .join(","),
+    // Where each species was first met. Not redundant with the party: two
+    // logs can end holding the same six creatures having found them in
+    // different places, and this is the field that says so.
+    Object.keys(state.whereMet)
+      .sort()
+      .map((id) => `${id}@${state.whereMet[id]}`)
       .join(","),
     state.centre ?? "-",
     state.trail.map((at) => `${at.route}@${at.x},${at.y}`).join(">"),

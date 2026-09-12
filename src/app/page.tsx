@@ -10,6 +10,7 @@ import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { BagPanel } from "@/components/BagPanel";
 import { FieldMovePanel } from "@/components/FieldMovePanel";
+import { NotesPanel } from "@/components/NotesPanel";
 import { QuestPanel } from "@/components/QuestPanel";
 import { LearnPanel } from "@/components/LearnPanel";
 import { TalkPanel } from "@/components/TalkPanel";
@@ -757,6 +758,22 @@ export default function Page() {
           </section>
         ) : null}
       </div>
+
+      {/* What you have met, against where you met it.
+          
+          Folded shut, because it grows all game and is a thing you go and look
+          at rather than a thing you read while walking — unlike the map beside
+          the canvas, which is glanced at every few steps. A `details` rather
+          than a piece of state, since which panels somebody has open is the
+          browser's business and emphatically not the save's. */}
+      {fighting ? null : (
+        <details className="panel notesPanel">
+          <summary>
+            <h3>Field notes</h3>
+          </summary>
+          <NotesPanel world={session.world} state={state} />
+        </details>
+      )}
 
       <section className="panel">
         <div className="row">
