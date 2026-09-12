@@ -1,4 +1,4 @@
-import { stageFactor, type BattleState } from "@/engine/battle";
+import { stageFactor, type BattleState, type Combatant } from "@/engine/battle";
 import { BATTLE_STAT_IDS, type StatId } from "@/engine/types";
 
 /**
@@ -38,7 +38,15 @@ export function battleMods(
   if (!state.battle || state.phase !== "battle") return null;
   const side = state.battle.sides[0];
   if (side.active !== index) return null;
+  return sideMods(side);
+}
 
+/**
+ * The same facts read straight off a side, for the hover card on the battle
+ * screen — which is where a player actually looks mid-fight, and where the
+ * column was first missed. Null when nothing is modified, as above.
+ */
+export function sideMods(side: Combatant): StatMods | null {
   const creature = side.team[side.active];
   const mods: StatMods = {};
   for (const stat of BATTLE_STAT_IDS) {
@@ -62,9 +70,36 @@ export function stageText(stage: number): string {
   return stage > 0 ? `+${stage}` : `−${-stage}`;
 }
 
+/**
+ * One cell of a Mod column, for either screen: what to print, which way it
+ * leans, and the tooltip that spells the multiplier out once.
+ */
+export function describeMod(mod: StatMod): { text: string; tone: "up" | "down" | "flat"; title: string } {
+  const parts: string[] = [];
+  const notes: string[] = [];
+  if (mod.override !== undefined) {
+    parts.push(`=${mod.override}`);
+    notes.push(`${mod.override} in use, split or swapped with the foe's`);
+  }
+  if (mod.stage) {
+    parts.push(stageText(mod.stage));
+    notes.push(
+      `${mod.stage > 0 ? "raised" : "lowered"} ${Math.abs(mod.stage)} stage${Math.abs(mod.stage) === 1 ? "" : "s"} (${factorText(mod.factor)})`,
+    );
+  }
+  if (mod.halved) {
+    parts.push("½");
+    notes.push("halved by paralysis");
+  }
+  const tone = mod.stage < 0 || mod.halved ? "down" : mod.stage > 0 ? "up" : "flat";
+  return { text: parts.join(" "), tone, title: notes.join("; ") };
+}
+
 /** "×2", "×0.67" — the multiplier, said once in the tooltip. */
 export function factorText([numerator, denominator]: [number, number]): string {
   if (numerator === denominator) return "×1";
   const ratio = numerator / denominator;
-  return `×${Number.isInteger(ratio) ? ratio : ratio.toFixed(2)}`;
+  // Two places, with the trailing nought trimmed: ×1.5 rather than ×1.50,
+  // and ×0.67 rather than ×0.6666.
+  return `×${Number.isInteger(ratio) ? ratio : ratio.toFixed(2).replace(/0$/, "")}`;
 }

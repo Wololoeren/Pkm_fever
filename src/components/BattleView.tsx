@@ -457,7 +457,7 @@ export function BattleView({
                 <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
                 <span className="flash" ref={foeFlash} aria-hidden="true" />
               </span>
-              <StatHover creature={foe} />
+              <StatHover creature={foe} side={battle.sides[them]} />
             </div>
             <div className="slot mine hoverable" tabIndex={0}>
               <span className="mover" ref={mySprite}>
@@ -465,7 +465,7 @@ export function BattleView({
                 <span className="flash" ref={myFlash} aria-hidden="true" />
               </span>
               <Nameplate creature={player} side={battle.sides[role]} right />
-              <StatHover creature={player} />
+              <StatHover creature={player} side={battle.sides[role]} />
             </div>
           </div>
 

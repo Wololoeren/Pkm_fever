@@ -8,6 +8,8 @@ import { natureVector } from "@/engine/natures";
 import { computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX, ivTotal } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import { isSpecial, variant } from "@/engine/variants";
+import type { Combatant } from "@/engine/battle";
+import { describeMod, sideMods, type StatMod } from "@/lib/mods";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 
@@ -15,6 +17,17 @@ import { typeColor } from "@/render/palette";
 function listOf(parts: string[]): string {
   if (parts.length <= 1) return parts[0] ?? "nothing";
   return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** One Mod cell: the stage as the sheet writes a nature, a split number, a half. */
+function ModCell({ mod }: { mod?: StatMod }) {
+  if (!mod) return <td className="muted">—</td>;
+  const { text, tone, title } = describeMod(mod);
+  return (
+    <td className={tone === "up" ? "up" : tone === "down" ? "down" : undefined} title={title}>
+      {text}
+    </td>
+  );
 }
 
 const STAT_LABELS: Record<string, string> = {
@@ -39,8 +52,24 @@ const STAT_LABELS: Record<string, string> = {
  * creature the whole design says its numbers were fixed when the world was
  * made. There is nothing to protect by making a player guess.
  */
-export function StatHover({ creature, title }: { creature: Individual; title?: string }) {
+export function StatHover({
+  creature,
+  title,
+  side,
+}: {
+  creature: Individual;
+  title?: string;
+  /**
+   * The side it is standing on, in a battle. What the battle is doing to
+   * these numbers — stages, a split, a paralysis — is a fact about the slot
+   * rather than the creature, and the Mod column is drawn only when there is
+   * one and something has touched it. The starter card has no side and no
+   * column.
+   */
+  side?: Combatant;
+}) {
   const entry = speciesById(creature.speciesId);
+  const mods = side ? sideMods(side) : null;
   const stats = computeStats(entry, creature);
   const nature = natureVector(creature.natureId);
   const form = variant(creature.variantId);
@@ -75,6 +104,7 @@ export function StatHover({ creature, title }: { creature: Individual; title?: s
             <th>IV</th>
             <th>EV</th>
             <th>Nat</th>
+            {mods ? <th>Mod</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -90,6 +120,7 @@ export function StatHover({ creature, title }: { creature: Individual; title?: s
               <td className={nature[stat] > 0 ? "up" : nature[stat] < 0 ? "down" : "muted"}>
                 {nature[stat] === 0 ? "—" : nature[stat] > 0 ? `+${nature[stat]}` : nature[stat]}
               </td>
+              {mods ? <ModCell mod={mods[stat]} /> : null}
             </tr>
           ))}
         </tbody>

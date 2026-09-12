@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { startBattle, type BattleState } from "@/engine/battle";
-import { battleMods, factorText, stageText } from "@/lib/mods";
+import { battleMods, describeMod, factorText, sideMods, stageText } from "@/lib/mods";
 import { creature } from "./helpers";
 
 /**
@@ -54,6 +54,20 @@ describe("the mod column", () => {
     expect(mods!.spe).toEqual({ stage: 0, factor: [2, 2], halved: true });
     // HP has no ladder and never appears.
     expect(mods!.hp).toBeUndefined();
+  });
+
+  it("MD5: the hover card reads the same facts off the side, for either creature", () => {
+    // The battle screen's card is where the column was first missed: it
+    // shows the foe as well as yours, so it reads the side rather than the
+    // party index.
+    const live = battle();
+    expect(sideMods(live.sides[1])).toBeNull();
+    live.sides[1].stages.def = 1;
+    live.sides[1].aim = { accuracy: 0, evasion: 2 };
+    const theirs = sideMods(live.sides[1]);
+    expect(theirs).toEqual({ def: { stage: 1, factor: [3, 2] } });
+    expect(describeMod(theirs!.def!)).toEqual({ text: "+1", tone: "up", title: "raised 1 stage (×1.5)" });
+    expect(describeMod({ stage: -2, factor: [2, 4], halved: true })).toMatchObject({ text: "−2 ½", tone: "down" });
   });
 
   it("MD4: the text is the sheet's own sign convention, and the multiplier is exact", () => {

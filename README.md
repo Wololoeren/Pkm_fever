@@ -214,7 +214,9 @@ side there is no way to tell a well-bred creature from a lucky one, or to see
 what a nature is actually worth.
 
 In a battle the sheet grows a seventh column, **Mod**, for the one creature
-that is out and only once something has touched it: a stage as the sheet
+that is out and only once something has touched it — and so does the hover
+card on the battle screen, for the foe as well as yours, since that card is
+where a player is actually looking mid-fight: a stage as the sheet
 already writes a nature (`+2`, `−1`), a split number where a Power Split
 rewrote it (`=77`), a half for a paralysed Speed, with the exact multiplier
 in the tooltip. The column is absent rather than empty the rest of the time —

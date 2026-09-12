@@ -19,7 +19,7 @@ import { effortSpent } from "@/engine/effort";
 import { expForLevel, levelFromExp } from "@/engine/progression";
 import { STAT_IDS, type Individual, type StatId } from "@/engine/types";
 import { isSpecial, variant } from "@/engine/variants";
-import { battleMods, factorText, stageText, type StatMod } from "@/lib/mods";
+import { battleMods, describeMod, type StatMod } from "@/lib/mods";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark } from "./PartyStrip";
@@ -53,25 +53,10 @@ const STAT_LABELS: Record<StatId, string> = {
  */
 function ModCell({ mod }: { mod?: StatMod }) {
   if (!mod) return <td className="num muted">—</td>;
-  const parts: string[] = [];
-  const notes: string[] = [];
-  if (mod.override !== undefined) {
-    parts.push(`=${mod.override}`);
-    notes.push(`${mod.override} in use, split or swapped with the foe's`);
-  }
-  if (mod.stage) {
-    parts.push(stageText(mod.stage));
-    notes.push(`${mod.stage > 0 ? "raised" : "lowered"} ${Math.abs(mod.stage)} stage${Math.abs(mod.stage) === 1 ? "" : "s"} (${factorText(mod.factor)})`);
-  }
-  if (mod.halved) {
-    parts.push("½");
-    notes.push("halved by paralysis");
-  }
-  const bad = mod.stage < 0 || mod.halved;
-  const good = mod.stage > 0 && !mod.halved;
+  const { text, tone, title } = describeMod(mod);
   return (
-    <td className={`num ${good ? "good" : bad ? "error" : ""}`} title={notes.join("; ")}>
-      {parts.join(" ")}
+    <td className={`num ${tone === "up" ? "good" : tone === "down" ? "error" : ""}`} title={title}>
+      {text}
     </td>
   );
 }
