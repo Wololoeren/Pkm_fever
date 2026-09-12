@@ -293,8 +293,16 @@ export function useCatch(
       0,
     );
     // And it stays there: shut through the wobbles, and until the tail says.
+    // A caught ball is held shut past the stars; an escaped one is held only
+    // until it opens, and the opening below fills forwards so it stays gone.
     const held = attempt.endAt + (attempt.outcome === "caught" ? CATCH_TAIL_MS : 0);
-    play(orb, [{ transform: "scale(1)" }, { transform: "scale(1)" }], held - BALL_FLIGHT_MS, BALL_FLIGHT_MS, "forwards");
+    play(
+      orb,
+      [{ transform: "scale(1)" }, { transform: "scale(1)" }],
+      held - BALL_FLIGHT_MS,
+      BALL_FLIGHT_MS,
+      attempt.outcome === "caught" ? "forwards" : "none",
+    );
 
     // The creature drawn in as the ball lands, and held there.
     play(
@@ -348,7 +356,7 @@ export function useCatch(
       });
     } else {
       // The ball opens, smoke, and the creature is standing there again.
-      play(orb, [{ transform: "scale(1)", opacity: "1" }, { transform: "scale(1.3)", opacity: "0" }], 200, attempt.endAt);
+      play(orb, [{ transform: "scale(1)", opacity: "1" }, { transform: "scale(1.3)", opacity: "0" }], 200, attempt.endAt, "forwards");
       puffs.forEach((puff, at) => {
         const dx = (at - 1) * 22;
         play(
@@ -361,6 +369,9 @@ export function useCatch(
           attempt.endAt + at * 50,
         );
       });
+      // Forwards, like the drawing-in above it: two animations on the same
+      // property and the later-added wins while both are alive, and a return
+      // that ended would hand the sprite back to the one that hid it.
       play(
         sprite,
         [
@@ -369,6 +380,7 @@ export function useCatch(
         ],
         260,
         attempt.endAt + 80,
+        "forwards",
       );
     }
 

@@ -527,22 +527,27 @@ export function BattleView({
               {/* The sprite is wrapped rather than animated directly so the
                   nameplate and the hover panel hold still while it moves — a
                   shaking health bar is unreadable. */}
-              <span className="mover" ref={foeSprite}>
-                <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
-                <span className="flash" ref={foeFlash} aria-hidden="true" />
-              </span>
-              {/* The ball, and what comes out of it. Beside the mover rather
-                  than inside it, because the mover is what the ball draws in
-                  and a ball that shrank with its own target would vanish. */}
-              <span className="ball" ref={ballRef} aria-hidden="true" />
-              <span className="burst" ref={burstRef} aria-hidden="true">
-                <span className="star" />
-                <span className="star" />
-                <span className="star" />
-                <span className="star" />
-                <span className="puff" />
-                <span className="puff" />
-                <span className="puff" />
+              {/* The sprite and the ball share one box the size of the sprite,
+                  so the ball lands at the creature's feet rather than at the
+                  middle of a slot that also holds a nameplate. Beside the
+                  mover rather than inside it, because the mover is what the
+                  ball draws in and a ball that shrank with its own target
+                  would vanish. */}
+              <span className="catchStage">
+                <span className="mover" ref={foeSprite}>
+                  <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
+                  <span className="flash" ref={foeFlash} aria-hidden="true" />
+                </span>
+                <span className="ball" ref={ballRef} aria-hidden="true" />
+                <span className="burst" ref={burstRef} aria-hidden="true">
+                  <span className="star" />
+                  <span className="star" />
+                  <span className="star" />
+                  <span className="star" />
+                  <span className="puff" />
+                  <span className="puff" />
+                  <span className="puff" />
+                </span>
               </span>
               <StatHover creature={foe} side={battle.sides[them]} />
             </div>
