@@ -132,6 +132,36 @@ Both players must bring the same number, and a mismatch is stated rather than
 papered over — trimming the longer team would throw away creatures its owner
 picked on purpose.
 
+### Checking a save in
+
+`/verify` is the tournament desk. Drop a save file on it and it replays the
+whole log from the seed, input by input, and prints the four things an
+organiser needs — the **seed** (was it the tournament's), the **move count**,
+the **hash** (two organisers with the same file get the same word), and the
+**cheated** mark — and then the party, because "bring six" is a rule somebody
+checks by eye.
+
+It is a static page and the file never leaves the browser. That is not a
+limitation, it is the design: a save is a seed and a list of inputs, so
+replaying it *is* the verification. There is nothing in the file to trust —
+no signature, no claim about the party — and a forged team would have to be
+an actual playthrough. `lib/verify.ts` is the whole of it and is pure, so
+`VF1` to `VF4` run it without a browser: a played log replays to the hash
+the engine gives it, a cheat leaves a mark that survives everything after it,
+and a log the engine refuses says *which input* rather than "corrupt".
+
+### Today's seed
+
+The menu offers one seed for everyone: `DAY` and the UTC date, so
+`DAY20260912` is the same world for anybody who begins it that day — the same
+starters, the same encounter tables, the same one true shiny. Two players
+comparing hashes or times at the end of it are comparing the same run, which
+is a tournament with no organiser and no server.
+
+UTC, so the seed changes at the same moment for everyone or it is not one seed;
+readable rather than hashed, so it says which day it was and survives being
+read out loud, which is what the seed alphabet is for.
+
 ### Trading
 
 The opposite secrecy to a duel. A duel hides each move until both are

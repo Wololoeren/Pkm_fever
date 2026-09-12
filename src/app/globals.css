@@ -84,6 +84,10 @@ kbd {
 }
 .menuCard h2 { font-size: 1.05rem; }
 .menuCard.dim { opacity: 0.72; }
+.menuCard.dropZone { border-style: dashed; }
+.menuCard.dropZone.over { border-color: var(--accent); }
+.linkButton { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
+.plainList { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
 
 /* ------------------------------------------------------------------ forms */
 

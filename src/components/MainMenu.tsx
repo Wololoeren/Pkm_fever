@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { parseSave, randomSeed, type SaveFile } from "@/lib/save";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { dailySeed, parseSave, randomSeed, type SaveFile } from "@/lib/save";
 
 /**
  * The four ways in.
@@ -19,6 +20,10 @@ export function MainMenu({
   onLoad: (save: SaveFile) => void;
 }) {
   const [seed, setSeed] = useState(() => randomSeed());
+  // Read once the page is in a browser, not while the static export is
+  // rendered: the build machine's date is not the player's.
+  const [today, setToday] = useState<string | null>(null);
+  useEffect(() => setToday(dailySeed()), []);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -55,10 +60,24 @@ export function MainMenu({
           <button type="button" className="ghost" onClick={() => setSeed(randomSeed())}>
             Reroll
           </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setSeed(today ?? dailySeed())}
+            title="The same seed for everyone, today — compare hashes and times with no server"
+          >
+            Today&apos;s
+          </button>
           <button type="button" className="primary" onClick={() => onNew(seed)}>
             Begin
           </button>
         </div>
+        {today ? (
+          <p className="muted small">
+            Today&apos;s seed is <code>{today}</code>. Everyone who begins it gets the same world,
+            so a hash or a time is worth comparing.
+          </p>
+        ) : null}
       </div>
 
       <div className="menuCard">
@@ -97,8 +116,9 @@ export function MainMenu({
         <h2>PvP</h2>
         <p className="muted">
           Battling and trading with other people happen in town, not from this menu — load a save
-          and walk to Hearth. A tournament is a spreadsheet and a series of PvP matches, which
-          means it needs no bracket software and no server to referee it.
+          and walk to Hearth. A tournament is a series of PvP matches, and the{" "}
+          <Link href="/verify">verify page</Link> is its check-in: drop a save on it and it
+          replays the log and prints the seed, the move count, the hash and the cheated mark.
         </p>
       </div>
 

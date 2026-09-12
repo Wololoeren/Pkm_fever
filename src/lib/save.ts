@@ -190,6 +190,25 @@ export function randomSeed(): string {
   return [...bytes].map((byte) => ALPHABET[byte % ALPHABET.length]).join("");
 }
 
+/**
+ * Today's seed, the same for everybody.
+ *
+ * A date-derived seed is a tournament with no organiser: everyone who begins
+ * it gets the same world, the same starters and the same shiny, and two
+ * players comparing hashes or times at the end of the day are comparing the
+ * same run. UTC, so "today" does not depend on where the player is standing
+ * — the seed changes at the same moment for everyone, or it is not one seed.
+ *
+ * Readable rather than hashed, on purpose. `DAY20260912` says which day it
+ * was, and a seed that can be read out loud is what `ALPHABET` is for.
+ */
+export function dailySeed(now: Date = new Date()): string {
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  return normaliseSeed(`DAY${year}${month}${day}`);
+}
+
 /** Folds anything the player typed into the same alphabet, so "my seed" and
  * "MY SEED" are one world and a stray character cannot make two. */
 export function normaliseSeed(input: string): string {
