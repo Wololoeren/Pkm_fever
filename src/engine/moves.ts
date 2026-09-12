@@ -71,6 +71,8 @@ export interface DamageContext {
   /** Uses left in the slot this move is being swung from. Trump Card reads
    * it, and could not until power points existed. */
   ppLeft: number;
+  /** Stockpile's counter. Spit Up reads it, and could not until it existed. */
+  stockpiles: number;
 }
 
 /**
@@ -155,8 +157,6 @@ function retaliate(taken: number, numerator: number, denominator: number): Damag
  *  - bide: two turns of charging, then double what was absorbed. There is no
  *    multi-turn move state, so it is a plain weak normal attack with the +1
  *    priority the manifest already gives it.
- *  - spitup: 100 per Stockpile stack, and Stockpile is one of the 178 status
- *    moves that currently do nothing either. One stack.
  *  - trumpcard: no longer a stand-in. Power points exist now, so it reads
  *    them: 40 with five or more left, and 200 on the last one. It was the
  *    only entry on this list waiting for something the game has since grown.
@@ -172,7 +172,6 @@ const STAND_IN_POWER: Record<string, number> = {
   heatcrash: 60,
   beatup: 30,
   bide: 60,
-  spitup: 100,
   naturalgift: 80,
   fling: 30,
 };
@@ -305,6 +304,12 @@ export function variableDamage(move: MoveEntry, ctx: DamageContext): Damage {
     case "wringout":
     case "crushgrip":
       return { t: "power", power: squeezePower(ctx.defender, ctx.defenderMaxHp) };
+
+    // A hundred per Stockpile, and nothing at all without one. It used to be
+    // a flat hundred, because Stockpile was one of the status moves that did
+    // nothing; now the counter exists it is read.
+    case "spitup":
+      return ctx.stockpiles > 0 ? { t: "power", power: 100 * ctx.stockpiles } : { t: "fails" };
 
     // The last one in the tank is the hardest. Forty with five or more left,
     // and two hundred when there is nothing behind it.

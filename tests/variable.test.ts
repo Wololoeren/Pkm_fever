@@ -89,7 +89,9 @@ describe("moves the manifest cannot price", () => {
     // the one moves.ts knows about, and it is checked by V1 above doing
     // something for each. Here we only pin the count so a manifest rebuild
     // that adds one is noticed.
-    expect(unnamed.length).toBeLessThan(30);
+    // Thirty, since Spit Up stopped being a flat hundred: its power is the
+    // Stockpile count, which is a fact about the battle rather than a number.
+    expect(unnamed.length).toBeLessThan(31);
     for (const move of unnamed) expect(move.power).toBe(0);
   });
 

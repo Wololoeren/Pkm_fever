@@ -291,7 +291,7 @@ export function BattleView({
                 const left = ppLeft(player, index);
                 // Asked once and handed to both the arrow and the tooltip
                 // under it, so the two cannot disagree about the same move.
-                const lands = landsAs(player, foe, moveId);
+                const lands = landsAs(player, foe, moveId, battle.sides[them].volatiles);
                 return (
                   <button
                     key={moveId}

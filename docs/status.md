@@ -58,7 +58,8 @@ turns off somebody.
 | **SLP** | *nothing* |
 
 Abilities add to this — Immunity, Limber, Water Veil, Insomnia, Magma Armor —
-and Safeguard refuses all five at once for five turns. All three are asked in
+and Safeguard refuses all five at once for five turns. Attract is not a
+condition and is refused by none of them; it is refused by gender. All three are asked in
 `applyStatus`, so none of them can be true in one place and not another.
 
 ---
@@ -79,6 +80,15 @@ cheapest answer to most of the list.
 | **Endure** | it survives at `hp - 1` |
 | **Crit** (Focus Energy) | *n* stages up the crit ladder |
 | **Trapped** | it cannot switch out and it cannot run |
+| **Rooted** (Aqua Ring, Ingrain) | `max(1, floor(maxHp / 16))` back every turn, before the seed drains. Ingrain also traps the user, and a Roar does not move it |
+| **Infatuated** (Attract) | a **50%** chance each turn to lose the turn, asked after confusion. Lands only where `gendersPair` says the two would — the same question breeding asks |
+| **Altered** (Power Split, Guard Split, Speed Swap) | the *number* the stages multiply, averaged or exchanged with the foe's. A stage landed afterwards still multiplies it; a switch throws it away |
+| **Stockpile** | a counter, up to **3**. Each count is a stage of Defence and Sp. Def; Swallow spends it for a quarter, a half, everything, and Spit Up for 100 power a count. Either takes the stages back |
+| **Locked on** (Lock-On, Mind Reader) | the next move cannot miss. Spent by that move whatever it was |
+| **Bonded** (Destiny Bond) | the *move* that knocks it out takes its user down too. Held until the bonded creature next moves; a poison or a seed has nobody to take |
+| **Wish** | **2 turns**, then `floor(maxHp / 2)` of *whoever is standing there*. It is a fact about the slot, so a switch throws the wish away with the rest |
+| **Blessing** (Healing Wish, Lunar Dance) | the user faints, and the one that replaces it arrives at full health with no condition. Refused with nobody in reserve |
+| **Afloat** (Magnet Rise, Telekinesis) | Ground *attacks* do nothing to it, for **5** or **3** turns. A Sand Attack still lands |
 
 ### The shield streak
 

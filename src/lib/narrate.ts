@@ -65,6 +65,19 @@ const VOLATILE_TEXT: Record<string, string> = {
   dreaming: "is caught in a nightmare",
   trapped: "can no longer escape",
   drowsy: "grew drowsy",
+  rooted: "planted its roots",
+  infatuated: "fell in love",
+  smitten: "is in love and cannot bring itself to move",
+  copied: "copied its foe's stat changes",
+  swapped: "switched stat changes with its foe",
+  split: "has had its stats altered",
+  stockpiled: "stockpiled",
+  sure: "took aim",
+  bonded: "is trying to take its foe down with it",
+  avenged: "was taken down with it",
+  wished: "made a wish",
+  blessed: "fainted, and left a wish for the next one",
+  afloat: "is floating off the ground",
 };
 
 const SCREEN_TEXT: Record<string, string> = {
@@ -227,6 +240,11 @@ export function narrate(
         break;
       case "sketched":
         lines.push(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
+        break;
+      case "revived":
+        // Named by species rather than by side, because the side's name is
+        // whoever is standing and the one revived is not.
+        lines.push(`${speciesById(event.speciesId).name} was revived!`);
         break;
     }
   }

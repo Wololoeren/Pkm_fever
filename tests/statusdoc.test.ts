@@ -59,6 +59,8 @@ describe("the reference matches the engine", () => {
     says(`max(1, floor(maxHp / ${psn}))`, "poison's share");
     says(`max(1, floor(maxHp / ${constant(battle, "SEED_SHARE")}))`, "Leech Seed's share");
     says(`max(1, floor(maxHp / ${constant(battle, "NIGHTMARE_SHARE")}))`, "Nightmare's share");
+    says(`max(1, floor(maxHp / ${constant(battle, "ROOTS_SHARE")}))`, "Aqua Ring's share");
+    says(`floor(maxHp / ${constant(battle, "WISH_SHARE")})`, "Wish's share");
   });
 
   it("V2: the rolls that end a turn or a condition are the engine's", () => {
@@ -77,6 +79,7 @@ describe("the reference matches the engine", () => {
   it("V3: confusion's three numbers are the engine's", () => {
     says(`**${constant(battle, "CONFUSED_TURNS")} turns**`, "how long confusion lasts");
     says(`a **${constant(battle, "CONFUSED_CHANCE")}%** chance to hit itself`, "confusion's odds");
+    says(`a **${constant(battle, "INFATUATED_CHANCE")}%** chance each turn to lose the turn`, "infatuation's odds");
     says(`**${constant(battle, "CONFUSED_POWER")} power**`, "what it hits itself with");
     // And the formula, which is the part a reader cannot check against
     // anything else.
@@ -89,6 +92,9 @@ describe("the reference matches the engine", () => {
   it("V4: the counters are the engine's", () => {
     says(`counts **${constant(battle, "PERISH_TURNS")}** down to 0`, "Perish Song");
     says(`**${constant(battle, "YAWN_TURNS")} turns**, then sleep`, "Yawn");
+    says(`**${constant(battle, "WISH_TURNS")} turns**, then`, "Wish");
+    says(`a counter, up to **${constant(battle, "STOCKPILE_MAX")}**`, "Stockpile");
+    says(`for **${constant(statusmoves, "MAGNET_RISE_TURNS")}** or **${constant(statusmoves, "TELEKINESIS_TURNS")}** turns`, "Magnet Rise and Telekinesis");
     says(`last **${constant(statusmoves, "SCREEN_TURNS")} turns**`, "how long a screen lasts");
   });
 
@@ -165,6 +171,15 @@ describe("the reference matches the engine", () => {
       nightmare: "**Nightmare**",
       perish: "**Perish**",
       trapped: "**Trapped**",
+      rooted: "**Rooted**",
+      infatuated: "**Infatuated**",
+      stats: "**Altered**",
+      stockpile: "**Stockpile**",
+      sure: "**Locked on**",
+      bonded: "**Bonded**",
+      wish: "**Wish**",
+      blessing: "**Blessing**",
+      afloat: "**Afloat**",
     };
     for (const field of fields) {
       expect(shown[field], `${field} has no row in docs/status.md`).toBeDefined();

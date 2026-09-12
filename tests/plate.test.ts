@@ -222,6 +222,15 @@ describe("what is happening to a creature", () => {
       nightmare: true,
       perish: 3,
       trapped: true,
+      rooted: true,
+      infatuated: true,
+      stats: { atk: 40 },
+      stockpile: 2,
+      sure: true,
+      bonded: true,
+      wish: 1,
+      blessing: true,
+      afloat: 3,
     };
 
     for (const field of fields) {

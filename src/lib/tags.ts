@@ -242,6 +242,82 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
         cls: "rise",
       });
     }
+    if (vol.rooted) {
+      out.push({
+        key: "rooted",
+        label: "ROOTED",
+        title: "Rooted — it recovers a little health every turn",
+        cls: "rise",
+      });
+    }
+    if (vol.infatuated) {
+      out.push({
+        key: "infatuated",
+        label: "IN LOVE",
+        title: "In love — half the time it cannot bring itself to move",
+        cls: "fall",
+      });
+    }
+    if (vol.stats) {
+      const named = (Object.keys(vol.stats) as StageStat[]).map((stat) => STAT_NAMES[stat]).join(" and ");
+      out.push({
+        key: "stats",
+        label: "ALTERED",
+        title: `Altered — its ${named} ${Object.keys(vol.stats).length === 1 ? "has" : "have"} been split or swapped with the foe's`,
+        cls: "fall",
+      });
+    }
+    if (vol.stockpile) {
+      out.push({
+        key: "stockpile",
+        label: `STOCK ${vol.stockpile}`,
+        title: `Stockpiled ${vol.stockpile} — spent by Swallow to mend, or by Spit Up to strike`,
+        cls: "rise",
+      });
+    }
+    if (vol.sure) {
+      out.push({
+        key: "sure",
+        label: "LOCKED ON",
+        title: "Locked on — its next move cannot miss",
+        cls: "rise",
+      });
+    }
+    if (vol.bonded) {
+      out.push({
+        key: "bonded",
+        label: "BOND",
+        title: "Destiny Bond — whatever knocks it out this turn goes down with it",
+        cls: "rise",
+      });
+    }
+    if (vol.wish) {
+      out.push({
+        key: "wish",
+        label: "WISH",
+        title:
+          vol.wish === 1
+            ? "Wish — whoever is standing here is mended at the end of this turn"
+            : "Wish — whoever is standing here is mended at the end of next turn",
+        cls: "rise",
+      });
+    }
+    if (vol.blessing) {
+      out.push({
+        key: "blessing",
+        label: "BLESSING",
+        title: "Healing Wish — the next one out arrives fully healed",
+        cls: "rise",
+      });
+    }
+    if (vol.afloat) {
+      out.push({
+        key: "afloat",
+        label: `AFLOAT ${vol.afloat}`,
+        title: `Floating — Ground attacks pass underneath it for ${turnsText(vol.afloat)} more`,
+        cls: "rise",
+      });
+    }
   }
 
   // Screens last, and they say how long they have left: they are the only

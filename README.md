@@ -1041,7 +1041,7 @@ Struggle. Leech Seed was simply the one somebody noticed.
 
 The hole is closed from both ends.
 
-**50 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
+**79 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
 shape `moves.ts` already used for the 39 attacks whose damage Showdown computes
 in a callback. Effects are data interpreted by one loop in `battle.ts`, not a
 switch per move. That needed three pieces of machinery the battle did not have:
@@ -1051,14 +1051,15 @@ stats (accuracy and evasion, on thirds rather than halves), and side conditions
 that outlive whoever is standing (the screens, Safeguard, Mist, Lucky Chant,
 Tailwind).
 
-**The other 129 are no longer dealt.** `learnset()` filters them, which is the
+**The other 101 are no longer dealt.** `learnset()` filters them, which is the
 one gate every road to a moveset comes through — `movesAtLevel`, `learnableAt`,
 the level-up walk, the Cup, the Inspect panel. `MACHINE_MOVES` is filtered the
 same way, because `items.ts` builds one purchasable machine per entry and the
 Mart was selling 45 four-thousand-a-go lessons in wasting a turn.
 
 What is deliberately not implemented, and why, is written out at the top of
-`statusmoves.ts`: weather and terrain want a field condition of their own;
+`statusmoves.ts`, and move by move in `docs/moves-deferred.md` with the
+number of species each costs a slot: weather and terrain want a field condition of their own;
 entry hazards want an on-arrival hook; **move restriction** (Taunt, Disable,
 Encore, Torment) changes *which moves are legal*, which is the one class of
 effect that can make a battle unwinnable and wants its own pass with the
@@ -1086,6 +1087,63 @@ And one wording fix worth naming, because it is the same mistake twice: landing
 a condition and the condition *biting* were the same sentence, so the turn a
 seed took hold read "Amaura was seeded! Amaura was seeded! Amaura took 5" — the
 game appearing to stutter rather than a seed taking hold and then drawing.
+
+### Twenty-five more, on machinery that already existed
+
+The deferred list ranked its groups by what each needed first, and the top
+group needed nothing: **volatiles on an appearance**, which `statusmoves.ts`
+already had. Twenty-four status moves and one attack, and every one of them
+was a slot a creature could not use. They took the filtered list from 125 to
+**101**, and the species losing at least one learnset entry from 888 to
+**859**.
+
+Most are what the table said they were — Aqua Ring is Leech Seed backwards,
+Lock-On is a flag the next move reads, Stockpile is one counter with three
+doors. The ones worth writing down are the ones where a decision was made:
+
+- **Attract asks `gendersPair`**, the breeding question, because it is the
+  same question. Two creatures that would not pair do not fall for each other
+  either, and a second rule about who loves whom would be a second answer.
+- **Heal Pulse mends the opponent.** Nothing in the engine could until now —
+  `applyHeal` had only ever pointed at the user. In a game that is 1v1
+  throughout it is a gift to the other side, which is what it is in the games
+  too; thirty species learn it, and a gift dealt is better than a slot that
+  does nothing.
+- **Power Split rewrites the number, not the ladder.** The averaged Attack is
+  a `stats` override on the volatiles, read *under* the stage multiplier, so
+  a Swords Dance after a split still doubles the split number. It is the one
+  volatile that is an object, and the hash had to learn that: `String` of an
+  object is `[object Object]` whatever is in it, and two different splits
+  hashed the same until it was written out entry by entry.
+- **Wish belongs to the slot.** It heals whoever is standing there at the end
+  of the next turn, for half of *their* maximum, and a switch throws it away
+  with the rest of the volatiles. The games let a wish follow a switch; here
+  that would be the one volatile that survives one, and one exception is where
+  the next bug lives.
+- **Healing Wish is a volatile on a fainted creature.** The user faints and
+  leaves `blessing` on its slot; `switchTo` reads it just before it clears
+  the volatiles, and the arrival is made whole. Refused with nobody in
+  reserve, because fainting for nobody is not a trade.
+- **Destiny Bond lasts until the user next moves**, and only a *move* can
+  collect on it — `landDamage` is the one place it is asked, so a poison or
+  a seed that finishes a bonded creature has nobody to take. Taken off as it
+  fires, so the second blow of a multi-strike cannot collect twice.
+- **Lock-On and Destiny Bond are both cleared at the top of `executeMove`**,
+  before anything can put them back. That ordering is what makes Lock-On
+  followed by Lock-On a fresh lock rather than one consumed by itself.
+- **Spit Up moved out of the stand-in table.** It was a flat hundred because
+  Stockpile did nothing; now it is a hundred a count and *fails* at nought,
+  and a variable-damage move that fails now returns before anything below it
+  — which was already true of every such move in effect, and is now true in
+  the code.
+- **Magnet Rise is asked by the move buttons.** `landsAs` takes the
+  defender's volatiles as a fourth argument, because a button that did not
+  know about it would promise an Earthquake into something floating.
+
+Every new volatile has a badge (`M9`), a line in the log, a row in
+`docs/status.md` (`V7`) and its numbers guarded there (`V1`, `V3`,
+`V4`). Six machines came back onto the Mart's shelf with them, which is why
+`docs/items.md` says 512.
 
 ### Moves out in the world
 
@@ -1436,31 +1494,18 @@ numbers measured rather than remembered — re-measure before trusting them.*
 ### The largest single gap: 125 status moves
 
 The manifest carries five effect fields and Showdown keeps the rest in script,
-so of its **264 status moves, 54 are honoured in battle** (`statusmoves.ts`) and
-**7 out in the world** (`fieldmoves.ts`). The remaining **125 are filtered out
-of every pool** rather than dealt as dead slots — which means no creature ever
-holds a move that does nothing, but it also means **888 of 1134 species lose at
-least one learnset entry**, 2,209 entries in total.
+so of its **264 status moves, 79 are honoured in battle** (`statusmoves.ts`) and
+**2 more only out in the world** (`fieldmoves.ts`). The remaining **101 are
+filtered out of every pool** rather than dealt as dead slots — which means no
+creature ever holds a move that does nothing, but it also means **859 of 1134
+species lose at least one learnset entry**, 1,808 entries in total.
 
 That is the honest cost of the current design, and closing it is mostly a
-matter of adding one *capability* at a time. Grouped by what each group needs
-first, most-learned first, with the number of species that learn each:
-
-**Cheap: more of the machinery that already exists.** Volatiles on an
-appearance, which `statusmoves.ts` already has. No new concepts, and probably
-the best value per hour in the whole list.
-
-| Move | Learners | Shape |
-| --- | --- | --- |
-| Aqua Ring, Ingrain | 32, 30 | a per-turn heal, which is Leech Seed backwards |
-| Attract | 23 | a lost-turn volatile, which is confusion with a gender check |
-| Heal Pulse, Floral Healing, Strength Sap | 30, 1, 8 | heal the *target* rather than the user |
-| Psych Up, and the stat swaps and splits | 30, 17+13+12+10+3+2 | copy or exchange stages |
-| Stockpile / Swallow / Spit Up | 28, 25 | one counter volatile, three doors onto it |
-| Lock-On, Mind Reader | 22, 12 | an unmissable volatile |
-| Destiny Bond | 30 | a volatile read at faint time |
-| Wish, Healing Wish, Lunar Dance, Revival Blessing | 19, 23, 1, 2 | a delayed or on-switch heal |
-| Magnet Rise, Telekinesis | 20, 8 | a ground-immunity volatile |
+matter of adding one *capability* at a time. `docs/moves-deferred.md` is the
+list, move by move with the number of species that learn each, filed under the
+capability it waits for and guarded both ways (`X56`, `X57`). The cheap
+group — volatiles on an appearance, no new concepts — is done. What is left,
+in the order the list ranks it:
 
 **Needs types to belong to the appearance rather than the species.** Types are
 read off `speciesById(...).types` everywhere, so nothing can change them.
@@ -1511,10 +1556,10 @@ throughout. Rototiller wants soft soil and Secret Power wants a base. Curse (66)
 is a genuine oddity: it is two different moves depending on whether the user is
 a Ghost, and the manifest has no way to say so.
 
-A `docs/moves-deferred.md` alongside `items-deferred.md` and
-`abilities-deferred.md` would fit the pattern, and H29's guard — "nothing on
-the deferred list is quietly implemented after all" — would then cover moves
-too. That guard is the reason those documents are worth keeping.
+**Cheap, and next.** A second small group turned up while writing the deferred
+list that needs nothing new either — Venom Drench, Acupressure, Psycho Shift,
+Power Trick, Topsy-Turvy, Take Heart, the two party heals. They are filed under
+their own heading there.
 
 ### The census has not grown with the world
 

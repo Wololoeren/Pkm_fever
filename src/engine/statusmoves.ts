@@ -1,4 +1,4 @@
-import type { MoveEntry } from "./dex";
+import type { MoveEntry, StageStat } from "./dex";
 import { hasFieldUse } from "./fieldmoves";
 
 /*
@@ -144,6 +144,49 @@ export type MoveEffect =
   /** Sketch: take a copy of what the target last did, for good. */
   | { t: "sketch" }
   /**
+   * Aqua Ring and Ingrain: a sixteenth back every turn, which is Leech Seed
+   * backwards. `plant` is Ingrain's other half — rooted to the spot, it cannot
+   * switch out, cannot run and cannot be blown away.
+   */
+  | { t: "roots"; plant?: boolean }
+  /** Attract: half its turns lost, if the two of them would pair. */
+  | { t: "infatuate" }
+  /** Heal Pulse, Floral Healing: a share of the *target's* maximum, mended. */
+  | { t: "mend"; share: number }
+  /** Strength Sap: the user gains the target's Attack, and the target loses a stage of it. */
+  | { t: "sap" }
+  /** Psych Up: the user's stages become the target's. */
+  | { t: "copyStages" }
+  /**
+   * Power Swap, Guard Swap, Heart Swap: the named stages, exchanged. Heart
+   * Swap takes the two probability ladders with it.
+   */
+  | { t: "swapStages"; stats: readonly StageStat[]; aim?: boolean }
+  /**
+   * Power Split and Guard Split: the named stats averaged between the two;
+   * Speed Swap: exchanged. Neither is a stage — they rewrite the number the
+   * stages multiply, which is why they live in their own volatile.
+   */
+  | { t: "splitStats"; stats: readonly StageStat[]; swap?: boolean }
+  /** Stockpile: one more on the counter, up to three, and a stage of each guard. */
+  | { t: "stockpile" }
+  /** Swallow: the counter spent on mending — a quarter, a half, everything. */
+  | { t: "swallow" }
+  /** Spit Up's other half: the counter spent, after the damage it powered. */
+  | { t: "unstock" }
+  /** Lock-On, Mind Reader: the next move cannot miss. */
+  | { t: "sure" }
+  /** Destiny Bond: whatever knocks it out goes down with it. */
+  | { t: "bond" }
+  /** Wish: half the user's maximum, at the end of next turn, to whoever is standing there. */
+  | { t: "wish" }
+  /** Healing Wish, Lunar Dance: the user faints, and its replacement arrives whole. */
+  | { t: "sacrifice" }
+  /** Revival Blessing: one fainted creature in the party, back at half. */
+  | { t: "revive" }
+  /** Magnet Rise (self) and Telekinesis (target): Ground moves pass underneath for this long. */
+  | { t: "float"; turns: number; onSelf: boolean }
+  /**
    * Nothing, and that is the joke.
    *
    * Splash is the one move in the manifest that is *meant* to do nothing, so
@@ -156,6 +199,10 @@ export type MoveEffect =
 
 /** How long a screen lasts. Five turns, as everywhere else. */
 const SCREEN_TURNS = 5;
+
+/** How long the two ways off the ground last. */
+const MAGNET_RISE_TURNS = 5;
+const TELEKINESIS_TURNS = 3;
 
 /**
  * Every status move this engine honours, and what it does.
@@ -264,6 +311,58 @@ export const STATUS_EFFECTS: Record<string, readonly MoveEffect[]> = {
   // creatures standing in a battle that could only ever time out.
   transform: [{ t: "transform" }],
   sketch: [{ t: "sketch" }],
+
+  // ------------------------------------------------------------ rooting
+  aquaring: [{ t: "roots" }],
+  ingrain: [{ t: "roots", plant: true }],
+
+  // ---------------------------------------------------------- infatuation
+  attract: [{ t: "infatuate" }],
+
+  // ------------------------------------------------- mending the other one
+  //
+  // Nothing in the engine could heal an opponent until these: `applyHeal`
+  // had only ever been pointed at the user. In a game that is 1v1 throughout
+  // they are a gift to the other side, which is what they are in the games
+  // too — thirty species learn Heal Pulse, and every one of them was losing
+  // a slot to it.
+  healpulse: [{ t: "mend", share: 2 }],
+  floralhealing: [{ t: "mend", share: 2 }],
+  strengthsap: [{ t: "sap" }],
+
+  // ------------------------------------------------- copying and exchanging
+  psychup: [{ t: "copyStages" }],
+  powerswap: [{ t: "swapStages", stats: ["atk", "spa"] }],
+  guardswap: [{ t: "swapStages", stats: ["def", "spd"] }],
+  heartswap: [{ t: "swapStages", stats: ["atk", "def", "spa", "spd", "spe"], aim: true }],
+  powersplit: [{ t: "splitStats", stats: ["atk", "spa"] }],
+  guardsplit: [{ t: "splitStats", stats: ["def", "spd"] }],
+  speedswap: [{ t: "splitStats", stats: ["spe"], swap: true }],
+
+  // ------------------------------------------------------------ stockpiling
+  //
+  // One counter, three doors. Spit Up is an attack and gets its power from
+  // moves.ts; the entry here is only the counter being spent afterwards.
+  stockpile: [{ t: "stockpile" }],
+  swallow: [{ t: "swallow" }],
+  spitup: [{ t: "unstock" }],
+
+  // ------------------------------------------------------------- certainty
+  lockon: [{ t: "sure" }],
+  mindreader: [{ t: "sure" }],
+
+  // ----------------------------------------------------------------- bonds
+  destinybond: [{ t: "bond" }],
+
+  // ---------------------------------------------------------------- wishes
+  wish: [{ t: "wish" }],
+  healingwish: [{ t: "sacrifice" }],
+  lunardance: [{ t: "sacrifice" }],
+  revivalblessing: [{ t: "revive" }],
+
+  // -------------------------------------------------------------- floating
+  magnetrise: [{ t: "float", turns: MAGNET_RISE_TURNS, onSelf: true }],
+  telekinesis: [{ t: "float", turns: TELEKINESIS_TURNS, onSelf: false }],
 
   // ------------------------------------------------------------ and nothing
   splash: [{ t: "nothing" }],

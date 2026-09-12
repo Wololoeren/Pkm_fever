@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   activeOf,
@@ -5,6 +7,7 @@ import {
   aiAction,
   battleHash,
   isFainted,
+  landsAs,
   maxHp,
   resolveTurn,
   startBattle,
@@ -22,7 +25,9 @@ import {
   move as moveById,
   movesAtLevel,
   rawLearnset,
+  species as speciesById,
 } from "@/engine/dex";
+import { computeStats } from "@/engine/stats";
 import { actsOnSomething, STATUS_EFFECTS } from "@/engine/statusmoves";
 import type { Individual } from "@/engine/types";
 import { creature } from "./helpers";
@@ -768,5 +773,337 @@ describe("determinism", () => {
     // sits beside `locked` rather than among the volatiles: keeping it there
     // gave every battle in the game a volatile record from its first turn.
     expect(played.sides[0].lastMove).toBe("tackle");
+  });
+});
+
+describe("the cheap group: more of the machinery that already existed", () => {
+  it("X42: Aqua Ring mends a sixteenth a turn, and Ingrain also plants it", () => {
+    const ours = creature("rattata", { level: 50, moves: ["aquaring"], hp: 20 });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const first = turn(fought(ours, theirs), 0, 0);
+    expect(volatilesOf(first.battle, 0).rooted).toBe(true);
+    expect(healedOn(first.events, 0)).toBe(Math.max(1, Math.floor(maxHp(ours) / 16)));
+    // Not trapped: Aqua Ring is the heal without the roots.
+    expect(actionRefusal(first.battle, 0, { t: "flee" })).toBeNull();
+
+    // Ingrain is both halves, and no wind moves it.
+    const planted = [
+      creature("rattata", { level: 50, moves: ["ingrain"] }),
+      creature("pidgey", { level: 50, moves: ["tackle"], uid: 3 }),
+    ];
+    const blower = creature("machop", { level: 50, moves: ["roar"], uid: 2 });
+    const rooted = resolveTurn(
+      startBattle(SEED, TAG, planted, [blower]),
+      [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+      TRAINER_RULES,
+    ).battle;
+    expect(volatilesOf(rooted, 0).rooted).toBe(true);
+    expect(volatilesOf(rooted, 0).trapped).toBe(true);
+    expect(rooted.sides[0].active, "Roar moved something that was planted").toBe(0);
+    expect(rooted.events.some((event) => event.t === "fizzled" && event.side === 1)).toBe(true);
+    expect(actionRefusal(rooted, 0, { t: "switch", partyIndex: 1 })).not.toBeNull();
+  });
+
+  it("X43: Attract asks the question breeding asks, and then costs turns", () => {
+    const ours = creature("rattata", { level: 50, moves: ["attract"], gender: "female" });
+    const him = creature("machop", { level: 50, moves: ["tackle"], uid: 2, gender: "male" });
+    const her = creature("machop", { level: 50, moves: ["tackle"], uid: 2, gender: "female" });
+
+    const same = turn(fought(ours, her), 0, 0);
+    expect(volatilesOf(same.battle, 1).infatuated).toBeUndefined();
+    expect(same.events.some((event) => event.t === "fizzled")).toBe(true);
+
+    let live = turn(fought(ours, him), 0, 0).battle;
+    expect(volatilesOf(live, 1).infatuated).toBe(true);
+
+    // Half the time it cannot move. Over ten turns a love that never once
+    // bit would be no love at all.
+    let smitten = 0;
+    let moved = 0;
+    for (let n = 0; n < 10 && !live.outcome; n++) {
+      const next = turn(live, 0, 0);
+      if (next.events.some((event) => event.t === "volatile" && event.which === "smitten" && event.side === 1)) smitten++;
+      if (next.events.some((event) => event.t === "use" && event.side === 1)) moved++;
+      live = next.battle;
+    }
+    expect(smitten, "it never once lost a turn").toBeGreaterThan(0);
+    expect(moved, "it never once moved").toBeGreaterThan(0);
+  });
+
+  it("X44: Heal Pulse mends the target, which nothing could do before", () => {
+    const ours = creature("rattata", { level: 50, moves: ["healpulse"] });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2, hp: 10 });
+
+    const first = turn(fought(ours, theirs), 0, 0);
+    expect(healedOn(first.events, 1)).toBe(Math.floor(maxHp(theirs) / 2));
+    expect(activeOf(first.battle, 1).hp).toBe(10 + Math.floor(maxHp(theirs) / 2));
+
+    // And at full there is nothing to mend.
+    const whole = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+    const nothing = turn(fought(ours, whole), 0, 0);
+    expect(nothing.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X45: Strength Sap takes the target's Attack as health, and a stage of it", () => {
+    const ours = creature("rattata", { level: 50, moves: ["strengthsap"], hp: 10 });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const first = turn(fought(ours, theirs), 0, 0);
+    const attack = computeStats(speciesById("machop"), theirs).atk;
+    expect(healedOn(first.events, 0)).toBe(Math.min(attack, maxHp(ours) - 10));
+    expect(first.battle.sides[1].stages.atk).toBe(-1);
+  });
+
+  it("X46: Psych Up copies, Power Swap exchanges, and Heart Swap takes the ladders too", () => {
+    const setup = (mine: string[], theirsMove: string) => {
+      const ours = creature("rattata", { level: 50, moves: mine });
+      const theirs = creature("machop", { level: 50, moves: [theirsMove], uid: 2 });
+      // Their boost first, so there is something to copy or take.
+      const first = turn(fought(ours, theirs), 1, 0);
+      return turn(first.battle, 0, 0).battle;
+    };
+
+    const copied = setup(["psychup", "splash"], "swordsdance");
+    expect(copied.sides[0].stages.atk).toBe(2);
+
+    // Rattata moves first: it takes the two stages, and then the dance puts
+    // two back on the Machop.
+    const swapped = setup(["powerswap", "splash"], "swordsdance");
+    expect(swapped.sides[0].stages.atk).toBe(2);
+    expect(swapped.sides[1].stages.atk).toBe(2);
+
+    const hearts = setup(["heartswap", "splash"], "doubleteam");
+    expect(hearts.sides[0].aim?.evasion).toBe(1);
+  });
+
+  it("X47: Power Split rewrites the number rather than the ladder, and the hash sees it", () => {
+    const ours = creature("rattata", { level: 50, moves: ["powersplit", "swordsdance"] });
+    const theirs = creature("machamp", { level: 50, moves: ["splash"], uid: 2 });
+
+    const first = turn(fought(ours, theirs), 0, 0);
+    const mine = computeStats(speciesById("rattata"), ours).atk;
+    const its = computeStats(speciesById("machamp"), theirs).atk;
+    const between = Math.floor((mine + its) / 2);
+    expect(volatilesOf(first.battle, 0).stats?.atk).toBe(between);
+    expect(volatilesOf(first.battle, 1).stats?.atk).toBe(between);
+
+    // A stage still lands on top of it.
+    const danced = turn(first.battle, 1, 0).battle;
+    expect(danced.sides[0].stages.atk).toBe(2);
+    expect(volatilesOf(danced, 0).stats?.atk).toBe(between);
+
+    // Two different splits are two different battles, or a duel could not
+    // tell them apart.
+    const a = startBattle(SEED, TAG, [ours], [theirs]);
+    const b = startBattle(SEED, TAG, [ours], [theirs]);
+    a.sides[0].volatiles = { stats: { atk: 40 } };
+    b.sides[0].volatiles = { stats: { atk: 41 } };
+    expect(battleHash(a)).not.toBe(battleHash(b));
+  });
+
+  it("X48: Stockpile counts to three, Swallow spends it on mending, Spit Up on damage", () => {
+    const ours = creature("rattata", { level: 50, moves: ["stockpile", "swallow", "spitup"], hp: 20 });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    let live = fought(ours, theirs);
+    for (let n = 0; n < 3; n++) live = turn(live, 0, 0).battle;
+    expect(volatilesOf(live, 0).stockpile).toBe(3);
+    expect(live.sides[0].stages.def).toBe(3);
+    expect(live.sides[0].stages.spd).toBe(3);
+
+    const fourth = turn(live, 0, 0);
+    expect(fourth.events.some((event) => event.t === "fizzled")).toBe(true);
+
+    // Three swallowed is everything, and the guards it bought go back.
+    const swallowed = turn(fourth.battle, 1, 0);
+    expect(activeOf(swallowed.battle, 0).hp).toBe(maxHp(ours));
+    expect(volatilesOf(swallowed.battle, 0).stockpile).toBeUndefined();
+    expect(swallowed.battle.sides[0].stages.def).toBe(0);
+
+    // Spit Up with nothing behind it is nothing.
+    const empty = turn(fought(ours, theirs), 2, 0);
+    expect(empty.events.some((event) => event.t === "fizzled")).toBe(true);
+    expect(damagedOn(empty.events, 1)).toBe(0);
+
+    // And with two behind it, it hits and the counter is spent.
+    let stocked = turn(fought(ours, theirs), 0, 0).battle;
+    stocked = turn(stocked, 0, 0).battle;
+    const spat = turn(stocked, 2, 0);
+    expect(damagedOn(spat.events, 1)).toBeGreaterThan(0);
+    expect(volatilesOf(spat.battle, 0).stockpile).toBeUndefined();
+    expect(spat.battle.sides[0].stages.def).toBe(0);
+  });
+
+  it("X49: Lock-On makes the next Fissure certain", () => {
+    // Measured across seeds rather than asserted once: a lock that happened
+    // to land on a seed where Fissure hit anyway proves nothing.
+    let lockedHits = 0;
+    let bareMisses = 0;
+    for (let at = 0; at < 15; at++) {
+      const ours = creature("rattata", { level: 50, moves: ["lockon", "fissure"] });
+      const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+      const locked = resolveTurn(
+        startBattle(`${SEED}-${at}`, TAG, [ours], [theirs]),
+        [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+      ).battle;
+      expect(volatilesOf(locked, 0).sure).toBe(true);
+      const swung = resolveTurn(locked, [{ t: "fight", moveIndex: 1 }, { t: "fight", moveIndex: 0 }]).battle;
+      if (damagedOn(swung.events, 1) > 0) lockedHits++;
+      // Spent by the swing.
+      expect(volatilesOf(swung, 0).sure).toBeUndefined();
+
+      const bare = resolveTurn(
+        startBattle(`${SEED}-${at}`, TAG, [ours], [theirs]),
+        [{ t: "fight", moveIndex: 1 }, { t: "fight", moveIndex: 0 }],
+      ).battle;
+      if (bare.events.some((event) => event.t === "miss" && event.side === 0)) bareMisses++;
+    }
+    expect(lockedHits).toBe(15);
+    expect(bareMisses, "Fissure never missed on its own").toBeGreaterThan(0);
+  });
+
+  it("X50: Destiny Bond takes the attacker down, and only an attacker", () => {
+    const ours = creature("rattata", { level: 50, moves: ["destinybond"], hp: 1 });
+    const theirs = creature("machop", { level: 50, moves: ["tackle"], uid: 2 });
+
+    // Rattata is the faster, so the bond is up before the tackle lands.
+    const first = turn(fought(ours, theirs), 0, 0);
+    expect(isFainted(activeOf(first.battle, 0))).toBe(true);
+    expect(isFainted(activeOf(first.battle, 1)), "the bond did not bite").toBe(true);
+    expect(first.events.some((event) => event.t === "volatile" && event.which === "avenged")).toBe(true);
+    expect(first.battle.outcome).toEqual({ t: "draw" });
+
+    // A poison has nobody standing behind it.
+    const poisoned = creature("rattata", { level: 50, moves: ["destinybond"], hp: 1, status: "psn" });
+    const idle = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+    const bled = turn(fought(poisoned, idle), 0, 0);
+    expect(isFainted(activeOf(bled.battle, 0))).toBe(true);
+    expect(isFainted(activeOf(bled.battle, 1))).toBe(false);
+  });
+
+  it("X51: a Wish comes true at the end of the next turn, for half", () => {
+    const ours = creature("rattata", { level: 50, moves: ["wish"], hp: 10 });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const first = turn(fought(ours, theirs), 0, 0);
+    expect(volatilesOf(first.battle, 0).wish).toBe(1);
+    expect(activeOf(first.battle, 0).hp, "it came true too soon").toBe(10);
+
+    const second = turn(first.battle, 0, 0);
+    expect(activeOf(second.battle, 0).hp).toBe(10 + Math.floor(maxHp(ours) / 2));
+    expect(volatilesOf(second.battle, 0).wish).toBeUndefined();
+  });
+
+  it("X52: Healing Wish faints so the next one arrives whole, and refuses with nobody to arrive", () => {
+    const ours = [
+      creature("chansey", { level: 50, moves: ["healingwish"] }),
+      creature("rattata", { level: 50, moves: ["tackle"], uid: 3, hp: 10, status: "brn" }),
+    ];
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    let battle = startBattle(SEED, TAG, ours, [theirs]);
+    battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], TRAINER_RULES).battle;
+    expect(isFainted(activeOf(battle, 0))).toBe(true);
+    expect(battle.awaitingSwitch[0]).toBe(true);
+
+    battle = resolveTurn(battle, [{ t: "switch", partyIndex: 1 }, { t: "pass" }], TRAINER_RULES).battle;
+    const arrived = activeOf(battle, 0);
+    expect(arrived.hp).toBe(maxHp(arrived));
+    expect(arrived.status).toBeNull();
+    // And it was a one-off: the blessing went with the volatiles.
+    expect(battle.sides[0].volatiles).toBeUndefined();
+
+    // Alone, it fails rather than fainting for nobody.
+    const alone = turn(fought(ours[0], theirs), 0, 0, TRAINER_RULES);
+    expect(isFainted(activeOf(alone.battle, 0))).toBe(false);
+    expect(alone.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X53: Revival Blessing brings somebody in reserve back at half", () => {
+    const ours = [
+      creature("chansey", { level: 50, moves: ["revivalblessing"] }),
+      creature("rattata", { level: 50, moves: ["tackle"], uid: 3, hp: 0 }),
+    ];
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const battle = resolveTurn(
+      startBattle(SEED, TAG, ours, [theirs]),
+      [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+      TRAINER_RULES,
+    ).battle;
+    expect(battle.sides[0].team[1].hp).toBe(Math.floor(maxHp(ours[1]) / 2));
+    expect(battle.events.some((event) => event.t === "revived" && event.speciesId === "rattata")).toBe(true);
+
+    // With nobody down it has nothing to do.
+    const whole = turn(fought(ours[0], theirs), 0, 0, TRAINER_RULES);
+    expect(whole.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X54: Magnet Rise puts it out of reach of the ground for five turns", () => {
+    const ours = creature("rattata", { level: 50, moves: ["magnetrise", "splash"] });
+    const theirs = creature("machop", { level: 20, moves: ["earthquake"], uid: 2 });
+
+    let live = turn(fought(ours, theirs), 0, 0);
+    expect(volatilesOf(live.battle, 0).afloat).toBe(4);
+    expect(live.events.some((event) => event.t === "immune" && event.side === 0)).toBe(true);
+    // The move buttons know, so an Earthquake is not promised into it.
+    expect(landsAs(theirs, ours, "earthquake", live.battle.sides[0].volatiles)).toBe(0);
+    expect(landsAs(theirs, ours, "earthquake")).toBeGreaterThan(0);
+
+    for (let n = 0; n < 4; n++) {
+      live = turn(live.battle, 1, 0);
+      expect(damagedOn(live.events, 0), `it was hit on turn ${n + 2}`).toBe(0);
+    }
+    expect(volatilesOf(live.battle, 0).afloat).toBeUndefined();
+    const landed = turn(live.battle, 1, 0);
+    expect(damagedOn(landed.events, 0)).toBeGreaterThan(0);
+  });
+
+  it("X55: every one of the twenty-five is honoured, and dealt again", () => {
+    const group = [
+      "aquaring", "ingrain", "attract", "healpulse", "floralhealing", "strengthsap",
+      "psychup", "powerswap", "guardswap", "speedswap", "heartswap", "powersplit", "guardsplit",
+      "stockpile", "swallow", "spitup", "lockon", "mindreader", "destinybond",
+      "wish", "healingwish", "lunardance", "revivalblessing", "magnetrise", "telekinesis",
+    ];
+    for (const id of group) expect(actsOnSomething(moveById(id)), `${id} is still filtered`).toBe(true);
+
+    // And the filter has let them back into the learnsets.
+    const dealt = new Set<string>();
+    for (const spec of ALL_SPECIES) {
+      for (const [, id] of learnset(spec.id)) if (group.includes(id)) dealt.add(id);
+    }
+    expect(dealt.size, "hardly anything learns them").toBeGreaterThan(20);
+  });
+});
+
+describe("the deferred list", () => {
+  const doc = readFileSync(join(process.cwd(), "docs", "moves-deferred.md"), "utf8");
+  const rows = doc.split("\n").filter((line) => line.startsWith("| **"));
+  const named = new Set(rows.flatMap((row) => [...row.matchAll(/\*\*([^*]+)\*\*/g)].map((one) => one[1])));
+
+  it("X56: every move the filter takes away is on the list", () => {
+    // A move that is neither dealt nor written down is a move nobody knows is
+    // missing, which is how Leech Seed went unnoticed in the first place.
+    const missing = ALL_MOVES.filter((move) => !actsOnSomething(move) && !named.has(move.name));
+    expect(missing.map((move) => move.name), "filtered but not in docs/moves-deferred.md").toEqual([]);
+  });
+
+  it("X57: and nothing on the list is quietly honoured after all", () => {
+    // The other way the pair rots, and the same guard H29 keeps for items: a
+    // move filed as waiting on something that has since been built is a
+    // reader sent looking for what is already there.
+    const byName = new Map(ALL_MOVES.map((move) => [move.name, move]));
+    const wrongly = [...named].filter((name) => {
+      const move = byName.get(name);
+      return move !== undefined && actsOnSomething(move);
+    });
+    expect(wrongly, "docs/moves-deferred.md says these are missing, and they are not").toEqual([]);
+
+    // And the count it opens with is the real one.
+    const filtered = ALL_MOVES.filter((move) => !actsOnSomething(move)).length;
+    expect(doc).toContain(`the **${filtered}** below`);
   });
 });
