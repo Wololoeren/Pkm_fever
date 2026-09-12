@@ -150,6 +150,33 @@ an actual playthrough. `lib/verify.ts` is the whole of it and is pure, so
 the engine gives it, a cheat leaves a mark that survives everything after it,
 and a log the engine refuses says *which input* rather than "corrupt".
 
+### Tournament mode
+
+Same seed, fixed hours, bring six. `/tournament` is the bracket: drop
+everybody's save on it, each is replayed and checked in exactly as the verify
+page does it, and the ones that pass are seeded **by hash** into a single
+elimination bracket with byes up to a power of two. Every match is the
+engine's own battle under duel rules — no catching, no running, no
+experience — with both sides driven by the same plain AI that drives every
+wild creature, and its dice come from the tournament seed and the two hashes
+in it.
+
+Two organisers with the same files draw the same bracket and get the same
+champion. That is the whole point: a result nobody can reproduce is a result
+somebody has to be trusted about, and the design is that nobody is.
+
+Teams start as if from a Center — full health, no condition, every use back —
+because a save is saved mid-walk and the first bracket run had a final over
+in one turn against somebody who had brought one creature standing and one
+already down. The AI is deliberately not a strategy. The bracket measures the
+*teams* people bred and trained; a cleverer AI would measure the AI. A match that reaches the
+turn limit is decided on health, as any battle is, and a dead heat goes to the
+higher seed and says so on the page. A save that used a testing shortcut, or
+brings fewer than the team size, or played a different seed when the rules say
+everybody played the same one, is listed with the reason and left out.
+`lib/tournament.ts` is pure and `T1` to `T4` run a three-entrant bracket
+without a browser.
+
 ### Today's seed
 
 The menu offers one seed for everyone: `DAY` and the UTC date, so
@@ -481,6 +508,27 @@ The written cast keep their own words: gym leaders, Cup contenders and the
 rival have lines already, and a town trainer's punchline is their team. A fact
 about the crit ladder coming out of the cryptid hunter would be a fact standing
 where a joke was.
+
+### The trainer school
+
+Hearth's house is a school now: four people, one idea each — the six hidden
+numbers, the nature vector, effort, and the shine ladder. The four ideas the
+whole design rests on were written down in this file and nowhere a player
+would stand; the route hints carry ninety-nine facts, but a fact dealt from a
+deck is a fact you meet by accident, and these four are the ones a new player
+should be able to walk to.
+
+Every number a teacher says is read out of the constant it is about, at
+module load — `src/engine/school.ts` builds the lines from `IV_MAX`,
+`NATURE_MAGNITUDE`, `EV_MAX_PER_STAT` and the shiny multiplier — so a lesson
+cannot say thirty-one after somebody makes it thirty-two. The hints keep that
+rule by guard (`HN12`); the school keeps it by construction, and `SC2`
+checks the construction still reaches the text.
+
+Four people rather than one with four paragraphs, because a lesson you choose
+is a lesson you wanted. Only Hearth has one; a school in every town would be
+the same four people four times, so the other towns keep a house. Adding
+anybody to the roster is an `ENGINE_VERSION` bump, and this was: 25.
 
 ### The three outer towns
 

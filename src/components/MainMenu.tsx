@@ -116,9 +116,10 @@ export function MainMenu({
         <h2>PvP</h2>
         <p className="muted">
           Battling and trading with other people happen in town, not from this menu — load a save
-          and walk to Hearth. A tournament is a series of PvP matches, and the{" "}
-          <Link href="/verify">verify page</Link> is its check-in: drop a save on it and it
-          replays the log and prints the seed, the move count, the hash and the cheated mark.
+          and walk to Hearth. The <Link href="/verify">verify page</Link> is a tournament&apos;s
+          check-in — drop a save on it and it replays the log and prints the seed, the move count,
+          the hash and the cheated mark — and the <Link href="/tournament">bracket</Link> seeds
+          itself from verified saves and plays the matches out.
         </p>
       </div>
 

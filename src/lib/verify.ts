@@ -1,6 +1,6 @@
 import { ALL_SPECIES, species as speciesById } from "@/engine/dex";
 import { applyInput, initialState, stateHash, type GameState } from "@/engine/engine";
-import { DEFAULT_WORLD, ENGINE_VERSION } from "@/engine/types";
+import { DEFAULT_WORLD, ENGINE_VERSION, type Individual } from "@/engine/types";
 import { generateWorld } from "@/engine/world";
 import { normaliseSeed, type SaveFile } from "./save";
 
@@ -39,6 +39,8 @@ export interface Verification {
   cheated: boolean;
   savedAt: string;
   party: { speciesId: string; name: string; level: number; variantId: string }[];
+  /** The party itself, for a bracket to fight with. */
+  roster: Individual[];
   badges: number;
 }
 
@@ -82,6 +84,7 @@ export function verifySave(save: SaveFile): Verification {
       level: creature.level,
       variantId: creature.variantId,
     })),
+    roster: state.party,
     badges: state.badges.length,
   };
 }
