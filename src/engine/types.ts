@@ -34,8 +34,11 @@ import { BIOME_IDS } from "./biomes";
  * That is a log that replays differently, which is exactly what this number
  * is for: without the bump an old save falls through the corrupt-log path and
  * quietly starts a new game, which is the silent reinterpretation the comment
- * above promises never happens. Adding anybody to the roster is a bump. */
-export const ENGINE_VERSION = 24;
+ * above promises never happens. Adding anybody to the roster is a bump.
+ *
+ * 25 is the trainer school: four people in Hearth's house, which is the rule
+ * above applied. */
+export const ENGINE_VERSION = 25;
 
 // ------------------------------------------------------------------ stats
 

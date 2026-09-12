@@ -2,6 +2,7 @@ import { contender as cupSpec, CUP_ROSTER } from "./cup";
 import { species as speciesById } from "./dex";
 import { item as itemSpec } from "./items";
 import { quest as questSpec } from "./quests";
+import { SCHOOL } from "./school";
 import type { Gender, Individual } from "./types";
 import { variant } from "./variants";
 
@@ -201,6 +202,10 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
 }
 
 export const NPCS: readonly NpcPlacement[] = [
+  // The four teachers in Hearth's house. Their lines are built from the
+  // constants they are about, which is why they live in their own file.
+  ...SCHOOL,
+
   // ------------------------------------------------------------- in town
   {
     id: "nurse",

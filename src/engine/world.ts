@@ -1,4 +1,5 @@
 import { rollAbilities } from "./abilities";
+import { SCHOOL_LABEL } from "./school";
 import { ALL_SPECIES, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
 import { ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
@@ -1865,7 +1866,10 @@ function buildTown(node: PlanNode, spec: (typeof TOWNS)[number]): {
     daycare: { x: 5, y: midY - 9, label: "Daycare" },
     centre: { x: 24, y: midY - 9, label: "Poké Center" },
     mart: { x: 7, y: midY + 4, label: "Mart" },
-    house: { x: 26, y: midY + 4, label: "A house" },
+    // Hearth's house is the trainer school: four people, one idea each. The
+    // other towns keep a house, because a school in every town would be the
+    // same four people four times.
+    house: { x: 26, y: midY + 4, label: spec.id === HUB_ID ? SCHOOL_LABEL : "A house" },
     gym: { x: 5, y: midY - 9, label: "Gym" },
     cup: { x: 5, y: midY - 9, label: CUP_LABEL },
   };
@@ -1882,7 +1886,12 @@ function buildTown(node: PlanNode, spec: (typeof TOWNS)[number]): {
     doors.push({ x: door.x, y: door.y, to: id, at: inside.entry });
     // What the sign says is the building's job, not its name: "Daycare" is
     // useful from across the square, "A house" is at least honest.
-    if (door.sign) signs.push({ ...door.sign, text: SIGN_TEXT[plot.role] });
+    if (door.sign) {
+      signs.push({
+        ...door.sign,
+        text: plot.role === "house" && spec.id === HUB_ID ? "School" : SIGN_TEXT[plot.role],
+      });
+    }
     interiors.push(inside);
   }
 
