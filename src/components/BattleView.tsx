@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   activeOf,
   landsAs,
@@ -22,6 +22,7 @@ import { EvolutionScene } from "./EvolutionScene";
 import { beatsFor, catchFor } from "@/lib/beats";
 import { useBeat, useCatch, useEntrance } from "./useBeat";
 import { useCues } from "./useCues";
+import { autoPick, pickByKey, switchTargets } from "@/lib/switching";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
@@ -285,6 +286,64 @@ export function BattleView({
   const mustSwitch = battle.awaitingSwitch[role];
   const ourTeam = battle.sides[role].team;
   const wildBattle = balls !== undefined;
+  const canAct = !busy && !footer && !battle.outcome;
+  const targets = switchTargets(battle, role);
+
+  // A picker with one thing in it is a question with one answer: the single
+  // eligible member goes out on its own, forced switch or chosen. And a
+  // picker with nothing in it — held by a trap — closes rather than waits.
+  useEffect(() => {
+    if (!canAct || !(mustSwitch || switching)) return;
+    const only = autoPick(battle, role);
+    if (only !== null) {
+      setSwitching(false);
+      onAction({ t: "switch", partyIndex: only });
+    } else if (switching && !switchTargets(battle, role).length) {
+      setSwitching(false);
+    }
+  }, [battle, role, mustSwitch, switching, canAct, onAction]);
+
+  // The keyboard's half of switching. S opens the picker, a number picks,
+  // Escape closes. On the capture phase, and stopping there, because the
+  // page's own battle keys read the same numbers as moves — and while the
+  // picker is open a number is a creature, not a move.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!canAct) return;
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+
+      if (mustSwitch || switching) {
+        const pick = pickByKey(battle, role, key);
+        if (pick !== null) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setSwitching(false);
+          onAction({ t: "switch", partyIndex: pick });
+        } else if (/^[1-9]$/.test(key)) {
+          // A number that is nobody eligible is swallowed rather than let
+          // through to become a move.
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        } else if (key === "Escape" && !mustSwitch) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setSwitching(false);
+        }
+        return;
+      }
+
+      if (key === "s" && targets.length) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setSwitching(true);
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [battle, role, mustSwitch, switching, canAct, onAction, targets.length]);
 
   // The foe stands top-right and lunges left; we stand bottom-left and lunge
   // right. Handed in rather than read off a class, because the direction is
@@ -321,7 +380,9 @@ export function BattleView({
                 press. */}
             <p className="prompt">
               {mustSwitch ? "Send out who?" : "Switch to who?"}
-              <span className="promptWhere">Pick one from your party.</span>
+              <span className="promptWhere">
+                Pick one from your party, or press its number{mustSwitch ? "" : " — Esc to go back"}.
+              </span>
             </p>
             {mustSwitch ? null : (
               <button type="button" className="ghost" onClick={() => setSwitching(false)}>
@@ -403,6 +464,12 @@ export function BattleView({
             </div>
             <p className="hint">
               Keys: <kbd>1</kbd>–<kbd>4</kbd> moves
+              {targets.length ? (
+                <>
+                  {" · "}
+                  <kbd>S</kbd> switch
+                </>
+              ) : null}
               {wildBattle ? (
                 <>
                   {" · "}

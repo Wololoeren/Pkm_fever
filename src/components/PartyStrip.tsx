@@ -233,6 +233,8 @@ export function PartyStrip({
             type={activate ? "button" : undefined}
             title={onInspect && !onSelect ? "Look at it" : undefined}
           >
+            {/* The number that sends it out, while a switch is being chosen. */}
+            {onSelect ? <kbd className="cardKey">{index + 1}</kbd> : null}
             <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={48} faint={fainted} />
             <div className="cardBody">
               <div className="cardTop">

@@ -1509,6 +1509,16 @@ is honestly "no colour", and the guard needs no hole.
 
 ### Switching in a battle
 
+From the keyboard as well as the mouse: **S** opens the picker, **1–6** sends
+that party member, **Esc** steps back. A switch that has only one eligible
+answer is not asked — the single member goes out on its own, forced or chosen
+— and a picker with nobody eligible closes rather than waits. Who is eligible
+is fainted, already out, or held by a trap, the last being the engine's own
+`actionRefusal`, so the keys, the cards and the button cannot disagree;
+`lib/switching.ts` is the whole of it. The battle's key listener runs on the
+capture phase and stops there, because the page reads the same numbers as
+moves, and while the picker is open a number is a creature.
+
 The party is already up the left of the stage. A second list under the field was
 the same six creatures on screen twice — once to read, once to press — so the
 panel that is already there is now the thing you click: it takes a callback,
