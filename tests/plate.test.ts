@@ -264,6 +264,31 @@ describe("what is happening to a creature", () => {
     expect(badgesFor(side, side.team[0])).toEqual([]);
   });
 
+  it("M12: a stage badge says what the stage does, not only how many there are", () => {
+    // "Raised 2 stages" explains nothing to somebody who does not know the
+    // ladder. The multiplier is the number that matters, and it is read off
+    // the engine's own ladder rather than a copy.
+    const side = quiet();
+    side.stages.atk = 2;
+    side.stages.spe = -1;
+    side.aim = { accuracy: 0, evasion: 1 };
+    const badges = badgesFor(side, side.team[0]);
+
+    const attack = badges.find((one) => one.key === "stage:atk")!.title;
+    expect(attack).toContain("×2");
+    expect(attack).toContain("hit harder");
+    expect(attack).toContain("switches out");
+
+    const speed = badges.find((one) => one.key === "stage:spe")!.title;
+    expect(speed).toContain("×0.67");
+    expect(speed).toContain("later");
+
+    // Evasion is on the thirds ladder, not the halves.
+    const evasion = badges.find((one) => one.key === "aim:evasion")!.title;
+    expect(evasion).toContain("×1.33");
+    expect(evasion).toContain("miss more often");
+  });
+
   it("M11: it reads a real battle, and a switch takes the right half away", () => {
     // The lifetimes, out of the engine rather than hand-built. Being seeded
     // belongs to whoever is standing there; a Reflect belongs to the side and

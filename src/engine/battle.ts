@@ -489,7 +489,7 @@ const CONFUSED_POWER = 40;
  * Thirds rather than the stats' halves, which is the real ladder and not a
  * simplification: at +6 a stat is four times itself, but evasion is three.
  */
-function aimFactor(stage: number): [number, number] {
+export function aimFactor(stage: number): [number, number] {
   const clamped = Math.max(-6, Math.min(6, stage));
   return clamped >= 0 ? [3 + clamped, 3] : [3, 3 - clamped];
 }

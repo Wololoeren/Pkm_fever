@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import type { BattleState } from "@/engine/battle";
-import { beatsFor } from "@/lib/beats";
+import { beatsFor, catchFor } from "@/lib/beats";
 import { cuesFor, playCues } from "@/lib/sound";
 
 /**
@@ -14,7 +14,9 @@ import { cuesFor, playCues } from "@/lib/sound";
  */
 export function useCues(battle: BattleState): void {
   useEffect(() => {
-    playCues(cuesFor(battle.events, beatsFor(battle.events)));
+    const attempt = catchFor(battle.events, battle.turn);
+    const shift = attempt?.outcome === "escaped" ? attempt.length : 0;
+    playCues(cuesFor(battle.events, beatsFor(battle.events, shift), attempt));
     // The events are a fact about the turn, which is what the key says.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [battle.tag, battle.turn]);

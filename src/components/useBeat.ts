@@ -2,7 +2,7 @@
 
 import { useEffect, type RefObject } from "react";
 import { typeColor } from "@/render/palette";
-import type { Beat } from "@/lib/beats";
+import { BALL_FLIGHT_MS, BALL_SETTLE_MS, CATCH_TAIL_MS, WOBBLE_MS, type Beat, type Catch } from "@/lib/beats";
 
 /**
  * Plays one creature's turn.
@@ -242,4 +242,138 @@ export function useBeat(
     // play, and the beat is a pure function of the turn's events.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn]);
+}
+
+/**
+ * A ball thrown at the wild creature.
+ *
+ * The ball is a span sitting over the wild slot at scale nought — nought
+ * rather than `opacity: 0`, for the reason the flash has no colour: a rule
+ * that hides an element in CSS and is never shown again in CSS is what the
+ * Y1 guard catches, and scale is not the property it watches because the
+ * keyframes below are the only thing that ever gives these a size.
+ *
+ * Flight, then the creature drawn in, then the wobbles, then either stars
+ * over a ball that stays shut or smoke over a ball that opens and a creature
+ * that comes back. Every time comes from `catchFor` in beats.ts, which is
+ * also what pushes the wild creature's answer to a failed throw back past the
+ * smoke — so the ball and the answer never happen under one another.
+ */
+export function useCatch(
+  ball: RefObject<HTMLElement | null>,
+  /** The wild creature's sprite wrapper: drawn in, and let out again. */
+  foe: RefObject<HTMLElement | null>,
+  /** The four stars and the three puffs, in that order. */
+  burst: RefObject<HTMLElement | null>,
+  attempt: Catch | null,
+  /** Restarts the whole thing, as `useBeat` does. */
+  turn: number,
+): void {
+  useEffect(() => {
+    const orb = ball.current;
+    const sprite = foe.current;
+    const marks = burst.current;
+    if (!attempt || !orb || !sprite || !marks || typeof orb.animate !== "function") return;
+    if (stillness()) return;
+
+    const running: Animation[] = [];
+    const play = (target: HTMLElement, frames: Keyframe[], duration: number, delay: number, fill: FillMode = "none") => {
+      running.push(target.animate(frames, { duration, delay, easing: EASE, fill }));
+    };
+
+    // Out of your side of the field and over to theirs, spinning, in an arc.
+    play(
+      orb,
+      [
+        { transform: "translate(-240px, 120px) rotate(0deg) scale(1)", offset: 0 },
+        { transform: "translate(-120px, -70px) rotate(360deg) scale(1)", offset: 0.55 },
+        { transform: "translate(0, 0) rotate(720deg) scale(1)", offset: 1 },
+      ],
+      BALL_FLIGHT_MS,
+      0,
+    );
+    // And it stays there: shut through the wobbles, and until the tail says.
+    const held = attempt.endAt + (attempt.outcome === "caught" ? CATCH_TAIL_MS : 0);
+    play(orb, [{ transform: "scale(1)" }, { transform: "scale(1)" }], held - BALL_FLIGHT_MS, BALL_FLIGHT_MS, "forwards");
+
+    // The creature drawn in as the ball lands, and held there.
+    play(
+      sprite,
+      [
+        { transform: "scale(1)", opacity: "1" },
+        { transform: "scale(0.15) translateY(-20px)", opacity: "0" },
+      ],
+      BALL_SETTLE_MS,
+      BALL_FLIGHT_MS - 60,
+      "forwards",
+    );
+
+    // The wobbles, each a rock to one side and back, with a bounce as it lands.
+    play(orb, [{ transform: "translateY(0) scale(1)" }, { transform: "translateY(-14px) scale(1)" }, { transform: "translateY(0) scale(1)" }], BALL_SETTLE_MS, BALL_FLIGHT_MS);
+    for (const at of attempt.wobblesAt) {
+      play(
+        orb,
+        [
+          { transform: "rotate(0deg) scale(1)" },
+          { transform: "rotate(-24deg) scale(1)", offset: 0.25 },
+          { transform: "rotate(20deg) scale(1)", offset: 0.55 },
+          { transform: "rotate(-8deg) scale(1)", offset: 0.8 },
+          { transform: "rotate(0deg) scale(1)" },
+        ],
+        WOBBLE_MS * 0.7,
+        at,
+      );
+    }
+
+    const stars = Array.from(marks.querySelectorAll<HTMLElement>(".star"));
+    const puffs = Array.from(marks.querySelectorAll<HTMLElement>(".puff"));
+
+    if (attempt.outcome === "caught") {
+      // A click, and stars out of the ball in four directions.
+      play(orb, [{ transform: "scale(1)" }, { transform: "scale(1.25)", offset: 0.3 }, { transform: "scale(1)" }], 260, attempt.endAt);
+      stars.forEach((star, at) => {
+        const angle = -90 + at * 60;
+        const dx = Math.round(Math.cos((angle * Math.PI) / 180) * 34);
+        const dy = Math.round(Math.sin((angle * Math.PI) / 180) * 34) - 12;
+        play(
+          star,
+          [
+            { transform: "translate(0, 0) scale(0)", opacity: "1" },
+            { transform: `translate(${dx * 0.6}px, ${dy * 0.6}px) scale(1.1)`, opacity: "1", offset: 0.4 },
+            { transform: `translate(${dx}px, ${dy}px) scale(0.4)`, opacity: "0" },
+          ],
+          CATCH_TAIL_MS,
+          attempt.endAt + at * 40,
+        );
+      });
+    } else {
+      // The ball opens, smoke, and the creature is standing there again.
+      play(orb, [{ transform: "scale(1)", opacity: "1" }, { transform: "scale(1.3)", opacity: "0" }], 200, attempt.endAt);
+      puffs.forEach((puff, at) => {
+        const dx = (at - 1) * 22;
+        play(
+          puff,
+          [
+            { transform: `translate(${dx}px, 6px) scale(0.3)`, opacity: "0.9" },
+            { transform: `translate(${dx * 1.6}px, -18px) scale(1.5)`, opacity: "0" },
+          ],
+          CATCH_TAIL_MS,
+          attempt.endAt + at * 50,
+        );
+      });
+      play(
+        sprite,
+        [
+          { transform: "scale(0.15) translateY(-20px)", opacity: "0" },
+          { transform: "scale(1)", opacity: "1" },
+        ],
+        260,
+        attempt.endAt + 80,
+      );
+    }
+
+    return () => {
+      for (const one of running) one.cancel();
+    };
+  }, [ball, foe, burst, attempt, turn]);
 }

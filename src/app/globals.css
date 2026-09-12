@@ -312,6 +312,50 @@ button.ghost { background: transparent; }
 }
 
 /*
+ * The ball, the stars and the smoke.
+ *
+ * All three sit over the wild creature's slot at scale nought — not at opacity
+ * nought, on purpose: what shows them is `element.animate()` in
+ * useBeat.ts, and a rule that hides an element in CSS with nothing in CSS to
+ * show it again is exactly what Y1 guards against. Scale is the property the
+ * keyframes own, so nothing here ever has a size except while it is animating.
+ */
+.slot.wild { position: relative; }
+.ball {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, #f4f4f4 0 3px, #222 3px 4.5px, transparent 4.5px),
+    linear-gradient(#222, #222) 0 calc(50% - 1px) / 100% 2px no-repeat,
+    linear-gradient(to bottom, #e33 0 50%, #f4f4f4 50% 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  transform: scale(0);
+  pointer-events: none;
+  z-index: 3;
+}
+.burst { position: absolute; left: 50%; top: 50%; pointer-events: none; z-index: 4; }
+.star,
+.puff { position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; transform: scale(0); }
+.star {
+  background: #ffd84a;
+  clip-path: polygon(50% 0, 62% 38%, 100% 38%, 69% 60%, 80% 100%, 50% 75%, 20% 100%, 31% 60%, 0 38%, 38% 38%);
+}
+.puff {
+  width: 22px;
+  height: 22px;
+  left: -11px;
+  top: -11px;
+  border-radius: 50%;
+  background: rgba(220, 220, 220, 0.85);
+  filter: blur(2px);
+}
+
+/*
  * The party panel while the battle is waiting for somebody to be sent out.
  *
  * The cards are already there to be read; this is what says they are also the
@@ -1195,7 +1239,11 @@ kbd {
 .moveBtn:hover .moveNote,
 .moveBtn:focus-visible .moveNote,
 .moveRow:hover .moveNote,
-.moveRow:focus-visible .moveNote { opacity: 1; }
+.moveRow:focus-visible .moveNote,
+/* The move being learned carries a note too, and its box is neither a button
+   nor a row. Without this rule the note was there and never shown. */
+.learnNew:hover .moveNote,
+.learnNew:focus-visible .moveNote { opacity: 1; }
 
 .moveNoteHead { display: flex; align-items: center; gap: 6px; }
 .moveFacts { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); }

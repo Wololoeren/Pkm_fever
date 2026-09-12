@@ -96,7 +96,10 @@ export function LearnPanel({
         whichever you decide now.
       </p>
 
-      <div className="learnNew">
+      {/* Focusable, so the note under it opens from the keyboard as the move
+          rows do. It carries the same MoveNote the rows carry; it simply had no
+          hover rule of its own, so the note was rendered and never shown. */}
+      <div className="learnNew" tabIndex={0}>
         <span className="typePill" style={{ background: typeColor(learning.type) }}>
           {learning.type}
         </span>

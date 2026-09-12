@@ -1473,6 +1473,19 @@ reflow trick that needs a comment every time anybody reads it.
 `prefers-reduced-motion` is honoured, and the sprite is wrapped rather than
 animated in place so the nameplate and health bar hold still while it shakes.
 
+A thrown ball is the one turn with a shape of its own: the ball arcs over
+from your side spinning, the wild creature is drawn into it, it wobbles, and
+then either stars over a ball that stays shut or smoke over one that opens
+and a creature standing there again. The engine decides a catch with one roll
+and says only `caught` or `catchFailed` — there is no shake count in the
+state and there must not be — so the wobbles are display: three for a catch,
+and for an escape one to three read off the turn number, so the same turn
+always wobbles the same way when a log is watched back. `catchFor` in
+`beats.ts` is the timing; the wild creature's answer to a failed throw is
+pushed back past the smoke, so the two never happen under one another, and
+the sound follows the same clock: a toss, a tick per wobble, then the chime
+or the puff.
+
 The impact flash is invisible at rest because it has **no colour**, not because
 it is at `opacity: 0`. That is not a detail: a rule that hides itself in CSS and
 is never shown again in CSS is exactly what the Y1 guard exists to catch, and it

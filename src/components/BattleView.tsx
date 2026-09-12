@@ -19,8 +19,8 @@ import { badgesFor } from "@/lib/tags";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, TeamBalls, VariantTag } from "./PartyStrip";
 import { EvolutionScene } from "./EvolutionScene";
-import { beatsFor } from "@/lib/beats";
-import { useBeat, useEntrance } from "./useBeat";
+import { beatsFor, catchFor } from "@/lib/beats";
+import { useBeat, useCatch, useEntrance } from "./useBeat";
 import { useCues } from "./useCues";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
@@ -267,7 +267,13 @@ export function BattleView({
 
   // What this turn looked like, and the two elements each side animates. The
   // refs are handed to `useBeat`, which restarts on the turn number.
-  const beats = beatsFor(battle.events);
+  //
+  // A ball thrown this turn: the wild creature's answer to a throw that failed
+  // is pushed back past the smoke, so the two never happen under one another.
+  const attempt = catchFor(battle.events, battle.turn);
+  const beats = beatsFor(battle.events, attempt?.outcome === "escaped" ? attempt.length : 0);
+  const ballRef = useRef<HTMLSpanElement>(null);
+  const burstRef = useRef<HTMLSpanElement>(null);
   const foeSprite = useRef<HTMLSpanElement>(null);
   const foeFlash = useRef<HTMLSpanElement>(null);
   const mySprite = useRef<HTMLSpanElement>(null);
@@ -292,6 +298,7 @@ export function BattleView({
   useEntrance(mySprite, `${battle.tag}:${player.uid}`, "right");
   useBeat(foeSprite, foeFlash, beats[them], battle.turn, "left");
   useBeat(mySprite, myFlash, beats[role], battle.turn, "right");
+  useCatch(ballRef, foeSprite, burstRef, attempt, battle.turn);
   useCues(battle);
 
   const lines = narrate(battle.events, (side) =>
@@ -456,6 +463,19 @@ export function BattleView({
               <span className="mover" ref={foeSprite}>
                 <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
                 <span className="flash" ref={foeFlash} aria-hidden="true" />
+              </span>
+              {/* The ball, and what comes out of it. Beside the mover rather
+                  than inside it, because the mover is what the ball draws in
+                  and a ball that shrank with its own target would vanish. */}
+              <span className="ball" ref={ballRef} aria-hidden="true" />
+              <span className="burst" ref={burstRef} aria-hidden="true">
+                <span className="star" />
+                <span className="star" />
+                <span className="star" />
+                <span className="star" />
+                <span className="puff" />
+                <span className="puff" />
+                <span className="puff" />
               </span>
               <StatHover creature={foe} side={battle.sides[them]} />
             </div>

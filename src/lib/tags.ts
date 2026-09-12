@@ -1,4 +1,5 @@
-import type { Combatant } from "@/engine/battle";
+import { aimFactor, stageFactor, type Combatant } from "@/engine/battle";
+import { factorText } from "./mods";
 import { BATTLE_STAT_IDS, type Individual } from "@/engine/types";
 import type { AimStat, SideConditionId } from "@/engine/statusmoves";
 import type { StageStat } from "@/engine/dex";
@@ -111,9 +112,32 @@ function rungs(delta: number): string {
   return size === 1 ? arrow : `${arrow}${size}`;
 }
 
-function stageTitle(name: string, delta: number): string {
+/**
+ * What a stage change means to the creature wearing it.
+ *
+ * "Raised 2 stages" was the whole tooltip once, and it explains nothing to
+ * somebody who does not already know the ladder: the number that matters is
+ * the multiplier, and the sentence that matters is what that does. So the
+ * multiplier comes first, read off the engine's own ladder rather than a
+ * copy of it, then the effect in plain words, then the stages and how long it
+ * lasts — because the badge row is the one place that says a switch clears it.
+ */
+const STAGE_MEANING: Record<string, [up: string, down: string]> = {
+  atk: ["its physical moves hit harder", "its physical moves hit softer"],
+  def: ["it takes less from physical moves", "it takes more from physical moves"],
+  spa: ["its special moves hit harder", "its special moves hit softer"],
+  spd: ["it takes less from special moves", "it takes more from special moves"],
+  spe: ["it moves earlier in the turn and runs away better", "it moves later in the turn and runs away worse"],
+  accuracy: ["its moves land more often", "its moves miss more often"],
+  evasion: ["moves against it miss more often", "moves against it land more often"],
+};
+
+function stageTitle(name: string, delta: number, key: string): string {
   const size = Math.abs(delta);
-  return `${name} ${delta > 0 ? "raised" : "lowered"} ${size} stage${size === 1 ? "" : "s"}`;
+  const ladder = key === "accuracy" || key === "evasion" ? aimFactor(delta) : stageFactor(delta);
+  const meaning = STAGE_MEANING[key]?.[delta > 0 ? 0 : 1] ?? "";
+  const stages = `${delta > 0 ? "raised" : "lowered"} ${size} stage${size === 1 ? "" : "s"}`;
+  return `${name} ${factorText(ladder)}: ${meaning}. ${stages[0].toUpperCase()}${stages.slice(1)} this battle; it goes back to normal when it switches out`;
 }
 
 /** "3 turns", "1 turn". Said often enough here to be worth one place. */
@@ -154,7 +178,7 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
     out.push({
       key: `stage:${stat}`,
       label: `${STAT_LABELS[stat]} ${rungs(delta)}`,
-      title: stageTitle(STAT_NAMES[stat], delta),
+      title: stageTitle(STAT_NAMES[stat], delta, stat),
       cls: delta > 0 ? "rise" : "fall",
     });
   }
@@ -165,7 +189,7 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
     out.push({
       key: `aim:${which}`,
       label: `${AIM_LABELS[which]} ${rungs(delta)}`,
-      title: stageTitle(AIM_NAMES[which], delta),
+      title: stageTitle(AIM_NAMES[which], delta, which),
       cls: delta > 0 ? "rise" : "fall",
     });
   }
@@ -238,7 +262,7 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
       out.push({
         key: "crit",
         label: `CRIT ${rungs(vol.crit)}`,
-        title: stageTitle("Critical hit rate", vol.crit),
+        title: `Critical hit rate raised ${vol.crit} ${vol.crit === 1 ? "stage" : "stages"} up the crit ladder: one in ${[24, 8, 2, 1][Math.min(3, vol.crit)]} rather than one in 24. It goes when it switches out`,
         cls: "rise",
       });
     }

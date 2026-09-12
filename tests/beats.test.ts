@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiAction, resolveTurn, startBattle, WILD_RULES, type BattleEvent } from "@/engine/battle";
-import { BEAT_MS, beatLength, beatsFor } from "@/lib/beats";
+import { BEAT_MS, beatLength, beatsFor, catchFor } from "@/lib/beats";
 import { creature } from "./helpers";
 
 /**
@@ -173,5 +173,44 @@ describe("against a real turn", () => {
         if (at !== null) expect(Number.isInteger(at), `${at}`).toBe(true);
       }
     }
+  });
+});
+
+describe("a ball thrown", () => {
+  it("A12: a catch wobbles three times, an escape one to three by the turn, and nothing else has a ball", () => {
+    const caught: BattleEvent[] = [{ t: "caught" }];
+    const got = catchFor(caught, 7)!;
+    expect(got.outcome).toBe("caught");
+    expect(got.wobbles).toBe(3);
+    expect(got.wobblesAt).toHaveLength(3);
+    expect(got.endAt).toBeGreaterThan(got.wobblesAt[2]);
+    expect(got.length).toBeGreaterThan(got.endAt);
+
+    const escaped: BattleEvent[] = [{ t: "catchFailed" }, { t: "use", side: 1, moveId: "tackle" }];
+    for (let turn = 1; turn <= 6; turn++) {
+      const away = catchFor(escaped, turn)!;
+      expect(away.outcome).toBe("escaped");
+      expect(away.wobbles).toBeGreaterThanOrEqual(1);
+      expect(away.wobbles).toBeLessThanOrEqual(3);
+      expect(catchFor(escaped, turn)).toEqual(away);
+    }
+    expect(new Set([1, 2, 3, 4, 5, 6].map((turn) => catchFor(escaped, turn)!.wobbles)).size).toBe(3);
+
+    expect(catchFor([{ t: "use", side: 0, moveId: "tackle" }], 1)).toBeNull();
+  });
+
+  it("A13: the wild creature's answer to a failed throw comes after the smoke", () => {
+    const events: BattleEvent[] = [
+      { t: "catchFailed" },
+      { t: "use", side: 1, moveId: "tackle" },
+      { t: "damage", side: 0, amount: 5, quarters: 4, crit: false },
+    ];
+    const attempt = catchFor(events, 2)!;
+    const plain = beatsFor(events);
+    const shifted = beatsFor(events, attempt.length);
+    expect(plain[1].lungeAt).toBe(0);
+    expect(shifted[1].lungeAt).toBe(attempt.length);
+    expect(shifted[0].hitAt).toBe(attempt.length + (plain[0].hitAt ?? 0));
+    expect(beatLength(shifted)).toBeGreaterThan(attempt.length);
   });
 });

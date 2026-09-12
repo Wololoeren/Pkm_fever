@@ -1,5 +1,5 @@
 import type { BattleEvent, SideIndex } from "@/engine/battle";
-import { beatLength, type Beat } from "./beats";
+import { beatLength, type Beat, type Catch } from "./beats";
 
 /**
  * Sound, synthesised.
@@ -21,7 +21,7 @@ import { beatLength, type Beat } from "./beats";
  * broke when somebody retuned a chime.
  */
 
-export type Cue = "hit" | "crit" | "miss" | "faint" | "heal" | "catch" | "levelup";
+export type Cue = "hit" | "crit" | "miss" | "faint" | "heal" | "catch" | "levelup" | "throw" | "wobble" | "poof";
 
 export interface TimedCue {
   /** Milliseconds from the top of the turn. */
@@ -30,10 +30,21 @@ export interface TimedCue {
 }
 
 /** What a turn sounds like, in order. */
-export function cuesFor(events: readonly BattleEvent[], beats: readonly [Beat, Beat]): TimedCue[] {
+export function cuesFor(
+  events: readonly BattleEvent[],
+  beats: readonly [Beat, Beat],
+  /** The ball, when one was thrown: a toss, a tick per wobble, then stars or smoke. */
+  attempt: Catch | null = null,
+): TimedCue[] {
   const out: TimedCue[] = [];
-  const end = beatLength(beats);
+  const end = Math.max(beatLength(beats), attempt ? attempt.length : 0);
   const other = (side: SideIndex): SideIndex => (side === 0 ? 1 : 0);
+
+  if (attempt) {
+    out.push({ at: 0, cue: "throw" });
+    for (const at of attempt.wobblesAt) out.push({ at, cue: "wobble" });
+    out.push({ at: attempt.endAt, cue: attempt.outcome === "caught" ? "catch" : "poof" });
+  }
 
   let levelled = false;
   for (const event of events) {
@@ -51,7 +62,8 @@ export function cuesFor(events: readonly BattleEvent[], beats: readonly [Beat, B
         out.push({ at: beats[event.side].glowAt ?? 0, cue: "heal" });
         break;
       case "caught":
-        out.push({ at: end, cue: "catch" });
+        // Timed off the ball when there is one, which there always is.
+        if (!attempt) out.push({ at: end, cue: "catch" });
         break;
       case "exp":
         // Once, however many levels came at once: three chimes for three
@@ -168,6 +180,16 @@ function sound(ctx: AudioContext, when: number, cue: Cue): void {
       note(ctx, when + 0.1, "triangle", 523, 523, 0.09, 0.09);
       note(ctx, when + 0.2, "triangle", 659, 659, 0.09, 0.09);
       note(ctx, when + 0.3, "triangle", 784, 784, 0.25, 0.1);
+      break;
+    case "throw":
+      note(ctx, when, "sine", 300, 700, 0.18, 0.05);
+      break;
+    case "wobble":
+      note(ctx, when, "square", 140, 110, 0.05, 0.07);
+      break;
+    case "poof":
+      note(ctx, when, "sawtooth", 220, 90, 0.2, 0.06);
+      note(ctx, when + 0.02, "sine", 900, 300, 0.25, 0.04);
       break;
   }
 }

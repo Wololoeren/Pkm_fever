@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTurn, startBattle, type BattleEvent } from "@/engine/battle";
-import { beatsFor } from "@/lib/beats";
+import { beatsFor, catchFor } from "@/lib/beats";
 import { cuesFor } from "@/lib/sound";
 import { creature } from "./helpers";
 
@@ -54,5 +54,21 @@ describe("sound cues", () => {
     const cues = cuesFor(events, beats);
     expect(cues.map((cue) => cue.cue)).toEqual(["miss"]);
     expect(cues[0].at).toBe(beats[1].dodgeAt);
+  });
+
+  it("S4: a ball is a toss, a tick per wobble, and then the chime or the puff", () => {
+    const caught: BattleEvent[] = [{ t: "caught" }];
+    const attempt = catchFor(caught, 3)!;
+    const cues = cuesFor(caught, beatsFor(caught), attempt);
+    expect(cues.map((cue) => cue.cue)).toEqual(["throw", "wobble", "wobble", "wobble", "catch"]);
+    expect(cues[cues.length - 1].at).toBe(attempt.endAt);
+
+    const escaped: BattleEvent[] = [{ t: "catchFailed" }, { t: "use", side: 1, moveId: "tackle" }, { t: "damage", side: 0, amount: 4, quarters: 4, crit: false }];
+    const away = catchFor(escaped, 1)!;
+    const later = cuesFor(escaped, beatsFor(escaped, away.length), away);
+    expect(later.filter((cue) => cue.cue === "wobble")).toHaveLength(away.wobbles);
+    expect(later.find((cue) => cue.cue === "poof")?.at).toBe(away.endAt);
+    // And the tackle that answers it sounds after the smoke.
+    expect(later.find((cue) => cue.cue === "hit")!.at).toBeGreaterThan(away.endAt);
   });
 });
