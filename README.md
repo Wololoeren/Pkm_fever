@@ -1041,7 +1041,7 @@ Struggle. Leech Seed was simply the one somebody noticed.
 
 The hole is closed from both ends.
 
-**79 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
+**98 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
 shape `moves.ts` already used for the 39 attacks whose damage Showdown computes
 in a callback. Effects are data interpreted by one loop in `battle.ts`, not a
 switch per move. That needed three pieces of machinery the battle did not have:
@@ -1051,7 +1051,7 @@ stats (accuracy and evasion, on thirds rather than halves), and side conditions
 that outlive whoever is standing (the screens, Safeguard, Mist, Lucky Chant,
 Tailwind).
 
-**The other 101 are no longer dealt.** `learnset()` filters them, which is the
+**The other 82 are no longer dealt.** `learnset()` filters them, which is the
 one gate every road to a moveset comes through — `movesAtLevel`, `learnableAt`,
 the level-up walk, the Cup, the Inspect panel. `MACHINE_MOVES` is filtered the
 same way, because `items.ts` builds one purchasable machine per entry and the
@@ -1142,8 +1142,48 @@ doors. The ones worth writing down are the ones where a decision was made:
 
 Every new volatile has a badge (`M9`), a line in the log, a row in
 `docs/status.md` (`V7`) and its numbers guarded there (`V1`, `V3`,
-`V4`). Six machines came back onto the Mart's shelf with them, which is why
-`docs/items.md` says 512.
+`V4`). Six machines came back onto the Mart's shelf with them.
+
+### Types that belong to the appearance
+
+The second group on the list needed one new concept, and it was the same
+concept as Power Split's: a **`types` volatile on the appearance**, read
+wherever the species' types were. Nineteen more moves — the ten that were
+waiting for it, and a second cheap group that turned up while writing the
+deferred list. Filtered status moves **101 to 82**, species losing an entry
+**859 to 815**.
+
+The rule that makes it safe is that there is **one reader**. `typesOf(turn,
+side)` answers every question about a type in a battle — the chart through
+`typesAgainst`, the same-type bonus, a status immunity, Leech Seed's Grass
+check, Prankster's Dark check, a Black Sludge's taste — and every one of those
+sites used to read `speciesById(...).types` for itself. Six places that could
+each have been missed, and one that cannot: a Soaked creature is Water to all
+of them or to none.
+
+- **Foresight is Scrappy for one battle.** A `seen` volatile names the
+  immunity that has been seen through, and `typesAgainst` takes that type
+  out of the defender before the chart is consulted, exactly as it already did
+  for Scrappy. Miracle Eye is the same sentence about Dark.
+- **Conversion 2 does not roll.** The games pick at random among the types
+  that resist the target's last move; here it is the first in alphabetical
+  order with the lowest multiplier, which is the same answer on both peers of
+  a duel without spending a named roll on it.
+- **Camouflage stayed on the list.** It wants to know what ground the battle
+  is on, and a battle does not know which route it is in. It is filed under
+  that, alone.
+- **Power Trick is Power Split pointed at one creature** — the same `stats`
+  override, the two numbers exchanged, and exchanged back by using it again.
+- **Acupressure rolls one of seven ladders**, and the two that are not stats
+  go through the `aim` effect the interpreter already has, by calling it —
+  the one place `applyMoveEffect` calls itself, and it cannot recurse
+  further because `aim` calls nothing.
+- **Psycho Shift goes through `applyStatus`**, so a Fire type refuses the
+  burn and the user is left holding it. The condition is only taken off the
+  user once the target has it.
+
+Seven machines came back onto the shelf across the two groups, which is why
+`docs/items.md` says 513.
 
 ### Moves out in the world
 
@@ -1494,25 +1534,19 @@ numbers measured rather than remembered — re-measure before trusting them.*
 ### The largest single gap: 125 status moves
 
 The manifest carries five effect fields and Showdown keeps the rest in script,
-so of its **264 status moves, 79 are honoured in battle** (`statusmoves.ts`) and
-**2 more only out in the world** (`fieldmoves.ts`). The remaining **101 are
+so of its **264 status moves, 98 are honoured in battle** (`statusmoves.ts`) and
+**2 more only out in the world** (`fieldmoves.ts`). The remaining **82 are
 filtered out of every pool** rather than dealt as dead slots — which means no
-creature ever holds a move that does nothing, but it also means **859 of 1134
-species lose at least one learnset entry**, 1,808 entries in total.
+creature ever holds a move that does nothing, but it also means **815 of 1134
+species lose at least one learnset entry**, 1,608 entries in total.
 
 That is the honest cost of the current design, and closing it is mostly a
 matter of adding one *capability* at a time. `docs/moves-deferred.md` is the
 list, move by move with the number of species that learn each, filed under the
 capability it waits for and guarded both ways (`X56`, `X57`). The cheap
-group — volatiles on an appearance, no new concepts — is done. What is left,
-in the order the list ranks it:
-
-**Needs types to belong to the appearance rather than the species.** Types are
-read off `speciesById(...).types` everywhere, so nothing can change them.
-Unlocks Soak (35), Camouflage (10), Reflect Type (7), Forest's Curse (2),
-Trick-or-Treat, Conversion and Conversion 2 — and the three "ignore immunity"
-moves, Odor Sleuth (43), Foresight (33) and Miracle Eye (11), which are the
-same lookup from the other side.
+group — volatiles on an appearance, no new concepts — is done, and so are the
+types-on-the-appearance group and a second cheap group behind it. What is
+left, in the order the list ranks it:
 
 **Needs abilities to belong to the appearance.** Same shape, different field.
 Unlocks Worry Seed (27), Gastro Acid (25), Entrainment (23), Role Play (17),
@@ -1556,10 +1590,9 @@ throughout. Rototiller wants soft soil and Secret Power wants a base. Curse (66)
 is a genuine oddity: it is two different moves depending on whether the user is
 a Ghost, and the manifest has no way to say so.
 
-**Cheap, and next.** A second small group turned up while writing the deferred
-list that needs nothing new either — Venom Drench, Acupressure, Psycho Shift,
-Power Trick, Topsy-Turvy, Take Heart, the two party heals. They are filed under
-their own heading there.
+**Needs the battle to know where it is.** Camouflage, alone: the user becomes
+the type of the ground it stands on, and a battle does not know which route
+it is in.
 
 ### The census has not grown with the world
 

@@ -310,6 +310,25 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
         cls: "rise",
       });
     }
+    if (vol.types) {
+      out.push({
+        key: "types",
+        label: vol.types.map((type) => type.toUpperCase()).join("/"),
+        title: `Retyped — it is ${vol.types.join(" and ")} now, to the chart and to everything else, until it switches out`,
+        cls: "fall",
+      });
+    }
+    if (vol.seen) {
+      out.push({
+        key: "seen",
+        label: "SEEN",
+        title:
+          vol.seen === "ghost"
+            ? "Seen through — Normal and Fighting moves can hit it despite its Ghost"
+            : "Seen through — Psychic moves can hit it despite its Dark",
+        cls: "fall",
+      });
+    }
     if (vol.afloat) {
       out.push({
         key: "afloat",

@@ -78,6 +78,9 @@ const VOLATILE_TEXT: Record<string, string> = {
   wished: "made a wish",
   blessed: "fainted, and left a wish for the next one",
   afloat: "is floating off the ground",
+  retyped: "changed type",
+  seen: "was identified",
+  inverted: "had its stat changes turned upside down",
 };
 
 const SCREEN_TEXT: Record<string, string> = {

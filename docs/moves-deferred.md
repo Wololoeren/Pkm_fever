@@ -19,9 +19,9 @@ after a name is how many of the 1,134 species learn it; a move with a large
 number is a move a lot of creatures are quietly missing a slot for.
 
 The measurement, re-run at every audit: **264 status moves in the manifest,
-179 with empty rows, 78 of those honoured in battle or out in the world**, and
-the **101** below are what is left. Between them they cost **859 species at
-least one learnset entry**, 1,808 entries in all.
+179 with empty rows, 97 of those honoured in battle or out in the world**, and
+the **82** below are what is left. Between them they cost **815 species at
+least one learnset entry**, 1,608 entries in all.
 
 Two guards keep this honest. `X56` checks that every filtered move has a row
 here, and `X57` that no move in a row here has quietly been honoured after
@@ -56,24 +56,15 @@ of it is worse than none of it, so none of it is in.
 | **Fairy Lock** | 1 | nobody may switch next turn |
 | **Court Change** | 1 | the two sides' screens exchanged |
 
-## Waiting on types that belong to the appearance
+## Waiting on the battle knowing what it is standing on
 
-Types are read off `speciesById(...).types` everywhere, so nothing can change
-them for the length of a battle. A `types` override on the appearance — the
-same shape the Power Split override already is for stats — unlocks all of
-these, and the three at the bottom are the same lookup asked from the other
-side.
+Types belong to the appearance now — Soak, Reflect Type, the Conversions,
+Forest's Curse, Foresight and Miracle Eye all arrived with the `types`
+volatile — and one of that group did not, because it wants a second thing.
 
 | Move | Learners | What it wants |
 | --- | --- | --- |
-| **Soak** | 35 | the target becomes pure Water |
-| **Camouflage** | 10 | the user becomes the terrain's type |
-| **Reflect Type** | 7 | the user takes the target's types |
-| **Forest's Curse**, **Trick-or-Treat** | 2, 2 | a type *added* to the target |
-| **Conversion**, **Conversion 2** | 3, 3 | the user becomes its first move's type; a type the target's last move cannot hurt |
-| **Magic Powder** | 1 | the target becomes pure Psychic |
-| **Odor Sleuth**, **Foresight** | 43, 33 | Ghost's immunity to Normal and Fighting, suspended |
-| **Miracle Eye** | 11 | Dark's immunity to Psychic, suspended |
+| **Camouflage** | 10 | the user becomes the type of the ground it is standing on, and a battle does not know which route it is on |
 
 ## Waiting on abilities that belong to the appearance
 
@@ -172,24 +163,6 @@ run the deadlock probe while building it, and expect it to earn its keep.
 | **Electrify** | 3 | the target's move becomes Electric this turn |
 | **Octolock** | 1 | trapped, and a stage of each guard off every turn |
 
-## Cheap, and next
-
-Nothing here needs a new concept: each is a volatile, a stage change or a
-status the engine already has, reached from a new door. They are separated
-from the group above only because they were not in the first cheap pass.
-
-| Move | Learners | What it wants |
-| --- | --- | --- |
-| **Venom Drench** | 20 | three stages off a poisoned target |
-| **Acupressure** | 11 | a random stat, two stages up |
-| **Psycho Shift** | 9 | the user's condition, passed to the target |
-| **Power Trick** | 8 | the user's Attack and Defence exchanged — the Power Split override, pointed at one creature |
-| **Topsy-Turvy** | 3 | the target's stages, inverted |
-| **Take Heart** | 2 | cured, and a stage of each special |
-| **Jungle Healing**, **Lunar Blessing** | 2, 1 | a quarter back and cured — Purify pointed at the user |
-| **Flower Shield** | 4 | a stage of Defence for every Grass type standing |
-| **Dragon Cheer** | 0 | an ally's crit ladder — and no species learns it |
-
 ## Not worth doing
 
 The doubles-only moves are meaningless in a game that is 1v1 throughout: there
@@ -207,4 +180,5 @@ so.
 | **Rage Powder**, **Follow Me**, **Spotlight** | 14, 10, 6 | every move aimed at one creature |
 | **Magnetic Flux**, **Gear Up** | 10, 3 | the allies with Plus or Minus, raised |
 | **Rototiller** | 11 | every Grass type standing on soft soil |
+| **Dragon Cheer** | 0 | an ally's crit ladder, and no species learns it anyway |
 | **Curse** | 66 | two moves under one name |

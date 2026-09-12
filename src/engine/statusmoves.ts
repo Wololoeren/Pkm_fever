@@ -1,4 +1,4 @@
-import type { MoveEntry, StageStat } from "./dex";
+import type { Boosts, MoveEntry, StageStat } from "./dex";
 import { hasFieldUse } from "./fieldmoves";
 
 /*
@@ -187,6 +187,36 @@ export type MoveEffect =
   /** Magnet Rise (self) and Telekinesis (target): Ground moves pass underneath for this long. */
   | { t: "float"; turns: number; onSelf: boolean }
   /**
+   * Soak, Magic Powder: the target becomes exactly these types. Forest's
+   * Curse and Trick-or-Treat: `add` puts one more on top of what it has.
+   */
+  | { t: "retype"; types: readonly string[]; add?: boolean }
+  /** Reflect Type: the user takes the target's types. */
+  | { t: "mirrorTypes" }
+  /** Conversion: the user becomes the type of its first move. */
+  | { t: "conversion" }
+  /** Conversion 2: the user becomes something the target's last move cannot hurt much. */
+  | { t: "conversion2" }
+  /**
+   * Odor Sleuth and Foresight see through a Ghost; Miracle Eye through a
+   * Dark. What the immunity was, and it is suspended.
+   */
+  | { t: "see"; through: "ghost" | "dark" }
+  /** Venom Drench: three stages off, if it is poisoned. */
+  | { t: "drench" }
+  /** Acupressure: one of the seven ladders, two rungs up, at random. */
+  | { t: "acupressure" }
+  /** Psycho Shift: the user's condition handed to the target. */
+  | { t: "psychoShift" }
+  /** Power Trick: the user's own Attack and Defence exchanged. */
+  | { t: "powerTrick" }
+  /** Topsy-Turvy: the target's stages inverted. */
+  | { t: "invert" }
+  /** Take Heart: cured, and the named stages up. Jungle Healing: cured, and a share back. */
+  | { t: "heartened"; boosts?: Boosts; share?: number }
+  /** Flower Shield: a stage of Defence for every Grass type standing. */
+  | { t: "flowerShield" }
+  /**
    * Nothing, and that is the joke.
    *
    * Splash is the one move in the manifest that is *meant* to do nothing, so
@@ -363,6 +393,36 @@ export const STATUS_EFFECTS: Record<string, readonly MoveEffect[]> = {
   // -------------------------------------------------------------- floating
   magnetrise: [{ t: "float", turns: MAGNET_RISE_TURNS, onSelf: true }],
   telekinesis: [{ t: "float", turns: TELEKINESIS_TURNS, onSelf: false }],
+
+  // ------------------------------------------------------------ retyping
+  //
+  // Types belong to the appearance now — a `types` volatile, read wherever
+  // the species' were — and these are the moves that were waiting for it.
+  // Camouflage is not here: it wants to know what ground the battle is on,
+  // and the battle does not.
+  soak: [{ t: "retype", types: ["water"] }],
+  magicpowder: [{ t: "retype", types: ["psychic"] }],
+  forestscurse: [{ t: "retype", types: ["grass"], add: true }],
+  trickortreat: [{ t: "retype", types: ["ghost"], add: true }],
+  reflecttype: [{ t: "mirrorTypes" }],
+  conversion: [{ t: "conversion" }],
+  conversion2: [{ t: "conversion2" }],
+
+  // ------------------------------------------------------ seeing through
+  odorsleuth: [{ t: "see", through: "ghost" }],
+  foresight: [{ t: "see", through: "ghost" }],
+  miracleeye: [{ t: "see", through: "dark" }],
+
+  // ------------------------------------------------------ the second cheap group
+  venomdrench: [{ t: "drench" }],
+  acupressure: [{ t: "acupressure" }],
+  psychoshift: [{ t: "psychoShift" }],
+  powertrick: [{ t: "powerTrick" }],
+  topsyturvy: [{ t: "invert" }],
+  takeheart: [{ t: "heartened", boosts: { spa: 1, spd: 1 } }],
+  junglehealing: [{ t: "heartened", share: 4 }],
+  lunarblessing: [{ t: "heartened", share: 4 }],
+  flowershield: [{ t: "flowerShield" }],
 
   // ------------------------------------------------------------ and nothing
   splash: [{ t: "nothing" }],

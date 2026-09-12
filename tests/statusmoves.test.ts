@@ -1107,3 +1107,167 @@ describe("the deferred list", () => {
     expect(doc).toContain(`the **${filtered}** below`);
   });
 });
+
+describe("types that belong to the appearance", () => {
+  it("X58: a Soaked creature is Water to the chart, to a status and to the bonus", () => {
+    // Magnemite is Electric and Steel: a Grass move is resisted and nothing
+    // poisons it. Soaked, neither is true any more.
+    const ours = creature("rattata", { level: 50, moves: ["soak", "vinewhip", "toxic"] });
+    const theirs = creature("magnemite", { level: 50, moves: ["splash"], uid: 2 });
+
+    expect(landsAs(ours, theirs, "vinewhip")).toBeLessThan(4);
+    const soaked = turn(fought(ours, theirs), 0, 0);
+    expect(volatilesOf(soaked.battle, 1).types).toEqual(["water"]);
+    expect(landsAs(ours, theirs, "vinewhip", soaked.battle.sides[1].volatiles)).toBe(8);
+
+    const shocked = turn(soaked.battle, 1, 0);
+    expect(shocked.events.some((event) => event.t === "damage" && event.side === 1 && event.quarters === 8)).toBe(true);
+
+    const poisoned = turn(shocked.battle, 2, 0);
+    expect(activeOf(poisoned.battle, 1).status).toBe("psn");
+
+    // And a switch gives it its species back.
+    const again = turn(fought(ours, theirs), 0, 0);
+    expect(again.events.some((event) => event.t === "volatile" && event.which === "retyped")).toBe(true);
+    const twice = turn(again.battle, 0, 0);
+    expect(twice.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X59: Forest's Curse adds a type, and a seed then finds a Grass type", () => {
+    const ours = creature("bulbasaur", { level: 50, moves: ["forestscurse", "leechseed"] });
+    const theirs = creature("rattata", { level: 50, moves: ["splash"], uid: 2 });
+
+    const cursed = turn(fought(ours, theirs), 0, 0);
+    expect(volatilesOf(cursed.battle, 1).types).toEqual(["normal", "grass"]);
+
+    const seeded = turn(cursed.battle, 1, 0);
+    expect(volatilesOf(seeded.battle, 1).seeded).toBeUndefined();
+    expect(seeded.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X60: Reflect Type, Conversion and Conversion 2 each pick a type from somewhere", () => {
+    const mirror = creature("gastly", { level: 50, moves: ["reflecttype"] });
+    const plain = creature("rattata", { level: 50, moves: ["tackle"], uid: 2 });
+    const mirrored = turn(fought(mirror, plain), 0, 0);
+    expect(volatilesOf(mirrored.battle, 0).types).toEqual(["normal"]);
+
+    // Its first move's type, which is Fire here and not the Normal it is.
+    const convert = creature("rattata", { level: 50, moves: ["ember", "conversion"] });
+    const converted = turn(fought(convert, plain), 1, 0);
+    expect(volatilesOf(converted.battle, 0).types).toEqual(["fire"]);
+
+    // Something their last move cannot touch: they used Tackle, so Ghost.
+    const answer = creature("rattata", { level: 50, moves: ["splash", "conversion2"] });
+    const tackled = turn(fought(answer, plain), 0, 0);
+    const answered = turn(tackled.battle, 1, 0);
+    expect(volatilesOf(answered.battle, 0).types).toEqual(["ghost"]);
+  });
+
+  it("X61: Foresight sees through a Ghost and Miracle Eye through a Dark", () => {
+    const ours = creature("rattata", { level: 50, moves: ["foresight", "tackle"] });
+    const ghost = creature("gastly", { level: 50, moves: ["splash"], uid: 2 });
+
+    const blind = turn(fought(ours, ghost), 1, 0);
+    expect(blind.events.some((event) => event.t === "immune")).toBe(true);
+
+    const seen = turn(fought(ours, ghost), 0, 0);
+    expect(volatilesOf(seen.battle, 1).seen).toBe("ghost");
+    expect(landsAs(ours, ghost, "tackle", seen.battle.sides[1].volatiles)).toBe(4);
+    const landed = turn(seen.battle, 1, 0);
+    expect(damagedOn(landed.events, 1)).toBeGreaterThan(0);
+
+    const seer = creature("rattata", { level: 50, moves: ["miracleeye", "confusion"] });
+    const dark = creature("poochyena", { level: 50, moves: ["splash"], uid: 2 });
+    const eyed = turn(fought(seer, dark), 0, 0);
+    expect(volatilesOf(eyed.battle, 1).seen).toBe("dark");
+    const struck = turn(eyed.battle, 1, 0);
+    expect(damagedOn(struck.events, 1)).toBeGreaterThan(0);
+  });
+});
+
+describe("the second cheap group", () => {
+  it("X62: Venom Drench wants a poisoned target", () => {
+    const ours = creature("rattata", { level: 50, moves: ["venomdrench"] });
+    const sick = creature("machop", { level: 50, moves: ["splash"], uid: 2, status: "psn" });
+    const well = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const drenched = turn(fought(ours, sick), 0, 0);
+    expect(drenched.battle.sides[1].stages).toMatchObject({ atk: -1, spa: -1, spe: -1 });
+    const dry = turn(fought(ours, well), 0, 0);
+    expect(dry.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X63: Acupressure raises one ladder by two", () => {
+    const ours = creature("rattata", { level: 50, moves: ["acupressure"] });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const pressed = turn(fought(ours, theirs), 0, 0).battle;
+    const stages = pressed.sides[0].stages;
+    const aim = pressed.sides[0].aim ?? { accuracy: 0, evasion: 0 };
+    const total = stages.atk + stages.def + stages.spa + stages.spd + stages.spe + aim.accuracy + aim.evasion;
+    expect(total).toBe(2);
+  });
+
+  it("X64: Psycho Shift hands the condition over, and keeps it when refused", () => {
+    const ours = creature("rattata", { level: 50, moves: ["psychoshift"], status: "brn" });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+    const shifted = turn(fought(ours, theirs), 0, 0);
+    expect(activeOf(shifted.battle, 0).status).toBeNull();
+    expect(activeOf(shifted.battle, 1).status).toBe("brn");
+
+    // A Fire type does not burn, so the user is stuck with it.
+    const fire = creature("vulpix", { level: 50, moves: ["splash"], uid: 2 });
+    const refused = turn(fought(ours, fire), 0, 0);
+    expect(activeOf(refused.battle, 0).status).toBe("brn");
+    expect(refused.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X65: Power Trick exchanges the two numbers, and exchanges them back", () => {
+    const ours = creature("rattata", { level: 50, moves: ["powertrick"] });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+    const own = computeStats(speciesById("rattata"), ours);
+
+    const tricked = turn(fought(ours, theirs), 0, 0).battle;
+    expect(volatilesOf(tricked, 0).stats).toEqual({ atk: own.def, def: own.atk });
+    const untricked = turn(tricked, 0, 0).battle;
+    expect(volatilesOf(untricked, 0).stats).toEqual({ atk: own.atk, def: own.def });
+  });
+
+  it("X66: Topsy-Turvy turns the stages over", () => {
+    const ours = creature("rattata", { level: 50, moves: ["topsyturvy", "splash"] });
+    const theirs = creature("machop", { level: 50, moves: ["swordsdance"], uid: 2 });
+
+    const raised = turn(fought(ours, theirs), 1, 0);
+    expect(raised.battle.sides[1].stages.atk).toBe(2);
+    // Rattata is faster: the flip comes first, and the dance then puts two
+    // back on top of the minus two.
+    const flipped = turn(raised.battle, 0, 0);
+    expect(flipped.events.some((event) => event.t === "volatile" && event.which === "inverted")).toBe(true);
+    expect(flipped.battle.sides[1].stages.atk).toBe(0);
+
+    const level = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+    const nothing = turn(fought(ours, level), 0, 0);
+    expect(nothing.events.some((event) => event.t === "fizzled")).toBe(true);
+  });
+
+  it("X67: Take Heart cures and raises, and Jungle Healing cures and mends", () => {
+    const heart = creature("rattata", { level: 50, moves: ["takeheart"], status: "par" });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+    const taken = turn(fought(heart, theirs), 0, 0).battle;
+    expect(activeOf(taken, 0).status).toBeNull();
+    expect(taken.sides[0].stages).toMatchObject({ spa: 1, spd: 1 });
+
+    const jungle = creature("rattata", { level: 50, moves: ["junglehealing"], status: "psn", hp: 10 });
+    const healed = turn(fought(jungle, theirs), 0, 0);
+    expect(activeOf(healed.battle, 0).status).toBeNull();
+    expect(healedOn(healed.events, 0)).toBe(Math.floor(maxHp(jungle) / 4));
+  });
+
+  it("X68: Flower Shield raises every Grass type standing, and nothing else", () => {
+    const ours = creature("bulbasaur", { level: 50, moves: ["flowershield"] });
+    const theirs = creature("rattata", { level: 50, moves: ["splash"], uid: 2 });
+    const shielded = turn(fought(ours, theirs), 0, 0).battle;
+    expect(shielded.sides[0].stages.def).toBe(1);
+    expect(shielded.sides[1].stages.def).toBe(0);
+  });
+});

@@ -231,6 +231,8 @@ describe("what is happening to a creature", () => {
       wish: 1,
       blessing: true,
       afloat: 3,
+      types: ["water"],
+      seen: "ghost",
     };
 
     for (const field of fields) {

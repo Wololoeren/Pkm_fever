@@ -88,6 +88,8 @@ cheapest answer to most of the list.
 | **Bonded** (Destiny Bond) | the *move* that knocks it out takes its user down too. Held until the bonded creature next moves; a poison or a seed has nobody to take |
 | **Wish** | **2 turns**, then `floor(maxHp / 2)` of *whoever is standing there*. It is a fact about the slot, so a switch throws the wish away with the rest |
 | **Blessing** (Healing Wish, Lunar Dance) | the user faints, and the one that replaces it arrives at full health with no condition. Refused with nobody in reserve |
+| **Retyped** (Soak, Reflect Type, Conversion, Forest's Curse) | its types are these now rather than its species', and every question about a type — the chart, the same-type bonus, a status immunity, a seed, a Prankster — is asked of them. A switch restores its species' |
+| **Seen** (Foresight, Odor Sleuth, Miracle Eye) | its Ghost does not stop Normal and Fighting, or its Dark does not stop Psychic. Scrappy for one battle |
 | **Afloat** (Magnet Rise, Telekinesis) | Ground *attacks* do nothing to it, for **5** or **3** turns. A Sand Attack still lands |
 
 ### The shield streak

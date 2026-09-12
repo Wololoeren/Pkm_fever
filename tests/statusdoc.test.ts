@@ -180,6 +180,8 @@ describe("the reference matches the engine", () => {
       wish: "**Wish**",
       blessing: "**Blessing**",
       afloat: "**Afloat**",
+      types: "**Retyped**",
+      seen: "**Seen**",
     };
     for (const field of fields) {
       expect(shown[field], `${field} has no row in docs/status.md`).toBeDefined();

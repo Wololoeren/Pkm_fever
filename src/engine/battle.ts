@@ -2,6 +2,7 @@ import {
   effectiveness,
   move as moveById,
   species as speciesById,
+  TYPE_NAMES,
   type Boosts,
   type MoveEntry,
   type StageStat,
@@ -117,6 +118,15 @@ export interface Volatiles {
   blessing?: boolean;
   /** Turns left off the ground, from Magnet Rise or Telekinesis. */
   afloat?: number;
+  /**
+   * What types it is *now*, if a move changed them. Absent, it is what its
+   * species is. Every place the battle asks about a type asks through
+   * `typesOf`, so a Soaked creature is Water to the chart, to STAB, to a
+   * status immunity and to a seed alike.
+   */
+  types?: readonly string[];
+  /** Foresight and Miracle Eye: the immunity that has been seen through. */
+  seen?: "ghost" | "dark";
 }
 
 export type BattleOutcome =
@@ -181,7 +191,10 @@ export type VolatileKind =
   | "avenged"
   | "wished"
   | "blessed"
-  | "afloat";
+  | "afloat"
+  | "retyped"
+  | "seen"
+  | "inverted";
 
 export type BattleEvent =
   | { t: "use"; side: SideIndex; moveId: string }
@@ -517,11 +530,35 @@ function typesAgainst(
   attacker: Individual,
   defender: Individual,
   move: MoveEntry,
+  /** What is true of the defender's appearance: a Soak, a Foresight. */
+  defending: Volatiles = {},
 ): readonly string[] {
   const reaching =
     has(attacker, "reach") && (move.type === "normal" || move.type === "fighting");
-  const types = speciesById(defender.speciesId).types;
-  return reaching ? types.filter((type) => type !== "ghost") : types;
+  // Foresight is Scrappy for one battle, and Miracle Eye is the same thing
+  // said about Dark: the immunity is taken out of the defender before the
+  // chart is consulted.
+  const seen =
+    (defending.seen === "ghost" && (move.type === "normal" || move.type === "fighting")) ||
+    (defending.seen === "dark" && move.type === "psychic");
+  const types = defending.types ?? speciesById(defender.speciesId).types;
+  if (reaching || seen) {
+    const through = defending.seen === "dark" && seen ? "dark" : "ghost";
+    return types.filter((type) => type !== through);
+  }
+  return types;
+}
+
+/**
+ * What types a creature is right now.
+ *
+ * Its species' unless a move said otherwise, and every question about a type
+ * in a battle is asked here — the chart, the same-type bonus, a status
+ * immunity, a seed, a Prankster, a Black Sludge — so a Soak cannot be true
+ * in one place and not another.
+ */
+function typesOf(turn: Turn, side: SideIndex): readonly string[] {
+  return volatiles(turn, side).types ?? speciesById(active(turn, side).speciesId).types;
 }
 
 /**
@@ -572,7 +609,7 @@ export function landsAs(
   if (move.category === "status" || move.id === STRUGGLE) return null;
   if (drinker(defender, move)) return 0;
   if (move.type === "ground" && (defending.afloat ?? 0) > 0) return 0;
-  return effectiveness(move.type, typesAgainst(attacker, defender, move));
+  return effectiveness(move.type, typesAgainst(attacker, defender, move, defending));
 }
 
 /** Multiplying by per-mille, kept in integers like everything else. */
@@ -997,7 +1034,7 @@ function applyStatus(turn: Turn, side: SideIndex, status: StatusId, tag: string)
   const target = active(turn, side);
   if (target.status || isFainted(target)) return false;
   const immune = STATUS_IMMUNE[status] ?? [];
-  if (speciesById(target.speciesId).types.some((type) => immune.includes(type))) return false;
+  if (typesOf(turn, side).some((type) => immune.includes(type))) return false;
 
   // Immunity, Limber, Water Veil, Insomnia, Magma Armor. Checked here so that
   // every road to a status goes through it — a move's own, a secondary, and
@@ -1185,7 +1222,7 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
     case "seed": {
       // A Grass type cannot be seeded, which is the one immunity this move has
       // and the reason it is not simply another status.
-      if (speciesById(active(turn, foe).speciesId).types.includes("grass")) return false;
+      if (typesOf(turn, foe).includes("grass")) return false;
       if (volatiles(turn, foe).seeded) return false;
       mergeVolatiles(turn, foe, { seeded: true });
       turn.events.push({ t: "volatile", side: foe, which: "seeded" });
@@ -1675,6 +1712,172 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       return true;
     }
 
+    case "retype": {
+      const held = typesOf(turn, foe);
+      const next = effect.add
+        ? held.includes(effect.types[0])
+          ? held
+          : [...held, ...effect.types]
+        : effect.types;
+      if (next.length === held.length && next.every((type, at) => type === held[at])) return false;
+      mergeVolatiles(turn, foe, { types: next });
+      turn.events.push({ t: "volatile", side: foe, which: "retyped" });
+      return true;
+    }
+
+    case "mirrorTypes": {
+      const mine = typesOf(turn, side);
+      const theirs = typesOf(turn, foe);
+      if (mine.length === theirs.length && mine.every((type, at) => type === theirs[at])) return false;
+      mergeVolatiles(turn, side, { types: [...theirs] });
+      turn.events.push({ t: "volatile", side, which: "retyped" });
+      return true;
+    }
+
+    case "conversion": {
+      const first = active(turn, side).moves[0];
+      if (!first) return false;
+      const type = moveById(first).type;
+      const mine = typesOf(turn, side);
+      if (mine.length === 1 && mine[0] === type) return false;
+      mergeVolatiles(turn, side, { types: [type] });
+      turn.events.push({ t: "volatile", side, which: "retyped" });
+      return true;
+    }
+
+    case "conversion2": {
+      // The type that takes the least from what they last used. The games
+      // pick at random among the candidates; the first in alphabetical order
+      // is the same answer on both peers without a roll.
+      const last = turn.battle.sides[foe].lastMove;
+      if (!last) return false;
+      const against = moveById(last).type;
+      let best: string | null = null;
+      let least = 4;
+      for (const type of TYPE_NAMES) {
+        const quarters = effectiveness(against, [type]);
+        if (quarters < least) {
+          least = quarters;
+          best = type;
+        }
+      }
+      if (!best) return false;
+      const mine = typesOf(turn, side);
+      if (mine.length === 1 && mine[0] === best) return false;
+      mergeVolatiles(turn, side, { types: [best] });
+      turn.events.push({ t: "volatile", side, which: "retyped" });
+      return true;
+    }
+
+    case "see": {
+      if (volatiles(turn, foe).seen === effect.through) return false;
+      mergeVolatiles(turn, foe, { seen: effect.through });
+      turn.events.push({ t: "volatile", side: foe, which: "seen" });
+      return true;
+    }
+
+    case "drench": {
+      if (active(turn, foe).status !== "psn") return false;
+      const before = { ...turn.battle.sides[foe].stages };
+      applyBoosts(turn, foe, { atk: -1, spa: -1, spe: -1 }, true);
+      const after = turn.battle.sides[foe].stages;
+      return (["atk", "spa", "spe"] as StageStat[]).some((stat) => after[stat] !== before[stat]);
+    }
+
+    case "acupressure": {
+      // One of the seven ladders that is not already at the top. Rolled from
+      // the battle's own stream, like everything else.
+      const stages = turn.battle.sides[side].stages;
+      const aim = aimOf(turn, side);
+      const open: (StageStat | AimStat)[] = [
+        ...(["atk", "def", "spa", "spd", "spe"] as StageStat[]).filter((stat) => stages[stat] < 6),
+        ...(["accuracy", "evasion"] as AimStat[]).filter((which) => aim[which] < 6),
+      ];
+      if (!open.length) return false;
+      const picked = open[intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-acu`), open.length)];
+      if (picked === "accuracy" || picked === "evasion") {
+        return applyMoveEffect(turn, side, { t: "aim", which: picked, delta: 2, onSelf: true });
+      }
+      applyBoosts(turn, side, { [picked]: 2 });
+      return true;
+    }
+
+    case "psychoShift": {
+      const user = active(turn, side);
+      if (!user.status) return false;
+      // Through the one predicate, so a Safeguard or an immunity refuses it
+      // and the user keeps what it had.
+      if (!applyStatus(turn, foe, user.status, `${side}-shift`)) return false;
+      setActive(turn, side, { ...active(turn, side), status: null, sleepTurns: 0 });
+      turn.events.push({ t: "volatile", side, which: "snapped" });
+      return true;
+    }
+
+    case "powerTrick": {
+      // The Power Split override, pointed at one creature: the two numbers
+      // exchanged, and exchanged back by using it again.
+      const user = active(turn, side);
+      const mine = { ...(volatiles(turn, side).stats ?? {}) };
+      const own = computeStats(speciesById(user.speciesId), user);
+      const attack = mine.atk ?? own.atk;
+      const defence = mine.def ?? own.def;
+      if (attack === defence) return false;
+      mine.atk = defence;
+      mine.def = attack;
+      mergeVolatiles(turn, side, { stats: mine });
+      turn.events.push({ t: "volatile", side, which: "split" });
+      return true;
+    }
+
+    case "invert": {
+      const combatant = turn.battle.sides[foe];
+      const stats = ["atk", "def", "spa", "spd", "spe"] as StageStat[];
+      const aim = combatant.aim;
+      if (stats.every((stat) => combatant.stages[stat] === 0) && !aim) return false;
+      const flipped = { ...combatant.stages };
+      for (const stat of stats) flipped[stat] = -flipped[stat];
+      combatant.stages = flipped;
+      if (aim) combatant.aim = { accuracy: -aim.accuracy, evasion: -aim.evasion };
+      turn.events.push({ t: "volatile", side: foe, which: "inverted" });
+      return true;
+    }
+
+    case "heartened": {
+      const user = active(turn, side);
+      let did = false;
+      if (user.status) {
+        setActive(turn, side, { ...user, status: null, sleepTurns: 0 });
+        turn.events.push({ t: "volatile", side, which: "snapped" });
+        did = true;
+      }
+      if (effect.share) {
+        const now = active(turn, side);
+        const mended = applyHeal(turn, side, Math.max(1, Math.floor(maxHp(now) / effect.share)));
+        if (mended > 0) {
+          turn.events.push({ t: "heal", side, amount: mended });
+          did = true;
+        }
+      }
+      if (effect.boosts) {
+        const before = { ...turn.battle.sides[side].stages };
+        applyBoosts(turn, side, effect.boosts);
+        const after = turn.battle.sides[side].stages;
+        if ((Object.keys(effect.boosts) as StageStat[]).some((stat) => after[stat] !== before[stat])) did = true;
+      }
+      return did;
+    }
+
+    case "flowerShield": {
+      let raised = false;
+      for (const at of [side, foe] as SideIndex[]) {
+        if (isFainted(active(turn, at)) || !typesOf(turn, at).includes("grass")) continue;
+        const before = turn.battle.sides[at].stages.def;
+        applyBoosts(turn, at, { def: 1 });
+        if (turn.battle.sides[at].stages.def !== before) raised = true;
+      }
+      return raised;
+    }
+
     case "nothing":
       // Splash. It is supposed to do this.
       return false;
@@ -1855,7 +2058,7 @@ function damageFor(
 
   const quarters = struggling
     ? 4
-    : effectiveness(move.type, typesAgainst(attacker, defender, move));
+    : effectiveness(move.type, typesAgainst(attacker, defender, move, volatiles(turn, other(side))));
   if (move.category === "status" || power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
   }
@@ -1906,7 +2109,7 @@ function damageFor(
   const spread = 85 + intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-roll${at}`), 16);
   value = Math.floor((value * spread) / 100);
 
-  const attackerTypes: readonly string[] = speciesById(attacker.speciesId).types;
+  const attackerTypes = typesOf(turn, side);
   // No same-type bonus on Struggle: it is the absence of an attack rather than
   // a Normal one, and a Normal type should not be rewarded for having nothing
   // left. Adaptability makes the bonus double instead of half again.
@@ -2089,7 +2292,10 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
     return;
   }
 
-  const quarters = effectiveness(move.type, typesAgainst(attacker, defender, move));
+  const quarters = effectiveness(
+    move.type,
+    typesAgainst(attacker, defender, move, volatiles(turn, other(side))),
+  );
   // Struggle is the exception to the type chart. It has to be: a creature out
   // of moves facing something its last resort cannot touch would be stuck in
   // a battle with no way to act and no way to lose.
@@ -2382,7 +2588,7 @@ function tickHealth(turn: Turn, side: SideIndex): void {
     const creature = active(turn, side);
     const step = Math.max(1, Math.floor(maxHp(creature) / effect.share));
     const welcome =
-      !effect.only || speciesById(creature.speciesId).types.some((type) => effect.only!.includes(type));
+      !effect.only || typesOf(turn, side).some((type) => effect.only!.includes(type));
 
     if (welcome) {
       const room = maxHp(creature) - creature.hp;
@@ -2498,8 +2704,7 @@ function priorityOf(turn: Turn, side: SideIndex, moveId: string | null): number 
   const move = moveById(moveId);
   if (move.category !== "status") return move.priority;
 
-  const target = speciesById(active(turn, other(side)).speciesId).types;
-  if (target.includes("dark")) return move.priority;
+  if (typesOf(turn, other(side)).includes("dark")) return move.priority;
 
   const plus = effects(active(turn, side), "quick").reduce((sum, one) => sum + one.plus, 0);
   return move.priority + plus;
