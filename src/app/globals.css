@@ -456,6 +456,33 @@ button.ghost { background: transparent; }
 }
 .ball.here { box-shadow: 0 0 0 1px var(--accent); }
 
+/* What the person you walked into opened with.
+   
+   Above the log rather than in it, and it stays up for the whole battle. A
+   line printed into the log is a line that scrolls away on turn three, which
+   is the exact failure the badge row was built to fix — a thing the game said
+   once, while you were reading something else.
+
+   Quiet on purpose: it is a voice, not an alert. The name is the only part
+   that carries weight, because the sentence after it is the same sort of
+   sentence every time and the name is what tells you it is somebody talking. */
+.opening {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--panel) 80%, transparent);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.openingWho {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .log {
   background: var(--panel);
   border: 1px solid var(--line);

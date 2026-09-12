@@ -23,7 +23,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, rivalCountdown, isWildBattle, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -484,6 +484,7 @@ export default function Page() {
           // default, every trainer and gym leader in the game fielded "Wild"
           // creatures.
           opponentLabel={opponentLabel(session.world, state.battle)}
+          opening={opponentHint(session.world, state.battle)?.text}
           onAction={dispatch as (action: BattleAction) => void}
           footer={
             state.phase === "battleEnd" ? (

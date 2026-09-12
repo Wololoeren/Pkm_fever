@@ -68,6 +68,7 @@ import {
   type QuestView,
 } from "./quests";
 import { gym as gymSpec, gymLevel } from "./gyms";
+import { hint, type Hint } from "./hints";
 import {
   contender as cupSpec,
   cupEffort,
@@ -3249,6 +3250,31 @@ export function opponentLabel(world: World, battle: BattleState | null): string 
   }
 
   return "";
+}
+
+/**
+ * What the person you have just walked into opens with, or null.
+ *
+ * Route trainers only. A gym leader, a Cup contender and the rival all have
+ * written lines of their own and are characters rather than passers-by; the
+ * town trainers are jokes whose punchline is their team. The two hundred and
+ * seventy anonymous people out on the routes are the ones who were previously
+ * furniture, and they are what this is for.
+ *
+ * Looked up through the world rather than carried on the battle, the same way
+ * `opponentLabel` is. A battle is a pure function of its seed and a line of
+ * dialogue is display: putting it in `BattleState` would put display language
+ * in the state hash, which is the rule `narrate.ts` exists to keep.
+ */
+export function opponentHint(world: World, battle: BattleState | null): Hint | null {
+  if (!battle || isWildBattle(battle)) return null;
+  if (cupIdOf(battle) || gymIdOf(battle) || rivalIdOf(battle)) return null;
+
+  const trainerId = trainerIdOf(battle);
+  if (!trainerId) return null;
+
+  const who = [...world.trainers.values()].flat().find((one) => one.id === trainerId);
+  return who?.hintId ? hint(who.hintId) : null;
 }
 
 /** Which quest puts your name down for the Cup. */

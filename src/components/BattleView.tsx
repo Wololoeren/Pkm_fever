@@ -153,6 +153,7 @@ export function BattleView({
   onAction,
   balls,
   opponentLabel = "Wild",
+  opening,
   busy = false,
   busyLabel,
   footer,
@@ -165,6 +166,16 @@ export function BattleView({
   /** Omitted in a duel: there is nothing to catch and nowhere to run. */
   balls?: number;
   opponentLabel?: string;
+  /**
+   * What the opponent says before anything is thrown.
+   *
+   * Shown above the log and left up for the whole battle rather than printed
+   * into it. A line that scrolls away is a line you read once while you were
+   * looking at something else — which is exactly what happened to every status
+   * the log announced before the badge row existed, and the lesson is cheap to
+   * apply twice.
+   */
+  opening?: string;
   /** True while we are waiting on somebody else and must not act. */
   busy?: boolean;
   busyLabel?: string;
@@ -427,6 +438,11 @@ export function BattleView({
         {/* And the log down the right, where it can be as long as it likes
             without pushing the buttons off the bottom of the screen. */}
         <div className="stageLog">
+          {opening ? (
+            <p className="opening">
+              <span className="openingWho">{opponentLabel.replace(/'s$/, "")}:</span> {opening}
+            </p>
+          ) : null}
           <div className="log">
             {lines.length ? (
               lines.map((line, i) => <p key={i}>{line}</p>)

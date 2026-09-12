@@ -5,6 +5,7 @@ import { rollGender } from "./gender";
 import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
 import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
 import { TOWNS, TOWN_TRAINERS } from "./towns";
+import { dealHints } from "./hints";
 import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
 import { GYMS, gym, type GymSpec } from "./gyms";
 import {
@@ -200,6 +201,20 @@ export interface TrainerSpec {
   y: number;
   name: string;
   team: { speciesId: string; level: number }[];
+  /**
+   * The one thing this person knows, by id. See `hints.ts`.
+   *
+   * On the *world* rather than on the state, like an NPC's lines and for the
+   * same reason: it is a fact about who is standing there, decided when the
+   * world was made, not something a playthrough accumulates. So it costs no
+   * save bytes, does not enter the state hash, and two players on one seed get
+   * the same person saying the same thing.
+   *
+   * Optional because the town trainers do not have one. They are the written
+   * cast — the joke is their team — and a fact about the crit ladder coming
+   * out of the cryptid hunter would be a fact standing where a joke was.
+   */
+  hintId?: string;
 }
 
 export interface World {
@@ -2539,6 +2554,33 @@ export function generateWorld(
     if (route.kind !== "route") continue;
     const here = buildTrainers(seed, route, allSpecies, config.rings);
     if (here.length) trainers.set(route.id, here);
+  }
+
+  /**
+   * One thing each of them knows, dealt from a shuffled deck.
+   *
+   * Dealt here rather than inside `buildTrainers` because the deck has to span
+   * the whole world. A route builds four to seven people; dealing per route
+   * would reshuffle every time and hand the same opening line to somebody on
+   * the next route over, which is exactly the repetition a deck is for
+   * avoiding.
+   *
+   * The order is sorted rather than whatever the map happens to iterate in.
+   * Route insertion order is deterministic today, and a deal that silently
+   * changed because somebody reordered a loop elsewhere would give every
+   * trainer in the world a different line — which is not a bug anything would
+   * catch, merely a world that quietly stopped being the same world.
+   */
+  const dealt = dealHints(
+    rngFor(seed, "trainer-hints"),
+    [...trainers.values()].reduce((total, here) => total + here.length, 0),
+  );
+  let nextHint = 0;
+  for (const routeId of [...trainers.keys()].sort()) {
+    trainers.set(
+      routeId,
+      trainers.get(routeId)!.map((who) => ({ ...who, hintId: dealt[nextHint++] })),
+    );
   }
 
   // And the ones written by hand, who stand in the towns.
