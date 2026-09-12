@@ -431,6 +431,11 @@ export interface GameState {
    * is what makes his first appearance the first move of a new game.
    */
   rivalLast: number | null;
+  /**
+   * How many times he has turned up. The journal's number; `rivalLast` is a
+   * schedule and a schedule is not a count.
+   */
+  rivalVisits: number;
   party: Individual[];
   box: Individual[];
   nextUid: number;
@@ -479,6 +484,16 @@ export interface GameState {
    * name would be the shortest road to reading one and meaning the other.
    */
   whereMet: Record<string, string>;
+  /**
+   * Every species that has ever been yours, sorted.
+   *
+   * The Pokédex's "caught". Folded in the same place `whereMet` is, from the
+   * party and the box, so a starter, a catch, an egg, a gift and a trade all
+   * count and releasing one later does not unwrite having had it. Not
+   * derivable after the fact — a creature released is a creature gone — which
+   * is why it is one of the few things here that is recorded.
+   */
+  caught: string[];
   /** Trainers already beaten, sorted. They stay beaten. */
   beaten: string[];
   /** Who you are mid-conversation with, if anyone. */
@@ -651,6 +666,7 @@ export function initialState(world: World): GameState {
     trail: [],
     rivalSince: null,
     rivalLast: null,
+    rivalVisits: 0,
     party: [],
     box: [],
     nextUid: 1,
@@ -676,6 +692,7 @@ export function initialState(world: World): GameState {
     roamers: {},
     met: [],
     whereMet: {},
+    caught: [],
     cheated: false,
   });
 }
@@ -782,7 +799,19 @@ function noted(state: GameState): GameState {
     whereMet[speciesId] = state.route;
   }
 
-  return whereMet ? { ...state, whereMet } : state;
+  // And what is *yours*, for the dex: the party and the box, not the other
+  // side of a battlefield. Same rule about allocation — nothing new, same
+  // object back.
+  let caught: string[] | null = null;
+  const owned = new Set(state.caught);
+  for (const one of [...state.party, ...state.box]) {
+    if (owned.has(one.speciesId)) continue;
+    owned.add(one.speciesId);
+    caught = [...owned].sort();
+  }
+
+  if (!whereMet && !caught) return state;
+  return { ...state, whereMet: whereMet ?? state.whereMet, caught: caught ?? state.caught };
 }
 
 /**
@@ -820,7 +849,7 @@ function followed(world: World, state: GameState): GameState {
   // is that somebody starts following you.
   if (walked.rivalSince === null) {
     return rivalDue(walked.tick, walked.rivalLast)
-      ? { ...walked, rivalSince: walked.tick, rivalLast: walked.tick }
+      ? { ...walked, rivalSince: walked.tick, rivalLast: walked.tick, rivalVisits: walked.rivalVisits + 1 }
       : walked;
   }
 
@@ -4052,10 +4081,12 @@ export function stateHash(state: GameState): string {
       .sort()
       .map((id) => `${id}@${state.whereMet[id]}`)
       .join(","),
+    state.caught.join(","),
     state.centre ?? "-",
     state.trail.map((at) => `${at.route}@${at.x},${at.y}`).join(">"),
     state.rivalSince ?? "-",
     state.rivalLast ?? "-",
+    state.rivalVisits,
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
     state.nextUid,

@@ -21,6 +21,7 @@ import { GenderMark, HpBar, TeamBalls, VariantTag } from "./PartyStrip";
 import { EvolutionScene } from "./EvolutionScene";
 import { beatsFor } from "@/lib/beats";
 import { useBeat, useEntrance } from "./useBeat";
+import { useCues } from "./useCues";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
@@ -254,6 +255,7 @@ export function BattleView({
   useEntrance(mySprite, `${battle.tag}:${player.uid}`, "right");
   useBeat(foeSprite, foeFlash, beats[them], battle.turn, "left");
   useBeat(mySprite, myFlash, beats[role], battle.turn, "right");
+  useCues(battle);
 
   const lines = narrate(battle.events, (side) =>
     side === role ? displayName(player) : `${opponentLabel} ${displayName(foe)}`.trim(),

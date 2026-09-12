@@ -5,6 +5,9 @@ import { BattleView } from "@/components/BattleView";
 import { CheatMenu } from "@/components/CheatMenu";
 import { EvolutionScene } from "@/components/EvolutionScene";
 import { Inspect } from "@/components/Inspect";
+import { DexPanel } from "@/components/DexPanel";
+import { JournalPanel } from "@/components/JournalPanel";
+import { isMuted, setMuted } from "@/lib/sound";
 import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
@@ -109,6 +112,9 @@ export default function Page() {
   const [seenEvolution, setSeenEvolution] = useState<Notice | null>(null);
   /** uid of whatever is being looked at, or null. */
   const [inspecting, setInspecting] = useState<number | null>(null);
+  // Sound on or off. Read once the page is in a browser, like the autosave.
+  const [muted, setMutedState] = useState(false);
+  useEffect(() => setMutedState(isMuted()), []);
 
   // localStorage is not available while the static export is being rendered,
   // so the autosave is looked up once the page is actually in a browser.
@@ -775,10 +781,39 @@ export default function Page() {
         </details>
       )}
 
+      {fighting ? null : (
+        <details className="panel notesPanel">
+          <summary>
+            <h3>Pokédex</h3>
+          </summary>
+          <DexPanel world={session.world} state={state} />
+        </details>
+      )}
+
+      {fighting ? null : (
+        <details className="panel notesPanel">
+          <summary>
+            <h3>Journal</h3>
+          </summary>
+          <JournalPanel world={session.world} state={state} inputs={session.inputs} />
+        </details>
+      )}
+
       <section className="panel">
         <div className="row">
           <button type="button" className="ghost" onClick={() => downloadSave(session.seed, session.inputs)}>
             Save to file
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setMuted(!muted);
+              setMutedState(!muted);
+            }}
+            title="A handful of synthesised cues: a hit, a critical, a miss, a faint, a heal, a catch, a level"
+          >
+            Sound: {muted ? "off" : "on"}
           </button>
           <button
             type="button"

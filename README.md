@@ -698,6 +698,56 @@ every route's population before you had walked any of it. What lives on a route
 is for the route to tell you. The same reason the Grey Line's destinations are
 filtered rather than greyed.
 
+### The Pokédex
+
+Seen and caught per species, and what a route has shown you. Two of its three
+questions were already answered by state that existed for other reasons:
+*seen* is `whereMet`, and *what lives here* is the route's own encounter
+table, a pure function of the world that has never needed storing. Only
+*caught* is new — `state.caught`, a sorted list of species ever owned, folded
+in the same place `whereMet` is, from the party and the box, so a starter, a
+catch, an egg, a gift and a trade all count and releasing one later does not
+unwrite having had it. It is in the hash and it is not an `ENGINE_VERSION`
+bump: no input does anything different.
+
+The dex is the one panel allowed a denominator, and it earns it. A route's
+table is shown only once the route has been asked **`DEX_REVEAL` times** —
+ten encounters, read off `nextSlot`, which already counts every encounter a
+route has served, so the reveal costs no state at all. Before that the route
+says how many more it wants and nothing else. The field notes keep their rule
+about denominators; this is the checklist they refused to be, behind a price.
+
+### The journal
+
+Rival visits, badges, the roster in order of arrival, and the run's numbers —
+moves, steps, battles, turns, balls, switches, creatures obtained, species met
+and caught, trainers beaten, places, variants. Worked out rather than kept,
+the way quest progress is: half is read off the state, which is a fold over
+the log, and half off the log itself, because "how many balls" is a fact
+about what was pressed. `lib/journal.ts` is pure and `J1` to `J4` run it
+without a browser.
+
+One number had to be recorded for it: `rivalVisits`, incremented where his
+visit begins. `rivalLast` is a schedule and a schedule is not a count, and
+nothing else in the state could say how many times he has come.
+
+### Sound
+
+There are no audio files. Seven cues — a hit, a critical, a miss, a faint, a
+heal, a catch, a level — are each a couple of oscillators and a gain envelope
+in `lib/sound.ts`, synthesised rather than sampled for the reason the sprites
+are drawn: nothing to download, nothing to license, and a cue that needs
+changing is a number.
+
+They are timed off `beats.ts`, so a hit sounds when the sprite flinches and
+not when the turn arrives — the animation already worked out when everything
+happens, and a second clock would drift from the first. `cuesFor` is pure and
+tested (`S1` to `S3`); `playCues` is the only thing that touches WebAudio,
+lazily and after a click, which is when browsers allow it. Sound is on by
+default and the "Sound: off" button in the footer remembers the choice in
+this browser. Like the narration and the animation it is display: a sound the
+state depended on would be a save that broke when somebody retuned a chime.
+
 ### Testing shortcuts
 
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>Z</kbd> opens a cheat

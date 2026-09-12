@@ -88,6 +88,13 @@ kbd {
 .menuCard.dropZone.over { border-color: var(--accent); }
 .linkButton { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
 .plainList { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
+ol.plainList { list-style: decimal inside; }
+.dexList { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; }
+.dexList li { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 0.9rem; }
+.dexNum { font-family: var(--mono); font-size: 0.8rem; min-width: 3.2em; }
+.dexName { border-left: 3px solid var(--line); padding-left: 6px; }
+.dexRoute { margin-top: 6px; font-size: 0.9rem; line-height: 1.5; }
+.journal h4, .dex h4 { margin: 12px 0 4px; font-size: 0.9rem; }
 
 /* ------------------------------------------------------------------ forms */
 
