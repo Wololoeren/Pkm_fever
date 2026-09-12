@@ -48,7 +48,7 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         615 tests, including the replay property everything rests on
+tests/         661 tests, including the replay property everything rests on
 docs/          the four reference pages: status, abilities, items, and what is deferred
 ```
 
@@ -58,7 +58,8 @@ ponds and tall grass, and a camera that follows you — wild encounters, a
 full single battle system — damage, the type chart, criticals, accuracy, stat
 stages, five status conditions, drain, recoil and healing — plus catching,
 experience, levelling, move learning, evolution, breeding, the box, save/load,
-and **PvP over WebRTC** — battles at any size from 1v1 to 6v6, and trading.
+field notes on everything you have met, ninety-nine things the people on the
+routes will tell you, and **PvP over WebRTC** — battles at any size from 1v1 to 6v6, and trading.
 
 Not yet: a tournament bracket — though a bracket is a spreadsheet and a series
 of 1v1s, which already work.
@@ -382,6 +383,64 @@ stops being a reason to walk down one the moment it is only true of most of
 them. `S6` walks up to all forty-four traders with the wrong creature, is
 refused, comes back with the right one and checks the swap lands.
 
+### What the people on the routes know
+
+This game explains almost nothing, on purpose. The stat sheet puts base, IV,
+nature and effort in four columns and trusts you to read them; the shine ladder
+has six rungs and no tutorial; burn lands last in the damage formula, and the
+only place that was written down is a reference document.
+
+The opposite failure was real too, and this had it: the knowledge existed and
+there was nowhere to **meet** it. A player either read `docs/status.md` or
+never found out that a third of the sleeps they land cost the opponent nothing
+at all.
+
+So the route trainers know things. Two hundred and seventy of them, four to
+seven on every route, each opening with **one thing it has learned** — usually
+the hard way, and with opinions about it. There are **ninety-nine** of them in
+`src/engine/hints.ts`, and the shape matters more than the contents:
+
+- **Spread across people you have to walk to.** A hint handed over by a panel
+  is a manual with extra steps. A hint that comes out of somebody you found
+  round the third corner of a pinewood is a reason to have gone round the
+  corner. It is the survey's idea one layer down, applied to the people who
+  were previously furniture with a team.
+
+- **Dealt from a shuffled deck, not rolled.** Every one of the ninety-nine is
+  seen before any is seen twice. Rolling per trainer would hand out about sixty
+  distinct hints across the hundred people a player meets early on and give
+  some of them three times — precisely the failure "there are lots of hints" is
+  meant to avoid. A world uses all ninety-nine; `HN9` checks it.
+
+- **A trainer says the same thing forever.** Dealt at world generation from the
+  seed, like everything else. Somebody who tells you a different fact on
+  Tuesday is not a character, they are a slot machine — the rule the idle
+  creatures' lines already follow.
+
+- **On the world, not the state.** A fact about who is standing there rather
+  than something a playthrough accumulates. No save bytes, and **no
+  `ENGINE_VERSION` bump**: nobody moved, nothing new is solid, and a recorded
+  walk steps exactly where it stepped before.
+
+A line earns its place by carrying **a number or a rule you can act on**, being
+**true**, and being **said by somebody**. Several are deliberately the ones that
+contradict what another game in this shape would have taught you: freeze has no
+thaw here, Toxic does not escalate, natures add rather than multiply, and wild
+creatures cap at a fifth of the IV range. The joke is the relationship the
+speaker has with the fact, never a joke instead of the fact.
+
+The numbers are guarded the way `docs/status.md` is. `HN12` names a constant,
+the phrase written against it, and the value that phrase was written for —
+change `STEPS_PER_EGG` and it fails saying the line about walking a hundred and
+twenty steps is now a lie, and to rewrite the line rather than the number. A
+hint that is merely plausible is worse than no hint, because it will be
+believed.
+
+The written cast keep their own words: gym leaders, Cup contenders and the
+rival have lines already, and a town trainer's punchline is their team. A fact
+about the crit ladder coming out of the cryptid hunter would be a fact standing
+where a joke was.
+
 ### The three outer towns
 
 Hearth is Hearth: it is where you wake up and it does not need a joke. The other
@@ -557,6 +616,46 @@ hidden and then the trainers, the people, the creatures, the signs and the items
 on the floor were all drawn on top of it, every one of them clearly lit and
 floating on a black square. The dark hid the one thing on a route that was never
 a surprise and revealed everything that was.
+
+### Field notes
+
+The fog remembers the **ground** you have walked past. Nothing remembered the
+**creatures** you walked past on it, so "have I combed this route" had no
+answer anywhere in the game — an odd hole in a world with fifty-eight decorated
+creatures hidden in it and a pitch that shiny hunting is exploration.
+
+`whereMet` is a species id against the route you first met one on. A route
+rather than a boolean, because *where* is the useful half: a list of names you
+have seen is a collection, and a list of names against the places they were is
+a record of where you have actually looked. The thin entries are the point — a
+route you crossed once and never combed sits there with two names against it.
+
+**Folded in one place**, outermost in `applyInput`'s funnel. There are nine
+roads to a battle in the engine and several roads to owning a creature without
+one, and a fold written at each is nine chances to forget the tenth. Outermost
+specifically because `followed` *starts* a battle from inside the funnel: the
+rival is the one opponent you cannot walk away from, and anything folded
+further in would miss him.
+
+Both sides of the battlefield, and the party and the box. Both sides because
+something somebody else sent out is something you have met; the party and the
+box because a gift, an egg and a trade are all roads to owning a creature you
+never fought, and releasing it later should not unwrite having had it.
+
+In the hash, for the same reason the fog is — it is state, and a claim that two
+logs produce the same state should not have an exception in it. Not redundant
+with the party either: two logs can end holding the same six creatures having
+found them in different places, and `N8` is that case. It is **not** an
+`ENGINE_VERSION` bump, because no input does anything different; an old log
+replays to exactly the game it always did, now also carrying a record of what
+it met on the way.
+
+The panel carries **no denominator**. The encounter table is right there and
+"7 of the 23 that live here" would be nearly free — and would turn a record of
+where you have been into a checklist of where to go, handing over the shape of
+every route's population before you had walked any of it. What lives on a route
+is for the route to tell you. The same reason the Grey Line's destinations are
+filtered rather than greyed.
 
 ### Testing shortcuts
 
@@ -806,6 +905,50 @@ The renderer reads state and draws it. It never writes to it — canvas rather
 than a game framework, precisely so nothing can quietly own the loop and feed
 a tween result back into game state. That would break replay, and nobody would
 notice for three months.
+
+An input the engine refuses throws `IllegalInput`, and the UI drops it — you
+walked into a tree. Anything else that throws is a **crash wearing a refusal's
+clothes**, and it is logged rather than swallowed, because that `catch` is
+exactly wide enough to hide one: the Toxic bug spent months reaching the player
+as "that move is not legal" because `STATUS_IMMUNE["tox"]` was undefined and
+`.includes` threw from a move that was perfectly legal. It took a hundred
+battles of a probe to find something one line there would have named on the
+first occurrence. The session is kept either way — a crash costs that input,
+not the playthrough.
+
+### What a save actually weighs
+
+A save is a seed and a list of inputs, and the list is almost entirely walking.
+Measured on a generated playthrough: twenty thousand inputs came out 14,603
+moves, and `{ "t": "move", "dir": "e" }` is 22 bytes of JSON carrying one
+letter of information. A long save reaches ninety thousand inputs and
+localStorage is five megabytes.
+
+So the log is packed on the way out and unpacked on the way in, and there are
+only two rules. **A string is a run of moves** — `"eenneww"` — so fifty steps
+cost fifty-two bytes rather than eleven hundred. **An array is everything
+else**, `[op, payload]`, with the payload keeping its field names so nothing
+depends on the order keys happen to be written in. The two shapes cannot be
+confused for one another, which makes the decoder a `typeof` rather than a
+guess. A mixed battle-heavy log goes from 22.7 bytes an input to **4.30**.
+
+The opcode table is a `Record` over the input union, so **adding an input to
+the engine without giving it an opcode is a compile error**. That is the whole
+point: the failure mode of a codec is silently dropping the one input nobody
+thought about, and a dropped input is a save that replays into a different
+game. The numbers are written out rather than derived from position because
+they are a file format — append, never renumber.
+
+It is deliberately not an `ENGINE_VERSION` bump. A log is spelled differently,
+not meant differently, and `parseSave` still reads the old spelling.
+
+The autosave is written on a **trailing half-second debounce** rather than on
+every input. It used to be written from inside the reducer's own state updater
+— a side effect in a function React may call twice — and it serialised the
+whole log every step, which is nothing at a hundred inputs and a dropped frame
+every step by the time a save is worth having. `flushAutosave` pays whatever is
+owed on `pagehide`, which is the one moment a debounce would otherwise cost
+real progress.
 
 ### Stats
 
