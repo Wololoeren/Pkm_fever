@@ -42,31 +42,26 @@ matchups people plan around.
 
 ## 2. Weather
 
-**What is missing.** There is no field state at all. Weather needs a duration,
-a source, a way for it to end, and hooks in the damage formula, in accuracy, in
-residual damage and in speed. It is the largest single item here and it unlocks
-the most.
+**What is in.** The field exists — `src/engine/field.ts` — and twenty-three
+abilities went in with it: the four that bring a weather, the four that lay
+a terrain, and the fifteen that read one. What is left here wants something
+beyond the field.
 
 | Ability | Waiting on |
 | --- | --- |
-| Drought, Drizzle, Sand Stream, Snow Warning, Desolate Land, Primordial Sea, Delta Stream | setting weather |
-| Chlorophyll, Swift Swim, Sand Rush, Slush Rush, Solar Power | reading weather |
-| Rain Dish, Ice Body, Dry Skin (the healing half), Hydration | reading weather |
-| Sand Veil, Snow Cloak, Sand Force | reading weather |
-| Cloud Nine, Air Lock | suppressing weather |
+| Desolate Land, Primordial Sea, Delta Stream | a weather that cannot be replaced or ended |
+| Solar Power | two effects under one name — a stat and a per-turn cost |
+| Dry Skin | three effects under one name — an absorb, a weakness, and a per-turn heal or cost |
 | Flower Gift, Forecast | weather plus form change |
 
 ## 3. Terrain
 
-**What is missing.** The same field state as weather, plus a second slot for
-it, and grounded-ness (which needs Levitate and Flying to be asked the same
-question in one place).
+**What is in.** The same field state, a second slot, and grounded-ness asked in
+one place — Flying, Levitate and Magnet Rise are the three ways off the ground.
 
 | Ability | Waiting on |
 | --- | --- |
-| Grassy Surge, Misty Surge, Electric Surge, Psychic Surge | setting terrain |
-| Grass Pelt, Surge Surfer | reading terrain |
-| Mimicry | reading terrain |
+| Mimicry | terrain plus a type change of its own |
 
 ## 4. Held items
 

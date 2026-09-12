@@ -1,4 +1,5 @@
 import { TYPE_NAMES, type StageStat } from "./dex";
+import type { TerrainId, WeatherId } from "./field";
 import { intBelow, type Rng } from "./rng";
 import type { StatusId } from "./types";
 
@@ -171,7 +172,30 @@ type EffectShape =
   /** Running from a wild battle always works. */
   | { t: "bolt" }
   /** Drain moves return this much more, in per-mille. */
-  | { t: "roots"; mille: number };
+  | { t: "roots"; mille: number }
+  // -------------------------------------------------------------------------
+  // The field. Weather and terrain arrived as one feature, and these are the
+  // questions it added: setting one on arrival, and reading one for a stat,
+  // a heal, a cure, a miss, a multiplier or a refusal.
+  // -------------------------------------------------------------------------
+  /** Coming out brings a weather or a terrain with it. */
+  | { t: "summon"; weather?: WeatherId; terrain?: TerrainId }
+  /** A stat multiplied while one of these weathers is up. */
+  | { t: "weatherStat"; weather: readonly WeatherId[]; stat: StageStat; mille: number }
+  /** A stat multiplied while this terrain is up and it is grounded. */
+  | { t: "terrainStat"; terrain: TerrainId; stat: StageStat; mille: number }
+  /** A share of its maximum back at the end of every turn in these weathers. */
+  | { t: "weatherMend"; weather: readonly WeatherId[]; share: number }
+  /** Its condition cleared at the end of every turn in these weathers. */
+  | { t: "weatherCure"; weather: readonly WeatherId[] }
+  /** The other side's accuracy against it multiplied in these weathers. */
+  | { t: "weatherGraze"; weather: readonly WeatherId[]; mille: number }
+  /** Its own attacks of these types multiplied in these weathers. */
+  | { t: "weatherPower"; weather: readonly WeatherId[]; types: readonly string[]; mille: number }
+  /** No condition sticks to it in these weathers. */
+  | { t: "weatherGuard"; weather: readonly WeatherId[] }
+  /** While it stands there, there is no weather. */
+  | { t: "calm" };
 
 /**
  * One shape, plus who it is for.
@@ -542,7 +566,39 @@ const SINGLES: AbilitySpec[] = [
   },
 ];
 
-export const ABILITIES: readonly AbilitySpec[] = [...SINGLES, ...CORNERED, ...ABSORB, ...WARD];
+/**
+ * The field family: twenty-three abilities that set or read weather and
+ * terrain, which arrived with the field itself and were deferred until it
+ * did. Dry Skin and Solar Power are not here — each is two or three effects
+ * under one name, and a spec carries one.
+ */
+const FIELD_ABILITIES: AbilitySpec[] = [
+  { id: "drought", name: "Drought", blurb: "Brings the sun out when it arrives.", effect: { t: "summon", weather: "sun" } },
+  { id: "drizzle", name: "Drizzle", blurb: "Brings the rain when it arrives.", effect: { t: "summon", weather: "rain" } },
+  { id: "sandstream", name: "Sand Stream", blurb: "Whips up a sandstorm when it arrives.", effect: { t: "summon", weather: "sand" } },
+  { id: "snowwarning", name: "Snow Warning", blurb: "Brings the snow when it arrives.", effect: { t: "summon", weather: "snow" } },
+  { id: "electricsurge", name: "Electric Surge", blurb: "Lays Electric Terrain when it arrives.", effect: { t: "summon", terrain: "electric" } },
+  { id: "grassysurge", name: "Grassy Surge", blurb: "Lays Grassy Terrain when it arrives.", effect: { t: "summon", terrain: "grassy" } },
+  { id: "mistysurge", name: "Misty Surge", blurb: "Lays Misty Terrain when it arrives.", effect: { t: "summon", terrain: "misty" } },
+  { id: "psychicsurge", name: "Psychic Surge", blurb: "Lays Psychic Terrain when it arrives.", effect: { t: "summon", terrain: "psychic" } },
+  { id: "chlorophyll", name: "Chlorophyll", blurb: "Twice as fast in the sun.", effect: { t: "weatherStat", weather: ["sun"], stat: "spe", mille: 2000 } },
+  { id: "swiftswim", name: "Swift Swim", blurb: "Twice as fast in the rain.", effect: { t: "weatherStat", weather: ["rain"], stat: "spe", mille: 2000 } },
+  { id: "sandrush", name: "Sand Rush", blurb: "Twice as fast in a sandstorm.", effect: { t: "weatherStat", weather: ["sand"], stat: "spe", mille: 2000 } },
+  { id: "slushrush", name: "Slush Rush", blurb: "Twice as fast in hail or snow.", effect: { t: "weatherStat", weather: ["hail", "snow"], stat: "spe", mille: 2000 } },
+  { id: "surgesurfer", name: "Surge Surfer", blurb: "Twice as fast on Electric Terrain.", effect: { t: "terrainStat", terrain: "electric", stat: "spe", mille: 2000 } },
+  { id: "grasspelt", name: "Grass Pelt", blurb: "Defence half again on Grassy Terrain.", effect: { t: "terrainStat", terrain: "grassy", stat: "def", mille: 1500 } },
+  { id: "raindish", name: "Rain Dish", blurb: "A sixteenth back every turn in the rain.", effect: { t: "weatherMend", weather: ["rain"], share: 16 } },
+  { id: "icebody", name: "Ice Body", blurb: "A sixteenth back every turn in hail or snow.", effect: { t: "weatherMend", weather: ["hail", "snow"], share: 16 } },
+  { id: "hydration", name: "Hydration", blurb: "Any condition washes off at the end of a turn in the rain.", effect: { t: "weatherCure", weather: ["rain"] } },
+  { id: "sandveil", name: "Sand Veil", blurb: "Harder to hit in a sandstorm.", effect: { t: "weatherGraze", weather: ["sand"], mille: 800 } },
+  { id: "snowcloak", name: "Snow Cloak", blurb: "Harder to hit in hail or snow.", effect: { t: "weatherGraze", weather: ["hail", "snow"], mille: 800 } },
+  { id: "sandforce", name: "Sand Force", blurb: "Rock, Ground and Steel moves ×1.3 in a sandstorm.", effect: { t: "weatherPower", weather: ["sand"], types: ["rock", "ground", "steel"], mille: 1300 } },
+  { id: "leafguard", name: "Leaf Guard", blurb: "No condition takes in the sun.", effect: { t: "weatherGuard", weather: ["sun"] } },
+  { id: "cloudnine", name: "Cloud Nine", blurb: "While it stands there, there is no weather.", effect: { t: "calm" } },
+  { id: "airlock", name: "Air Lock", blurb: "While it stands there, there is no weather.", effect: { t: "calm" } },
+];
+
+export const ABILITIES: readonly AbilitySpec[] = [...SINGLES, ...FIELD_ABILITIES, ...CORNERED, ...ABSORB, ...WARD];
 
 const BY_ID = new Map(ABILITIES.map((entry) => [entry.id, entry]));
 

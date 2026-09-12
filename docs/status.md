@@ -181,6 +181,35 @@ odd one.
 
 ---
 
+## The field
+
+On the battle, not on either side. Weather, terrain and the two sports are
+each an id and a count, all lasting **5 turns**, absent when nothing is up.
+Cloud Nine and Air Lock do not end a weather: they stop it being felt while
+their owner stands there. "Grounded" is one question — not Flying, not
+Levitating, not under Magnet Rise — asked wherever a terrain reads it.
+
+| | Arithmetic |
+| --- | --- |
+| **Sun** | Fire ×1.5, Water ×0.5. Thunder and Hurricane at 50. Synthesis, Moonlight and Morning Sun mend two thirds |
+| **Rain** | Water ×1.5, Fire ×0.5. Thunder and Hurricane cannot miss |
+| **Sand** | `max(1, floor(maxHp / 16))` a turn off anything not Rock, Ground or Steel. A Rock type's Sp. Def ×1.5. Shore Up mends everything |
+| **Hail** | the same sixteenth off anything not Ice. Blizzard cannot miss |
+| **Snow** | an Ice type's Defence ×1.5, and no residual. Blizzard cannot miss |
+| **Electric Terrain** | Electric ×1.3 from a grounded attacker; a grounded creature cannot fall asleep |
+| **Grassy Terrain** | Grass ×1.3 from a grounded attacker; a sixteenth back to every grounded creature a turn |
+| **Misty Terrain** | Dragon ×0.5 into a grounded target; a grounded creature takes no condition |
+| **Psychic Terrain** | Psychic ×1.3 from a grounded attacker; nothing with priority reaches a grounded target |
+| **Water Sport**, **Mud Sport** | Fire ×0.333, or Electric ×0.333 |
+
+The three sun-readers mend a quarter in any weather that is not sun. Solar
+Beam and Solar Blade are ×0.5 in any weather that is not sun, and never need
+a turn to charge here. Weather Ball is the weather's type at 100 power. Aurora
+Veil is Reflect and Light Screen together, and only while it hails or snows.
+
+In the formula below, the field's multipliers land **between the same-type
+bonus and the abilities**, so a Sand Force compounds on top of the sand.
+
 ## Where each of these lands in the damage formula
 
 The order is the arithmetic. Written out, because "burn halves your attack" is
@@ -194,6 +223,7 @@ a different number depending on where you say it:
  5.  critical hit                floor(value · 3 / 2)
  6.  spread roll 85–100          floor(value · spread / 100)
  7.  same-type bonus             ×1.5  (×2 with Adaptability)
+ 7a. the field                   sun, rain, terrain, sport
  8.  power abilities and items
  9.  type chart                  floor(value · quarters / 4)
 10.  cushion / pierce / ward abilities
@@ -224,9 +254,8 @@ until the rival started drawing moves from the whole dex.
 **Freeze has no thaw on a Fire hit**, as above. It is the one condition here
 that is meaningfully harsher than its namesake.
 
-**Weather and terrain do not exist**, so nothing in this file is modified by
-them. They are one feature rather than nine, and half of it would be worse than
-none — see `## What is next` in the README.
+**Toxic Spikes, Stealth Rock and the rest of the hazards** are not here; they
+want an on-arrival hook, and `docs/moves-deferred.md` says so.
 
 **Sixteen further conditions are filtered out of every move pool** rather than
 dealt as slots that do nothing: Substitute, Taunt, Encore, Disable and the rest

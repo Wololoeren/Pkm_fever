@@ -95,6 +95,9 @@ describe("the reference matches the engine", () => {
     says(`**${constant(battle, "WISH_TURNS")} turns**, then`, "Wish");
     says(`a counter, up to **${constant(battle, "STOCKPILE_MAX")}**`, "Stockpile");
     says(`for **${constant(statusmoves, "MAGNET_RISE_TURNS")}** or **${constant(statusmoves, "TELEKINESIS_TURNS")}** turns`, "Magnet Rise and Telekinesis");
+    const field = readFileSync(join(root, "src", "engine", "field.ts"), "utf8");
+    says(`all lasting **${constant(field, "FIELD_TURNS")} turns**`, "how long the field lasts");
+    says(`max(1, floor(maxHp / ${constant(field, "FIELD_SHARE")}))`, "sand's bite");
     says(`last **${constant(statusmoves, "SCREEN_TURNS")} turns**`, "how long a screen lasts");
   });
 

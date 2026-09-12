@@ -37,8 +37,11 @@ import { BIOME_IDS } from "./biomes";
  * above promises never happens. Adding anybody to the roster is a bump.
  *
  * 25 is the trainer school: four people in Hearth's house, which is the rule
- * above applied. */
-export const ENGINE_VERSION = 25;
+ * above applied.
+ *
+ * 26 is the field. Twenty-four abilities joined the roll, and a roll that
+ * lands on Drought today landed on something else yesterday. */
+export const ENGINE_VERSION = 26;
 
 // ------------------------------------------------------------------ stats
 

@@ -25,6 +25,18 @@ import {
 import { anyPp, hasPp, ppLeft, spendPp, STRUGGLE, STRUGGLE_RECOIL } from "./pp";
 import { intBelow, rngFor } from "./rng";
 import { gendersPair } from "./gender";
+import {
+  FIELD_SHARE,
+  FIELD_TURNS,
+  fieldKey,
+  HAIL_PROOF,
+  SAND_PROOF,
+  WEATHER_TYPE,
+  type Field,
+  type SportId,
+  type TerrainId,
+  type WeatherId,
+} from "./field";
 import { computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatId, type StatusId } from "./types";
 
@@ -262,6 +274,10 @@ export type BattleEvent =
   | { t: "revived"; side: SideIndex; speciesId: string }
   /** Spite: uses taken off a move. `side` is whose move. */
   | { t: "spite"; side: SideIndex; moveId: string; amount: number }
+  /** Weather, terrain or a sport starting, or ending. */
+  | { t: "field"; kind: "weather" | "terrain" | "sport"; id: string; over: boolean }
+  /** Sand or hail biting. */
+  | { t: "weathered"; side: SideIndex; weather: WeatherId; amount: number }
   | { t: "heal"; side: SideIndex; amount: number }
   | { t: "recoil"; side: SideIndex; amount: number }
   | { t: "blocked"; side: SideIndex; reason: StatusId }
@@ -350,6 +366,11 @@ export interface BattleState {
   sides: [Combatant, Combatant];
   /** Sides that owe a replacement before anything else can happen. */
   awaitingSwitch: [boolean, boolean];
+  /**
+   * Weather, terrain and the sports. Absent when nothing is up, so a battle
+   * with no weather in it hashes as it did before the field existed.
+   */
+  field?: Field;
   outcome: BattleOutcome | null;
   /** Narration for the turn just resolved. Derived from everything else, so
    * stateHash leaves it out. */
@@ -589,6 +610,145 @@ function typesAgainst(
  */
 function typesOf(turn: Turn, side: SideIndex): readonly string[] {
   return volatiles(turn, side).types ?? speciesById(active(turn, side).speciesId).types;
+}
+
+/**
+ * Whether it is standing on the ground, which is what every terrain asks.
+ *
+ * Flying, Levitate and Magnet Rise are the three ways off it, and the
+ * deferred list was right that they had to be asked in one place: a terrain
+ * that reached a Flying type but not a Levitate would be a terrain nobody
+ * could reason about.
+ */
+function grounded(turn: Turn, side: SideIndex): boolean {
+  if (typesOf(turn, side).includes("flying")) return false;
+  if ((volatiles(turn, side).afloat ?? 0) > 0) return false;
+  return !effects(active(turn, side), "immune").some((effect) => effect.type === "ground");
+}
+
+// ------------------------------------------------------------------ the field
+
+/**
+ * The weather, or null when there is none or nobody can feel it.
+ *
+ * Cloud Nine and Air Lock do not end the weather; they stop it mattering
+ * while their owner stands there, and it resumes when they leave. Asked
+ * through here so every reader — damage, speed, residuals, accuracy, the
+ * heals — agrees about whether it is raining.
+ */
+function weatherNow(turn: Turn): WeatherId | null {
+  const weather = turn.battle.field?.weather?.id ?? null;
+  if (!weather) return null;
+  for (const side of [0, 1] as SideIndex[]) {
+    if (!isFainted(active(turn, side)) && has(active(turn, side), "calm")) return null;
+  }
+  return weather;
+}
+
+function terrainNow(turn: Turn): TerrainId | null {
+  return turn.battle.field?.terrain?.id ?? null;
+}
+
+function sportNow(turn: Turn): SportId | null {
+  return turn.battle.field?.sport?.id ?? null;
+}
+
+function setField(turn: Turn, next: Field): void {
+  const live: Field = {};
+  if (next.weather) live.weather = next.weather;
+  if (next.terrain) live.terrain = next.terrain;
+  if (next.sport) live.sport = next.sport;
+  turn.battle.field = Object.keys(live).length ? live : undefined;
+}
+
+/** Puts up one of the three, or refuses because it is already up. */
+function raiseField(turn: Turn, kind: "weather" | "terrain" | "sport", id: string): boolean {
+  const field = turn.battle.field ?? {};
+  if (field[kind]?.id === id) return false;
+  setField(turn, { ...field, [kind]: { id, turns: FIELD_TURNS } });
+  turn.events.push({ t: "field", kind, id, over: false });
+  return true;
+}
+
+/** A turn off each of the three, and the expired ones gone, out loud. */
+function ageField(turn: Turn): void {
+  const field = turn.battle.field;
+  if (!field) return;
+  const next: Field = { ...field };
+  for (const kind of ["weather", "terrain", "sport"] as const) {
+    const held = field[kind];
+    if (!held) continue;
+    if (held.turns > 1) {
+      next[kind] = { ...held, turns: held.turns - 1 } as never;
+    } else {
+      delete next[kind];
+      turn.events.push({ t: "field", kind, id: held.id, over: true });
+    }
+  }
+  setField(turn, next);
+}
+
+/**
+ * What the field does to a stat, in per-mille: sand's Rock and snow's Ice,
+ * and the abilities that read the weather or the terrain for a number.
+ */
+function fieldStatMille(turn: Turn, side: SideIndex, stat: StageStat): number {
+  let mille = 1000;
+  const weather = weatherNow(turn);
+  const terrain = terrainNow(turn);
+  const creature = active(turn, side);
+  if (weather === "sand" && stat === "spd" && typesOf(turn, side).includes("rock")) mille = 1500;
+  if (weather === "snow" && stat === "def" && typesOf(turn, side).includes("ice")) mille = 1500;
+  for (const effect of effects(creature, "weatherStat")) {
+    if (effect.stat === stat && weather && effect.weather.includes(weather)) mille = Math.floor((mille * effect.mille) / 1000);
+  }
+  for (const effect of effects(creature, "terrainStat")) {
+    if (effect.stat === stat && terrain === effect.terrain && grounded(turn, side)) mille = Math.floor((mille * effect.mille) / 1000);
+  }
+  return mille;
+}
+
+/**
+ * Sand and hail biting, the abilities that drink the weather, and Grassy
+ * Terrain's mending. After the burn and the poison, before the seeds.
+ */
+function weatherResidual(turn: Turn, side: SideIndex): void {
+  if (isFainted(active(turn, side))) return;
+  const weather = weatherNow(turn);
+  const creature = active(turn, side);
+
+  if (weather === "sand" || weather === "hail") {
+    const immune = weather === "sand" ? SAND_PROOF : HAIL_PROOF;
+    if (!typesOf(turn, side).some((type) => immune.includes(type))) {
+      const bite = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(creature) / FIELD_SHARE)));
+      if (bite > 0) turn.events.push({ t: "weathered", side, weather, amount: bite });
+    }
+  }
+  if (isFainted(active(turn, side))) return;
+
+  for (const effect of effects(creature, "weatherMend")) {
+    if (!weather || !effect.weather.includes(weather)) continue;
+    const mended = applyHeal(turn, side, Math.max(1, Math.floor(maxHp(creature) / effect.share)));
+    if (mended > 0) {
+      const named = whichAbility(creature, "weatherMend");
+      if (named) turn.events.push({ t: "ability", side, abilityId: named });
+      turn.events.push({ t: "heal", side, amount: mended });
+    }
+  }
+
+  if (terrainNow(turn) === "grassy" && grounded(turn, side)) {
+    const mended = applyHeal(turn, side, Math.max(1, Math.floor(maxHp(creature) / FIELD_SHARE)));
+    if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
+  }
+
+  for (const effect of effects(creature, "weatherCure")) {
+    const now = active(turn, side);
+    if (!weather || !effect.weather.includes(weather) || !now.status) continue;
+    setActive(turn, side, { ...now, status: null, sleepTurns: 0 });
+    const named = whichAbility(creature, "weatherCure");
+    if (named) turn.events.push({ t: "ability", side, abilityId: named });
+    turn.events.push({ t: "volatile", side, which: "snapped" });
+  }
 }
 
 /**
@@ -887,11 +1047,9 @@ function other(side: SideIndex): SideIndex {
  * move that helps you strike first and not escape, which is not what it says.
  */
 function speedOf(turn: Turn, side: SideIndex): number {
-  const base = effectiveStat(
-    active(turn, side),
-    "spe",
-    turn.battle.sides[side].stages.spe,
-    volatiles(turn, side).stats,
+  const base = scaled(
+    effectiveStat(active(turn, side), "spe", turn.battle.sides[side].stages.spe, volatiles(turn, side).stats),
+    fieldStatMille(turn, side, "spe"),
   );
   return screened(turn, side, "tailwind") ? base * 2 : base;
 }
@@ -1069,6 +1227,20 @@ function applyStatus(turn: Turn, side: SideIndex, status: StatusId, tag: string)
   }
   const target = active(turn, side);
   if (target.status || isFainted(target)) return false;
+
+  // Misty Terrain refuses every condition on the ground, Electric Terrain
+  // refuses sleep there, and Leaf Guard refuses everything in the sun. Here,
+  // with the rest, so a Yawn coming due meets the same answer a Spore does.
+  const terrain = terrainNow(turn);
+  if (terrain === "misty" && grounded(turn, side)) return false;
+  if (terrain === "electric" && status === "slp" && grounded(turn, side)) return false;
+  const weather = weatherNow(turn);
+  if (weather && effects(target, "weatherGuard").some((effect) => effect.weather.includes(weather))) {
+    const named = whichAbility(target, "weatherGuard");
+    if (named) turn.events.push({ t: "ability", side, abilityId: named });
+    return false;
+  }
+
   const immune = STATUS_IMMUNE[status] ?? [];
   if (typesOf(turn, side).some((type) => immune.includes(type))) return false;
 
@@ -1365,9 +1537,40 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
     case "heal": {
       const user = active(turn, side);
       if (user.hp >= maxHp(user)) return false;
-      const mended = applyHeal(turn, side, Math.max(1, Math.floor(maxHp(user) / effect.share)));
+      let amount = Math.floor(maxHp(user) / effect.share);
+      // Two thirds in the sun, a quarter in any other weather, for the three
+      // that read the sky; everything in a sandstorm for Shore Up.
+      const weather = weatherNow(turn);
+      if (effect.weather === "sun" && weather === "sun") amount = Math.floor((maxHp(user) * 2) / 3);
+      else if (effect.weather === "sun" && weather) amount = Math.floor(maxHp(user) / 4);
+      else if (effect.weather === "sand" && weather === "sand") amount = maxHp(user);
+      const mended = applyHeal(turn, side, Math.max(1, amount));
       if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
       return mended > 0;
+    }
+
+    case "weather":
+      return raiseField(turn, "weather", effect.id);
+
+    case "terrain":
+      return raiseField(turn, "terrain", effect.id);
+
+    case "sport":
+      return raiseField(turn, "sport", effect.id);
+
+    case "veil": {
+      // Both screens at once, and only while it is hailing or snowing —
+      // which is what separates it from using Reflect and Light Screen.
+      const weather = weatherNow(turn);
+      if (weather !== "hail" && weather !== "snow") return false;
+      let raised = false;
+      for (const id of ["reflect", "lightscreen"] as SideConditionId[]) {
+        if (raiseScreen(turn, side, id, FIELD_TURNS)) {
+          turn.events.push({ t: "screen", side, which: id });
+          raised = true;
+        }
+      }
+      return raised;
     }
 
     case "rest": {
@@ -2171,17 +2374,26 @@ function damageFor(
   }
 
   const physical = move.category === "physical";
-  const attack = effectiveStat(
-    attacker,
-    physical ? "atk" : "spa",
-    turn.battle.sides[side].stages[physical ? "atk" : "spa"],
-    volatiles(turn, side).stats,
+  const attack = scaled(
+    effectiveStat(
+      attacker,
+      physical ? "atk" : "spa",
+      turn.battle.sides[side].stages[physical ? "atk" : "spa"],
+      volatiles(turn, side).stats,
+    ),
+    fieldStatMille(turn, side, physical ? "atk" : "spa"),
   );
-  const defence = effectiveStat(
-    defender,
-    physical ? "def" : "spd",
-    turn.battle.sides[other(side)].stages[physical ? "def" : "spd"],
-    volatiles(turn, other(side)).stats,
+  const defence = Math.max(
+    1,
+    scaled(
+      effectiveStat(
+        defender,
+        physical ? "def" : "spd",
+        turn.battle.sides[other(side)].stages[physical ? "def" : "spd"],
+        volatiles(turn, other(side)).stats,
+      ),
+      fieldStatMille(turn, other(side), physical ? "def" : "spd"),
+    ),
   );
 
   let value = Math.floor((2 * attacker.level) / 5) + 2;
@@ -2223,6 +2435,28 @@ function damageFor(
   if (!struggling && attackerTypes.includes(move.type)) {
     const stab = effects(attacker, "stab")[0]?.mille ?? 1500;
     value = scaled(value, stab);
+  }
+
+  // The field. Sun and rain on Fire and Water; a terrain on its own type for
+  // a grounded attacker, and Misty on Dragon into a grounded target; the two
+  // sports; Solar Beam without its sun. After the same-type bonus and before
+  // the abilities, so Sand Force compounds on top of the sand.
+  const weather = weatherNow(turn);
+  if (weather === "sun" && move.type === "fire") value = scaled(value, 1500);
+  if (weather === "sun" && move.type === "water") value = scaled(value, 500);
+  if (weather === "rain" && move.type === "water") value = scaled(value, 1500);
+  if (weather === "rain" && move.type === "fire") value = scaled(value, 500);
+  if (weather && weather !== "sun" && (move.id === "solarbeam" || move.id === "solarblade")) value = scaled(value, 500);
+  const terrain = terrainNow(turn);
+  if (terrain === "electric" && move.type === "electric" && grounded(turn, side)) value = scaled(value, 1300);
+  if (terrain === "grassy" && move.type === "grass" && grounded(turn, side)) value = scaled(value, 1300);
+  if (terrain === "psychic" && move.type === "psychic" && grounded(turn, side)) value = scaled(value, 1300);
+  if (terrain === "misty" && move.type === "dragon" && grounded(turn, other(side))) value = scaled(value, 500);
+  const sport = sportNow(turn);
+  if (sport === "water" && move.type === "fire") value = scaled(value, 333);
+  if (sport === "mud" && move.type === "electric") value = scaled(value, 333);
+  for (const effect of effects(attacker, "weatherPower")) {
+    if (weather && effect.weather.includes(weather) && effect.types.includes(move.type)) value = scaled(value, effect.mille);
   }
 
   // Technician, Reckless, Analytic, and the eighteen cornered abilities. Each
@@ -2352,7 +2586,14 @@ function executeMove(
     if (!dozing) return;
   }
 
-  const move = moveById(moveId);
+  // Weather Ball is the one move whose type is the weather's: twice the
+  // power and the weather's type while anything is up, a plain Normal
+  // fifty otherwise.
+  const weatherUp = weatherNow(turn);
+  const move =
+    moveId === "weatherball" && weatherUp
+      ? { ...moveById(moveId), type: WEATHER_TYPE[weatherUp], power: 100 }
+      : moveById(moveId);
   const struggling = moveId === STRUGGLE;
 
   // Spent here rather than when the move was chosen: a creature that is
@@ -2400,6 +2641,18 @@ function executeMove(
     return;
   }
 
+  // Psychic Terrain: nothing with priority reaches something on the ground.
+  // Prankster's plus counts, which is why it is asked of `priorityOf`.
+  if (
+    move.target !== "self" &&
+    terrainNow(turn) === "psychic" &&
+    priorityOf(turn, side, moveId) > 0 &&
+    grounded(turn, other(side))
+  ) {
+    turn.events.push({ t: "fizzled", side, moveId });
+    return;
+  }
+
   // The healing has to happen even though nothing landed, which is why this
   // is not folded into `landsAs` — that answers a question, and this one has
   // a consequence.
@@ -2444,6 +2697,15 @@ function executeMove(
   let accuracy = move.accuracy;
   // A Lock-On taken last turn is the one thing that makes a Fissure certain.
   let unmissable = accuracy === 0 || sure;
+  // Thunder and Hurricane cannot miss in the rain and are a coin in the sun;
+  // Blizzard cannot miss in hail or snow. Sand Veil and Snow Cloak are the
+  // target's weather, and read like a Bright Powder.
+  if (weatherUp === "rain" && (moveId === "thunder" || moveId === "hurricane")) unmissable = true;
+  if (weatherUp === "sun" && (moveId === "thunder" || moveId === "hurricane")) accuracy = 50;
+  if ((weatherUp === "hail" || weatherUp === "snow") && moveId === "blizzard") unmissable = true;
+  for (const effect of effects(defender, "weatherGraze")) {
+    if (weatherUp && effect.weather.includes(weatherUp)) accuracy = scaled(accuracy, effect.mille);
+  }
   for (const effect of effects(attacker, "aim")) {
     // A Zoom Lens is worth having only when it moves second, which is the one
     // thing that separates it from a Wide Lens.
@@ -2918,6 +3180,7 @@ export function resolveTurn(
       turn: state.turn + 1,
       sides: [cloneSide(state.sides[0]), cloneSide(state.sides[1])],
       awaitingSwitch: [...state.awaitingSwitch],
+      field: state.field ? { ...state.field } : undefined,
       events: [],
     },
     events: [],
@@ -3031,6 +3294,8 @@ export function resolveTurn(
   for (const side of [0, 1] as SideIndex[]) {
     if (!isFainted(active(turn, side))) residual(turn, side);
   }
+  // The weather's bite and its mending, after the burn and before the seed.
+  for (const side of [0, 1] as SideIndex[]) weatherResidual(turn, side);
 
   // What was put up this turn comes down at the end of it, before anything
   // reads it again: a shield lasts exactly the turn it was raised.
@@ -3049,6 +3314,7 @@ export function resolveTurn(
     if (!isFainted(active(turn, side))) tickVolatiles(turn, side);
   }
   for (const side of [0, 1] as SideIndex[]) ageScreens(turn, side);
+  ageField(turn);
 
   // What a held item does at the end of a turn, in a fixed order so two of
   // them on opposite sides always resolve the same way: the thing that hurts
@@ -3213,6 +3479,15 @@ function clearLock(turn: Turn, side: SideIndex): void {
 function onArriving(turn: Turn, side: SideIndex): void {
   clearLock(turn, side);
   const arriving = active(turn, side);
+  // Drought, Drizzle, Sand Stream, Snow Warning and the four Surges.
+  for (const effect of effects(arriving, "summon")) {
+    const raised = effect.weather
+      ? raiseField(turn, "weather", effect.weather)
+      : effect.terrain
+        ? raiseField(turn, "terrain", effect.terrain)
+        : false;
+    if (raised) turn.events.push({ t: "ability", side, abilityId: whichAbility(arriving, "summon")! });
+  }
   for (const effect of effects(arriving, "arrival")) {
     // Scrappy is immune to it, as it is in the games.
     if (has(active(turn, other(side)), "reach")) continue;
@@ -3435,7 +3710,15 @@ export function battleHash(state: BattleState): string {
   };
 
   let hash = 0x811c9dc5;
-  const canonical = [state.turn, side(0), side(1), state.awaitingSwitch.join(","), JSON.stringify(state.outcome ?? null)].join(";");
+  const canonical = [
+    state.turn,
+    side(0),
+    side(1),
+    state.awaitingSwitch.join(","),
+    JSON.stringify(state.outcome ?? null),
+    // Empty for no field, so a battle without weather hashes as it did.
+    fieldKey(state.field),
+  ].join(";");
   for (let i = 0; i < canonical.length; i++) {
     hash ^= canonical.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);

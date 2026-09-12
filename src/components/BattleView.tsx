@@ -148,6 +148,43 @@ function Nameplate({
   );
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  sun: "SUN",
+  rain: "RAIN",
+  sand: "SAND",
+  hail: "HAIL",
+  snow: "SNOW",
+  electric: "ELECTRIC",
+  grassy: "GRASSY",
+  misty: "MISTY",
+  psychic: "PSYCHIC",
+  water: "WATER SPORT",
+  mud: "MUD SPORT",
+};
+
+/**
+ * What is true of the whole battle, above the two plates.
+ *
+ * The badge row is per side, and weather belongs to neither side, so it gets
+ * its own line — absent when nothing is up, like every badge.
+ */
+function FieldLine({ field }: { field: BattleState["field"] }) {
+  if (!field) return null;
+  const parts = (["weather", "terrain", "sport"] as const)
+    .map((kind) => field[kind])
+    .filter((one): one is NonNullable<typeof one> => one !== undefined);
+  if (!parts.length) return null;
+  return (
+    <div className="fieldLine">
+      {parts.map((one) => (
+        <span key={one.id} className="tag" title={`${one.turns} turn${one.turns === 1 ? "" : "s"} left`}>
+          {FIELD_LABELS[one.id] ?? one.id.toUpperCase()} {one.turns}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function BattleView({
   battle,
   role,
@@ -400,6 +437,7 @@ export function BattleView({
         ) : null}
 
         <div className="stageField">
+          <FieldLine field={battle.field} />
           <div className="field">
         {/* Hover either creature for its full numbers. Nothing across the
             field is secret: a duel commits to a move before it is revealed,

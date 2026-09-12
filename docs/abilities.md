@@ -1,7 +1,7 @@
 # Abilities
 
-Eighty-nine of them. **Thirty-five** are their own idea; **fifty-four** are
-three families of eighteen, one entry per type.
+A hundred and twelve of them. **Fifty-eight** are their own idea; **fifty-four**
+are three families of eighteen, one entry per type.
 
 An ability here belongs to the individual, not to the species — see the header
 of `src/engine/abilities.ts` for why. What that means in play:
@@ -21,7 +21,7 @@ For the conditions and ladders several of these read and modify, see
 
 ---
 
-## The thirty-five singles
+## The fifty-eight singles
 
 ### Damage it deals
 
@@ -56,6 +56,30 @@ For the conditions and ladders several of these read and modify, see
 | **Clear Body** | Nobody else lowers **any** of its stages |
 | **Hyper Cutter** | Nobody else lowers its **Attack** |
 | **Big Pecks** | Nobody else lowers its **Defence** |
+
+### The field
+
+Twenty-three that set or read the weather and the terrain, which arrived with
+the field itself. See `status.md` for what each weather and terrain does on
+its own.
+
+| Ability | Effect |
+| --- | --- |
+| **Drought**, **Drizzle**, **Sand Stream**, **Snow Warning** | Brings its weather when it arrives, for five turns |
+| **Electric Surge**, **Grassy Surge**, **Misty Surge**, **Psychic Surge** | Lays its terrain when it arrives, for five turns |
+| **Chlorophyll**, **Swift Swim**, **Sand Rush**, **Slush Rush** | Speed **×2** in sun, rain, sand, hail or snow respectively |
+| **Surge Surfer** | Speed **×2** on Electric Terrain, while grounded |
+| **Grass Pelt** | Defence **×1.5** on Grassy Terrain, while grounded |
+| **Rain Dish** | A sixteenth back every turn in the rain |
+| **Ice Body** | A sixteenth back every turn in hail or snow |
+| **Hydration** | Any condition cleared at the end of a turn in the rain |
+| **Sand Veil**, **Snow Cloak** | Moves against it are **×0.8 accurate** in sand, or in hail and snow |
+| **Sand Force** | Rock, Ground and Steel moves **×1.3** in a sandstorm |
+| **Leaf Guard** | No condition takes in the sun |
+| **Cloud Nine**, **Air Lock** | While it stands there, there is no weather — it is not ended, it is not felt |
+
+Dry Skin and Solar Power are not in: each is two or three effects under one
+name, and a spec carries one.
 
 Clear Body and its two narrow cousins only stop *somebody else*. A creature
 lowering its own Defence to raise its Attack is its own business.

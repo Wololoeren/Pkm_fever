@@ -1180,7 +1180,7 @@ Struggle. Leech Seed was simply the one somebody noticed.
 
 The hole is closed from both ends.
 
-**105 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
+**118 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
 shape `moves.ts` already used for the 39 attacks whose damage Showdown computes
 in a callback. Effects are data interpreted by one loop in `battle.ts`, not a
 switch per move. That needed three pieces of machinery the battle did not have:
@@ -1190,7 +1190,7 @@ stats (accuracy and evasion, on thirds rather than halves), and side conditions
 that outlive whoever is standing (the screens, Safeguard, Mist, Lucky Chant,
 Tailwind).
 
-**The other 75 are no longer dealt.** `learnset()` filters them, which is the
+**The other 62 are no longer dealt.** `learnset()` filters them, which is the
 one gate every road to a moveset comes through — `movesAtLevel`, `learnableAt`,
 the level-up walk, the Cup, the Inspect panel. `MACHINE_MOVES` is filtered the
 same way, because `items.ts` builds one purchasable machine per entry and the
@@ -1282,6 +1282,51 @@ doors. The ones worth writing down are the ones where a decision was made:
 Every new volatile has a badge (`M9`), a line in the log, a row in
 `docs/status.md` (`V7`) and its numbers guarded there (`V1`, `V3`,
 `V4`). Six machines came back onto the Mart's shelf with them.
+
+### The field: weather and terrain
+
+Every deferred list said the same thing about weather — it is not a move, it
+is a condition every damage calculation, every residual, every accuracy roll
+and a dozen abilities have to ask about, and half of it is worse than none.
+So it arrived whole: **five weathers, four terrains, the two sports, Aurora
+Veil, and twenty-three abilities** that set or read them. Thirteen more moves
+honoured; filtered status moves **75 to 62**; species losing an entry **786 to
+646**; ten machines back on the shelf.
+
+`src/engine/field.ts` is the shape: an id and a count of turns for each of
+the three, on the battle under `field`, and **absent when nothing is up**, so
+a battle without weather hashes exactly as it did before the field existed —
+every saved duel and every replayed battle log still checks. Three readers
+(`weatherNow`, `terrainNow`, `sportNow`) are the only way the rest of the
+battle asks, which is what makes Cloud Nine one line: it does not end the
+weather, it makes `weatherNow` answer null while its owner stands there.
+
+- **Grounded is one question.** Flying, Levitate and Magnet Rise are the three
+  ways off the ground, and every terrain asks `grounded` rather than any of
+  them. A terrain that reached a Flying type but not a Levitate would be a
+  terrain nobody could reason about.
+- **The multipliers land between the same-type bonus and the abilities**, so
+  Sand Force compounds on top of the sand rather than beside it. The exact
+  numbers are in `docs/status.md` under "The field", with the turn count and
+  the sixteenth guarded there (`V4`, `V1`).
+- **Misty Terrain and Electric Terrain refuse in `applyStatus`**, beside the
+  type immunities and Safeguard, so a Yawn coming due meets the same answer a
+  Spore does. Psychic Terrain refuses in `executeMove`, and asks `priorityOf`
+  so a Prankster's plus counts.
+- **Weather Ball is the one move whose type is the weather's.** It is rewritten
+  at the top of `executeMove` — the weather's type at 100 power — so the type
+  chart, the same-type bonus and the log all see the same move.
+- **The abilities are nine shapes**, added to the closed set: summon,
+  weatherStat, terrainStat, weatherMend, weatherCure, weatherGraze,
+  weatherPower, weatherGuard, calm. Dry Skin and Solar Power stayed on the
+  list, because each is two or three effects under one name and a spec
+  carries one.
+- **Twenty-three abilities joined the roll**, and a roll that lands on
+  Drought today landed on something else yesterday: `ENGINE_VERSION` 26.
+
+`tests/weather.test.ts` measures the multipliers rather than asserting them —
+the same Ember under two skies — and plays a Drought-and-Chlorophyll Machop
+past a faster Rattata.
 
 ### Types that belong to the appearance
 
@@ -1706,11 +1751,11 @@ numbers measured rather than remembered — re-measure before trusting them.*
 ### The largest single gap: 125 status moves
 
 The manifest carries five effect fields and Showdown keeps the rest in script,
-so of its **264 status moves, 105 are honoured in battle** (`statusmoves.ts`) and
-**2 more only out in the world** (`fieldmoves.ts`). The remaining **75 are
+so of its **264 status moves, 118 are honoured in battle** (`statusmoves.ts`) and
+**2 more only out in the world** (`fieldmoves.ts`). The remaining **62 are
 filtered out of every pool** rather than dealt as dead slots — which means no
-creature ever holds a move that does nothing, but it also means **786 of 1134
-species lose at least one learnset entry**, 1,500 entries in total.
+creature ever holds a move that does nothing, but it also means **646 of 1134
+species lose at least one learnset entry**, 1,143 entries in total.
 
 That is the honest cost of the current design, and closing it is mostly a
 matter of adding one *capability* at a time. `docs/moves-deferred.md` is the
@@ -1724,10 +1769,9 @@ left, in the order the list ranks it:
 Unlocks Worry Seed (27), Gastro Acid (25), Entrainment (23), Role Play (17),
 Skill Swap (12), Simple Beam (7), Doodle (1).
 
-**Needs a field condition.** Weather and terrain are one feature that changes
-damage, residuals and a dozen abilities — half of it is worse than none of it.
-Unlocks the five weathers, the four terrains, Water Sport (49), Mud Sport (30),
-Aurora Veil (8) and Chilly Reception.
+**Needs a second kind of field.** Weather and terrain are in. Gravity, Trick
+Room, the two Rooms, Ion Deluge, Fairy Lock and Court Change each want a
+condition on the battle that is not a weather or a terrain.
 
 **Needs stage-passing on a switch.** Baton Pass (47) and Shed Tail (3).
 

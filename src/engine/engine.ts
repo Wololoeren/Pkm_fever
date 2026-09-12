@@ -9,6 +9,7 @@ import {
   type BattleAction,
   type BattleState,
 } from "./battle";
+import { fieldKey } from "./field";
 import {
   breed,
   compatible,
@@ -4039,6 +4040,7 @@ export function stateHash(state: GameState): string {
         state.battle.turn,
         state.battle.awaitingSwitch.join(","),
         state.battle.outcome ? JSON.stringify(state.battle.outcome) : "-",
+        fieldKey(state.battle.field),
         state.battle.sides
           .map((side) =>
             [

@@ -134,9 +134,9 @@ describe("the catalogue", () => {
     const singles = ABILITIES.filter(
       (spec) => !/^(cornered|absorb|ward)-/.test(spec.id),
     ).length;
-    expect(doc).toContain(`## The thirty-five singles`);
-    expect(singles).toBe(35);
-    expect(ABILITIES.length).toBe(89);
+    expect(doc).toContain(`## The fifty-eight singles`);
+    expect(singles).toBe(58);
+    expect(ABILITIES.length).toBe(112);
   });
 });
 

@@ -206,6 +206,7 @@ button.ghost { background: transparent; }
 /* ------------------------------------------------------------------ map */
 
 .field { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.fieldLine { display: flex; gap: 6px; justify-content: center; margin-bottom: 6px; }
 .battle { position: relative; }
 
 .map {

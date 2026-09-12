@@ -83,6 +83,26 @@ const VOLATILE_TEXT: Record<string, string> = {
   inverted: "had its stat changes turned upside down",
 };
 
+/** The field arriving and leaving. One sentence each way, like the screens. */
+const FIELD_TEXT: Record<string, [string, string]> = {
+  sun: ["The sunlight turned harsh!", "The sunlight faded."],
+  rain: ["It started to rain!", "The rain stopped."],
+  sand: ["A sandstorm kicked up!", "The sandstorm subsided."],
+  hail: ["It started to hail!", "The hail stopped."],
+  snow: ["It started to snow!", "The snow stopped."],
+  electric: ["An electric current ran across the ground!", "The electricity disappeared."],
+  grassy: ["Grass grew to cover the ground!", "The grass disappeared."],
+  misty: ["Mist swirled around the field!", "The mist disappeared."],
+  psychic: ["The ground got weird!", "The weirdness disappeared."],
+  water: ["Fire's power was weakened!", "The effects of Water Sport faded."],
+  mud: ["Electricity's power was weakened!", "The effects of Mud Sport faded."],
+};
+
+const WEATHERED_TEXT: Record<string, string> = {
+  sand: "is buffeted by the sandstorm",
+  hail: "is pelted by hail",
+};
+
 const SCREEN_TEXT: Record<string, string> = {
   reflect: "Reflect came up",
   lightscreen: "Light Screen came up",
@@ -243,6 +263,12 @@ export function narrate(
         break;
       case "sketched":
         lines.push(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
+        break;
+      case "field":
+        lines.push(FIELD_TEXT[event.id]?.[event.over ? 1 : 0] ?? (event.over ? "The field cleared." : "The field changed."));
+        break;
+      case "weathered":
+        lines.push(`${nameOf(event.side)} ${WEATHERED_TEXT[event.weather] ?? "is worn by the weather"} for ${event.amount}.`);
         break;
       case "spite":
         lines.push(`${nameOf(event.side)}'s ${moveById(event.moveId).name} lost ${event.amount} uses!`);

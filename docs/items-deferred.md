@@ -51,9 +51,8 @@ implemented, so it was one shape and no new mechanic. It is **in**.
 
 ## Waiting on weather
 
-There is no weather. Sun, rain, sand and hail are a per-battle condition with a
-duration, which is a volatile on the *battle* rather than on a creature — and
-then every damage calculation has to ask about it.
+There is weather now, and these still wait: each wants to change how long it
+lasts or who feels it, and the field has no hook for either yet.
 
 | Item | What it does |
 | --- | --- |
@@ -61,8 +60,8 @@ then every damage calculation has to ask about it.
 | **Utility Umbrella** | Ignores sun and rain |
 | **Safety Goggles** | Ignores sand and hail (and powder moves) |
 
-The ability list defers the whole weather family for the same reason, so this
-row and that one arrive together.
+The abilities that read the weather are in; these are the items that would
+adjust it.
 
 ---
 

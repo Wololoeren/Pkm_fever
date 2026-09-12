@@ -19,9 +19,9 @@ after a name is how many of the 1,134 species learn it; a move with a large
 number is a move a lot of creatures are quietly missing a slot for.
 
 The measurement, re-run at every audit: **264 status moves in the manifest,
-179 with empty rows, 104 of those honoured in battle or out in the world**, and
-the **75** below are what is left. Between them they cost **786 species at
-least one learnset entry**, 1,500 entries in all.
+179 with empty rows, 117 of those honoured in battle or out in the world**, and
+the **62** below are what is left. Between them they cost **646 species at
+least one learnset entry**, 1,143 entries in all.
 
 Two guards keep this honest. `X56` checks that every filtered move has a row
 here, and `X57` that no move in a row here has quietly been honoured after
@@ -29,26 +29,15 @@ all — the way H29 guards the items list.
 
 ---
 
-## Waiting on a field condition
+## Waiting on a second kind of field
 
-Weather and terrain are one feature rather than nine: a condition on the
-*battle* rather than on a creature, with a duration, which every damage
-calculation, every residual and a dozen abilities then have to ask about. Half
-of it is worse than none of it, so none of it is in.
+The field exists now — the five weathers, the four terrains, the two sports
+and Aurora Veil all went in on it. These want a condition on the battle that
+is not a weather or a terrain: one that rewrites turn order, or immunity, or
+what a held item is.
 
 | Move | Learners | What it wants |
 | --- | --- | --- |
-| **Rain Dance** | 61 | rain: Water up, Fire down, Thunder sure |
-| **Sandstorm** | 43 | sand: a residual on most things, Rock's Sp. Def up |
-| **Sunny Day** | 42 | sun: Fire up, Water down, Solar Beam in one |
-| **Hail**, **Snowscape** | 23, 16 | hail: a residual; snow: Ice's Defence up |
-| **Electric Terrain** | 28 | the four terrains: a type up, and a condition refused, for the grounded |
-| **Grassy Terrain** | 25 | — and a residual heal |
-| **Misty Terrain** | 21 | — and every status refused |
-| **Psychic Terrain** | 9 | — and priority refused |
-| **Water Sport**, **Mud Sport** | 49, 30 | a type made weaker for five turns, which is weather with one type in it |
-| **Aurora Veil** | 8 | both screens at once, and only in hail |
-| **Chilly Reception** | 2 | snow, then a switch |
 | **Gravity** | 13 | Flying's immunity suspended, accuracy raised, for five turns |
 | **Trick Room** | 5 | the slow move first, for five turns |
 | **Wonder Room**, **Magic Room** | 15, 11 | Defence and Sp. Def exchanged; held items switched off |

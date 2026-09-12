@@ -1,4 +1,5 @@
 import type { Boosts, MoveEntry, StageStat } from "./dex";
+import type { SportId, TerrainId, WeatherId } from "./field";
 import { hasFieldUse } from "./fieldmoves";
 
 /*
@@ -119,8 +120,14 @@ export type MoveEffect =
   | { t: "crit"; stages: number }
   /** Sand Attack, Double Team: down or up a probability ladder. */
   | { t: "aim"; which: AimStat; delta: number; onSelf: boolean }
-  /** A fraction of the user's own maximum, mended. Synthesis is 1/2. */
-  | { t: "heal"; share: number }
+  /**
+   * A fraction of the user's own maximum, mended. Synthesis is 1/2.
+   *
+   * `weather` is what the three sun-readers and Shore Up do: two thirds in
+   * the sun and a quarter in any other weather for the first, everything in
+   * a sandstorm for the second.
+   */
+  | { t: "heal"; share: number; weather?: "sun" | "sand" }
   /** Rest: everything back, and two turns asleep to pay for it. */
   | { t: "rest" }
   /** Pain Split: both healths averaged. */
@@ -226,6 +233,14 @@ export type MoveEffect =
   | { t: "instruct" }
   /** Spite: four uses off the target's last move. */
   | { t: "spite" }
+  /** Sunny Day, Rain Dance, Sandstorm, Hail, Snowscape. */
+  | { t: "weather"; id: WeatherId }
+  /** The four terrains. */
+  | { t: "terrain"; id: TerrainId }
+  /** Water Sport, Mud Sport: one type made weaker for five turns. */
+  | { t: "sport"; id: SportId }
+  /** Aurora Veil: both screens at once, and only in hail or snow. */
+  | { t: "veil" }
   /**
    * Nothing, and that is the joke.
    *
@@ -301,12 +316,13 @@ export const STATUS_EFFECTS: Record<string, readonly MoveEffect[]> = {
 
   // ----------------------------------------------------------------- mending
   //
-  // The four weather-dependent heals all mend a half, which is what they do in
-  // clear weather — and clear is the only weather there is.
-  synthesis: [{ t: "heal", share: 2 }],
-  moonlight: [{ t: "heal", share: 2 }],
-  morningsun: [{ t: "heal", share: 2 }],
-  shoreup: [{ t: "heal", share: 2 }],
+  // The four weather-dependent heals mend a half in clear weather. The three
+  // sun-readers mend two thirds in the sun and a quarter in anything else;
+  // Shore Up mends everything in a sandstorm.
+  synthesis: [{ t: "heal", share: 2, weather: "sun" }],
+  moonlight: [{ t: "heal", share: 2, weather: "sun" }],
+  morningsun: [{ t: "heal", share: 2, weather: "sun" }],
+  shoreup: [{ t: "heal", share: 2, weather: "sand" }],
   rest: [{ t: "rest" }],
   painsplit: [{ t: "painSplit" }],
   bellydrum: [{ t: "bellyDrum" }],
@@ -450,6 +466,25 @@ export const STATUS_EFFECTS: Record<string, readonly MoveEffect[]> = {
 
   // -------------------------------------------------------------- spite
   spite: [{ t: "spite" }],
+
+  // -------------------------------------------------------------- the field
+  //
+  // One feature rather than nine. See field.ts for why it arrives whole.
+  sunnyday: [{ t: "weather", id: "sun" }],
+  raindance: [{ t: "weather", id: "rain" }],
+  sandstorm: [{ t: "weather", id: "sand" }],
+  hail: [{ t: "weather", id: "hail" }],
+  snowscape: [{ t: "weather", id: "snow" }],
+  electricterrain: [{ t: "terrain", id: "electric" }],
+  grassyterrain: [{ t: "terrain", id: "grassy" }],
+  mistyterrain: [{ t: "terrain", id: "misty" }],
+  psychicterrain: [{ t: "terrain", id: "psychic" }],
+  watersport: [{ t: "sport", id: "water" }],
+  mudsport: [{ t: "sport", id: "mud" }],
+  auroraveil: [{ t: "veil" }],
+  // Snow, and then the user leaves. Out of the grass entirely against a wild
+  // creature, as Teleport is.
+  chillyreception: [{ t: "weather", id: "snow" }, { t: "retreat" }],
 
   // ------------------------------------------------------------ and nothing
   splash: [{ t: "nothing" }],

@@ -1,11 +1,11 @@
 # Items
 
-**516 of them**, of which 278 are machines. The other 238 are below.
+**526 of them**, of which 288 are machines. The other 238 are below.
 
 The machine count fell from 312 to 268 when status moves were audited: 44 of
 them taught a move this engine has no machinery for, so the shelf was selling
 a four-thousand-a-go lesson in wasting a turn. It climbs back as the machinery
-arrives — ten have returned with the status moves honoured since — and
+arrives — twenty have returned with the status moves honoured since — and
 `docs/moves-deferred.md` is what is still off the shelf. See
 `src/engine/statusmoves.ts`.
 
@@ -20,7 +20,7 @@ something you give to a creature to keep, something you use on the world.
 | Tonics | 37 | Moves a number on a stat screen |
 | Stones | 22 | Turns one creature into another |
 | Breeding | 19 | Applied to a pairing at the daycare |
-| Machines | 278 | Teaches a move, and keeps |
+| Machines | 288 | Teaches a move, and keeps |
 | Lures | 9 | Draws one kind of thing out of the grass |
 | Medicine | 11 | Health, and what ails it |
 | Field | 5 | Used on the world rather than on a creature |
