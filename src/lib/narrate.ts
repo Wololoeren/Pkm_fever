@@ -244,6 +244,9 @@ export function narrate(
       case "sketched":
         lines.push(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
         break;
+      case "spite":
+        lines.push(`${nameOf(event.side)}'s ${moveById(event.moveId).name} lost ${event.amount} uses!`);
+        break;
       case "revived":
         // Named by species rather than by side, because the side's name is
         // whoever is standing and the one revived is not.

@@ -19,9 +19,9 @@ after a name is how many of the 1,134 species learn it; a move with a large
 number is a move a lot of creatures are quietly missing a slot for.
 
 The measurement, re-run at every audit: **264 status moves in the manifest,
-179 with empty rows, 97 of those honoured in battle or out in the world**, and
-the **82** below are what is left. Between them they cost **815 species at
-least one learnset entry**, 1,608 entries in all.
+179 with empty rows, 104 of those honoured in battle or out in the world**, and
+the **75** below are what is left. Between them they cost **786 species at
+least one learnset entry**, 1,500 entries in all.
 
 Two guards keep this honest. `X56` checks that every filtered move has a row
 here, and `X57` that no move in a row here has quietly been honoured after
@@ -107,25 +107,19 @@ thing on the *side* that bites whoever steps in.
 | **Spikes** | 14 | an eighth, a sixth, a quarter, by how many layers |
 | **Tidy Up** | 1 | the hazards swept up, and a stage of Attack and Speed |
 
-## Waiting on a re-entrancy guard on `executeMove`
+## Waiting on more than a call
 
-A move that calls a move is a move that can call itself. Do the depth limit
-*first*: Metronome into Metronome into Metronome is a hang, not a bug, and the
-deadlock probe would find it on the first run and not before.
+`executeMove` takes a depth now and refuses past one, and Metronome, Copycat,
+Mirror Move, Sleep Talk, Assist and Instruct went in on it. These five are
+callers too, and each wants one more thing the battle does not have.
 
 | Move | Learners | What it wants |
 | --- | --- | --- |
-| **Copycat** | 45 | the last move used by anybody |
-| **Me First** | 19 | the target's chosen move, harder, if the user is faster |
-| **Mirror Move** | 16 | the target's last move |
-| **Nature Power** | 11 | a move by the terrain |
-| **Metronome** | 8 | any move at all |
-| **Assist** | 6 | a party member's move |
-| **Sleep Talk** | 5 | one of the user's own, while asleep |
-| **Instruct** | 1 | the target uses its last move again |
-| **Snatch** | 13 | the target's status move, stolen — which is calling it from the other side |
-| **Magic Coat** | 12 | the target's status move, bounced back |
-| **Mimic** | 12 | Sketch that wears off when it leaves — a move slot that needs putting back |
+| **Me First** | 19 | the target's *chosen* move for this turn, and a half again on its power — the turn knows what was chosen, but no move can yet say "harder" |
+| **Nature Power** | 11 | a move by the ground it is standing on, which a battle does not know — Camouflage's problem |
+| **Snatch** | 13 | the target's status move, stolen before it goes off — a hook in front of the other side's move |
+| **Magic Coat** | 12 | the target's status move, bounced back — the same hook |
+| **Mimic** | 12 | Sketch that wears off when it leaves — a move slot that needs putting back on a switch |
 
 ## Waiting on items that move in a battle
 
@@ -156,7 +150,6 @@ run the deadlock probe while building it, and expect it to earn its keep.
 | **Imprison** | 41 | any move the user also knows, refused |
 | **Torment** | 37 | no move twice in a row |
 | **Heal Block** | 24 | no mending for five turns |
-| **Spite** | 27 | four uses off the last move — cheap, but it is the same slot bookkeeping |
 | **Grudge** | 13 | the move that fainted the user loses all its uses |
 | **Substitute** | 15 | a decoy at a quarter of the user's health, in front of *every* damage path in the file |
 | **Powder** | 3 | a Fire move next turn hurts its user instead |

@@ -1052,7 +1052,7 @@ Struggle. Leech Seed was simply the one somebody noticed.
 
 The hole is closed from both ends.
 
-**98 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
+**105 moves are now honoured**, through `src/engine/statusmoves.ts` — the same
 shape `moves.ts` already used for the 39 attacks whose damage Showdown computes
 in a callback. Effects are data interpreted by one loop in `battle.ts`, not a
 switch per move. That needed three pieces of machinery the battle did not have:
@@ -1062,7 +1062,7 @@ stats (accuracy and evasion, on thirds rather than halves), and side conditions
 that outlive whoever is standing (the screens, Safeguard, Mist, Lucky Chant,
 Tailwind).
 
-**The other 82 are no longer dealt.** `learnset()` filters them, which is the
+**The other 75 are no longer dealt.** `learnset()` filters them, which is the
 one gate every road to a moveset comes through — `movesAtLevel`, `learnableAt`,
 the level-up walk, the Cup, the Inspect panel. `MACHINE_MOVES` is filtered the
 same way, because `items.ts` builds one purchasable machine per entry and the
@@ -1193,8 +1193,41 @@ of them or to none.
   burn and the user is left holding it. The condition is only taken off the
   user once the target has it.
 
-Seven machines came back onto the shelf across the two groups, which is why
-`docs/items.md` says 513.
+Seven machines came back onto the shelf across the two groups.
+
+### Moves that call moves
+
+The deferred list said to do the depth limit *first*, and it was done first:
+`executeMove` takes a `depth`, nought for the move that was chosen and one
+for the move a Metronome lands on, and refuses past `MAX_CALL_DEPTH`. Then
+the six that were waiting on it — Metronome, Copycat, Mirror Move, Sleep
+Talk, Assist, Instruct — and Spite beside them, which is the same slot
+bookkeeping. Filtered status moves **82 to 75**, species losing an entry
+**815 to 786**.
+
+- **A called move is not a chosen move.** It spends no power points, does not
+  lock a Choice item, does not consume a Lock-On, and does not ask `canAct`
+  again — the caller already paid all four. It still checks accuracy, still
+  meets a Protect, and still records itself as the last move used, because
+  it *was* used.
+- **No caller may call a caller.** `UNCALLABLE` is the list, and every source
+  a caller draws from is filtered through it, so the depth limit is a floor
+  nothing legal reaches. Sketch, Transform and Struggle are on it too: a
+  Metronome that Sketched would be a permanent change from a random roll.
+- **Metronome draws from what the engine honours.** `CALLABLE` is the
+  manifest in its own order, filtered by `actsOnSomething` — so a Metronome
+  never spends the turn on a move that does nothing, which is the one
+  guarantee this whole design makes, and the roll means the same thing on
+  both peers of a duel.
+- **Sleep Talk is the one move that goes off because the user is asleep.**
+  `canAct` still runs, so the sleep still counts down and a creature that
+  wakes this turn simply moves; but a refusal for sleep is not a refusal for
+  this one move. Awake, it comes to nothing and says so.
+- **Copycat is Mirror Move here.** The games have it copy the last move used
+  by anybody; in a battle that is 1v1 throughout, that is the foe's last
+  move unless the user's own was more recent, and the user knows what it did.
+- **Me First stayed on the list.** It wants the foe's chosen move *and* a
+  half again on its power, and no move can yet say "harder" to another.
 
 ### Moves out in the world
 
@@ -1545,11 +1578,11 @@ numbers measured rather than remembered — re-measure before trusting them.*
 ### The largest single gap: 125 status moves
 
 The manifest carries five effect fields and Showdown keeps the rest in script,
-so of its **264 status moves, 98 are honoured in battle** (`statusmoves.ts`) and
-**2 more only out in the world** (`fieldmoves.ts`). The remaining **82 are
+so of its **264 status moves, 105 are honoured in battle** (`statusmoves.ts`) and
+**2 more only out in the world** (`fieldmoves.ts`). The remaining **75 are
 filtered out of every pool** rather than dealt as dead slots — which means no
-creature ever holds a move that does nothing, but it also means **815 of 1134
-species lose at least one learnset entry**, 1,608 entries in total.
+creature ever holds a move that does nothing, but it also means **786 of 1134
+species lose at least one learnset entry**, 1,500 entries in total.
 
 That is the honest cost of the current design, and closing it is mostly a
 matter of adding one *capability* at a time. `docs/moves-deferred.md` is the
@@ -1580,9 +1613,10 @@ same reason and would be more faithful with it.
 **Needs an on-arrival hook that survives the switch path.** Spikes, Stealth
 Rock, Sticky Web, Toxic Spikes.
 
-**Needs a re-entrancy guard on `executeMove`.** Metronome, Sleep Talk, Copycat,
-Mirror Move, Assist, Me First, Nature Power, Instruct. Do the depth limit
-*first*; a move that calls a move that calls itself is a hang, not a bug.
+**Needs more than a call.** The depth guard is in and six callers with it. Me
+First wants a power multiplier on a called move; Nature Power wants the ground,
+like Camouflage; Snatch and Magic Coat want a hook in front of the other side's
+move; Mimic wants a move slot put back on a switch.
 
 **Needs items to move in battle.** The bag is engine state and the battle does
 not touch it. Trick, Switcheroo, Bestow, Recycle, Stuff Cheeks, Embargo (25),

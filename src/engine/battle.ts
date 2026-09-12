@@ -1,4 +1,5 @@
 import {
+  ALL_MOVES,
   effectiveness,
   move as moveById,
   species as speciesById,
@@ -14,7 +15,9 @@ import { heldEffects, isConsumedOnUse } from "./carry";
 import { canStillEvolve } from "./progression";
 import { hasVariableDamage, powerOfBlow, variableDamage, type DamageContext } from "./moves";
 import {
+  actsOnSomething,
   extraEffects,
+  UNCALLABLE,
   type AimStat,
   type MoveEffect,
   type SideConditionId,
@@ -257,6 +260,8 @@ export type BattleEvent =
   | { t: "sketched"; side: SideIndex; moveId: string }
   /** Revival Blessing: somebody in reserve is back on their feet. */
   | { t: "revived"; side: SideIndex; speciesId: string }
+  /** Spite: uses taken off a move. `side` is whose move. */
+  | { t: "spite"; side: SideIndex; moveId: string; amount: number }
   | { t: "heal"; side: SideIndex; amount: number }
   | { t: "recoil"; side: SideIndex; amount: number }
   | { t: "blocked"; side: SideIndex; reason: StatusId }
@@ -425,6 +430,31 @@ const WISH_SHARE = 2;
  */
 const STOCKPILE_MAX = 3;
 const SWALLOW_SHARES = [4, 2, 1];
+
+/**
+ * How deep a move may call a move.
+ *
+ * A chosen move is depth nought and the move it calls is one. Nothing legal
+ * reaches two — `UNCALLABLE` keeps every caller off every caller's menu —
+ * and this is the floor under that: a Metronome that somehow called a
+ * Metronome stops here rather than hanging the battle.
+ */
+const MAX_CALL_DEPTH = 1;
+
+/** What Spite takes off. */
+const SPITE_USES = 4;
+
+/**
+ * Everything Metronome can land on.
+ *
+ * The manifest's order, so the roll means the same thing on both peers of a
+ * duel; filtered to what the engine honours, so a Metronome never spends a
+ * turn on a move that does nothing — which is the one guarantee this whole
+ * design makes.
+ */
+const CALLABLE: readonly string[] = ALL_MOVES.filter(
+  (entry) => actsOnSomething(entry) && !UNCALLABLE.has(entry.id),
+).map((entry) => entry.id);
 
 /** How often a confused creature hits itself instead, in percent. */
 const CONFUSED_CHANCE = 33;
@@ -1884,9 +1914,80 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       return raised;
     }
 
+    case "call": {
+      const called = calledMove(turn, side, effect.from);
+      if (!called) return false;
+      executeMove(turn, side, called, 1);
+      return true;
+    }
+
+    case "instruct": {
+      // The target does its last move again, now. Not while it is asleep or
+      // frozen — `canAct` is not asked of a called move, so this is where
+      // that question has to be answered.
+      const target = active(turn, foe);
+      const last = turn.battle.sides[foe].lastMove;
+      if (!last || UNCALLABLE.has(last) || isFainted(target)) return false;
+      if (target.status === "slp" || target.status === "frz") return false;
+      executeMove(turn, foe, last, 1);
+      return true;
+    }
+
+    case "spite": {
+      const target = active(turn, foe);
+      const last = turn.battle.sides[foe].lastMove;
+      if (!last) return false;
+      const slot = target.moves.indexOf(last);
+      if (slot < 0 || target.pp[slot] <= 0) return false;
+      const taken = Math.min(SPITE_USES, target.pp[slot]);
+      const pp = [...target.pp];
+      pp[slot] -= taken;
+      setActive(turn, foe, { ...target, pp });
+      turn.events.push({ t: "spite", side: foe, moveId: last, amount: taken });
+      return true;
+    }
+
     case "nothing":
       // Splash. It is supposed to do this.
       return false;
+  }
+}
+
+/**
+ * The move a caller lands on, or null when there is nothing to land on.
+ *
+ * Every draw is from the battle's own stream, named by the caller's kind, so
+ * a Metronome comes out the same on both peers of a duel. Anything in
+ * `UNCALLABLE` is refused from every source, which is what keeps the call
+ * depth at one.
+ */
+function calledMove(turn: Turn, side: SideIndex, from: "any" | "foe" | "self" | "party"): string | null {
+  const draw = (pool: readonly string[], tag: string): string | null => {
+    if (!pool.length) return null;
+    return pool[intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-${tag}`), pool.length)];
+  };
+
+  switch (from) {
+    case "any":
+      return draw(CALLABLE, "metronome");
+    case "foe": {
+      const last = turn.battle.sides[other(side)].lastMove;
+      return last && !UNCALLABLE.has(last) ? last : null;
+    }
+    case "self": {
+      // Only while it sleeps: awake, Sleep Talk is a move that does nothing,
+      // and it says so.
+      if (active(turn, side).status !== "slp") return null;
+      return draw(active(turn, side).moves.filter((id) => !UNCALLABLE.has(id)), "sleeptalk");
+    }
+    case "party": {
+      const combatant = turn.battle.sides[side];
+      const pool = combatant.team
+        .filter((_, at) => at !== combatant.active)
+        .flatMap((one) => one.moves)
+        .filter((id) => !UNCALLABLE.has(id));
+      return draw(pool, "assist");
+    }
   }
 }
 
@@ -2226,10 +2327,30 @@ function canAct(turn: Turn, side: SideIndex): boolean {
   return true;
 }
 
-function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
+function executeMove(
+  turn: Turn,
+  side: SideIndex,
+  moveId: string,
+  /**
+   * How many callers this move is standing on. Nought for the move that
+   * was chosen; one for the move a Metronome landed on. A called move spends
+   * no power points, does not lock a Choice item, and does not ask `canAct`
+   * again — the caller already paid all three.
+   */
+  depth = 0,
+): void {
+  if (depth > MAX_CALL_DEPTH) return;
   const attacker = active(turn, side);
   if (isFainted(attacker)) return;
-  if (!canAct(turn, side)) return;
+
+  // Sleep Talk is the one move that goes off *because* the user is asleep.
+  // `canAct` still runs — the sleep counter still counts down, and a creature
+  // that wakes this turn simply moves — but a refusal for sleep is not a
+  // refusal for this one move.
+  if (depth === 0 && !canAct(turn, side)) {
+    const dozing = moveId === "sleeptalk" && active(turn, side).status === "slp";
+    if (!dozing) return;
+  }
 
   const move = moveById(moveId);
   const struggling = moveId === STRUGGLE;
@@ -2241,11 +2362,11 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   // Committed, if it is holding something that commits it. Written when the
   // move actually goes off rather than when it was chosen, so a turn spent
   // asleep does not lock anything in.
-  if (has(attacker, "locked") && !struggling) {
+  if (depth === 0 && has(attacker, "locked") && !struggling) {
     turn.battle.sides[side].locked = moveId;
   }
 
-  if (!struggling) {
+  if (depth === 0 && !struggling) {
     const slot = attacker.moves.indexOf(moveId);
     if (slot >= 0) setActive(turn, side, spendPp(attacker, slot));
   }
@@ -2260,8 +2381,8 @@ function executeMove(turn: Turn, side: SideIndex, moveId: string): void {
   // before anything below can put them back, so Lock-On followed by Lock-On
   // is a fresh lock rather than one consumed by itself, and a Destiny Bond
   // held through a second Destiny Bond is the second one.
-  const sure = Boolean(volatiles(turn, side).sure);
-  if (sure || volatiles(turn, side).bonded) {
+  const sure = depth === 0 && Boolean(volatiles(turn, side).sure);
+  if (depth === 0 && (sure || volatiles(turn, side).bonded)) {
     mergeVolatiles(turn, side, { sure: undefined, bonded: undefined });
   }
 

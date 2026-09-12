@@ -217,6 +217,16 @@ export type MoveEffect =
   /** Flower Shield: a stage of Defence for every Grass type standing. */
   | { t: "flowerShield" }
   /**
+   * A move that uses another move. Metronome picks from everything,
+   * Copycat and Mirror Move take the foe's last, Sleep Talk one of the
+   * user's own while it sleeps, Assist one of the party's.
+   */
+  | { t: "call"; from: "any" | "foe" | "self" | "party" }
+  /** Instruct: the target uses its last move again, now. */
+  | { t: "instruct" }
+  /** Spite: four uses off the target's last move. */
+  | { t: "spite" }
+  /**
    * Nothing, and that is the joke.
    *
    * Splash is the one move in the manifest that is *meant* to do nothing, so
@@ -424,9 +434,47 @@ export const STATUS_EFFECTS: Record<string, readonly MoveEffect[]> = {
   lunarblessing: [{ t: "heartened", share: 4 }],
   flowershield: [{ t: "flowerShield" }],
 
+  // ------------------------------------------------------- calling moves
+  //
+  // `executeMove` takes a depth now, and refuses past one. That guard came
+  // first, as the deferred list said it must: a move that calls a move that
+  // calls itself is a hang rather than a bug, and the probe would have found
+  // it on the first run. `UNCALLABLE` is the other half — no caller may call
+  // a caller — so the depth limit is a floor that nothing should reach.
+  metronome: [{ t: "call", from: "any" }],
+  copycat: [{ t: "call", from: "foe" }],
+  mirrormove: [{ t: "call", from: "foe" }],
+  sleeptalk: [{ t: "call", from: "self" }],
+  assist: [{ t: "call", from: "party" }],
+  instruct: [{ t: "instruct" }],
+
+  // -------------------------------------------------------------- spite
+  spite: [{ t: "spite" }],
+
   // ------------------------------------------------------------ and nothing
   splash: [{ t: "nothing" }],
 };
+
+/**
+ * Moves no caller may call.
+ *
+ * The callers themselves, so Metronome into Metronome cannot happen and the
+ * depth guard in battle.ts stays a floor nothing reaches; the two that
+ * rewrite the user for good, because a Metronome that Sketched would be a
+ * permanent change from a random roll; and Struggle, which is not a move
+ * anybody knows.
+ */
+export const UNCALLABLE: ReadonlySet<string> = new Set([
+  "metronome",
+  "copycat",
+  "mirrormove",
+  "sleeptalk",
+  "assist",
+  "instruct",
+  "sketch",
+  "transform",
+  "struggle",
+]);
 
 /**
  * What this move does beyond its manifest row, if anything.

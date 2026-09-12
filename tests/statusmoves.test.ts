@@ -28,7 +28,7 @@ import {
   species as speciesById,
 } from "@/engine/dex";
 import { computeStats } from "@/engine/stats";
-import { actsOnSomething, STATUS_EFFECTS } from "@/engine/statusmoves";
+import { actsOnSomething, STATUS_EFFECTS, UNCALLABLE } from "@/engine/statusmoves";
 import type { Individual } from "@/engine/types";
 import { creature } from "./helpers";
 
@@ -1269,5 +1269,105 @@ describe("the second cheap group", () => {
     const shielded = turn(fought(ours, theirs), 0, 0).battle;
     expect(shielded.sides[0].stages.def).toBe(1);
     expect(shielded.sides[1].stages.def).toBe(0);
+  });
+});
+
+describe("moves that call moves", () => {
+  const usedBy = (events: readonly BattleEvent[], side: SideIndex) =>
+    events.filter((event): event is Extract<BattleEvent, { t: "use" }> => event.t === "use" && event.side === side).map((event) => event.moveId);
+
+  it("X69: Metronome lands on something that does something, and never on a caller", () => {
+    // Across seeds, because one roll proves nothing. Every landing is a move
+    // the engine honours — the guarantee the whole design makes — and none
+    // is a caller, which is what keeps the call depth at one.
+    const landed = new Set<string>();
+    for (let at = 0; at < 24; at++) {
+      const ours = creature("rattata", { level: 50, moves: ["metronome"] });
+      const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+      const played = resolveTurn(
+        startBattle(`${SEED}-${at}`, TAG, [ours], [theirs]),
+        [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+      ).battle;
+      const used = usedBy(played.events, 0);
+      expect(used[0]).toBe("metronome");
+      expect(used.length, "Metronome called nothing").toBe(2);
+      expect(UNCALLABLE.has(used[1]), `Metronome called ${used[1]}`).toBe(false);
+      expect(actsOnSomething(moveById(used[1]))).toBe(true);
+      landed.add(used[1]);
+    }
+    expect(landed.size, "every roll landed on the same move").toBeGreaterThan(5);
+  });
+
+  it("X70: Mirror Move uses what was used on it, and spends only its own uses", () => {
+    const ours = creature("rattata", { level: 50, moves: ["mirrormove"] });
+    const theirs = creature("machop", { level: 50, moves: ["tackle"], uid: 2 });
+
+    // Rattata moves first: nothing has been used on it yet.
+    const first = turn(fought(ours, theirs), 0, 0);
+    expect(first.events.some((event) => event.t === "fizzled" && event.side === 0)).toBe(true);
+
+    const second = turn(first.battle, 0, 0);
+    expect(usedBy(second.events, 0)).toEqual(["mirrormove", "tackle"]);
+    expect(damagedOn(second.events, 1)).toBeGreaterThan(0);
+    // Two Mirror Moves spent, and nothing else — the called Tackle is not a
+    // slot and costs no uses.
+    expect(activeOf(second.battle, 0).pp[0]).toBe(moveById("mirrormove").pp - 2);
+  });
+
+  it("X71: Sleep Talk works only while it sleeps", () => {
+    const asleep = creature("rattata", { level: 50, moves: ["sleeptalk", "tackle"], status: "slp" });
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const talked = turn(fought(asleep, theirs), 0, 0);
+    expect(talked.events.some((event) => event.t === "blocked" && event.side === 0)).toBe(true);
+    expect(usedBy(talked.events, 0)).toEqual(["sleeptalk", "tackle"]);
+    expect(damagedOn(talked.events, 1)).toBeGreaterThan(0);
+
+    const awake = creature("rattata", { level: 50, moves: ["sleeptalk", "tackle"] });
+    const idle = turn(fought(awake, theirs), 0, 0);
+    expect(usedBy(idle.events, 0)).toEqual(["sleeptalk"]);
+    expect(idle.events.some((event) => event.t === "fizzled" && event.side === 0)).toBe(true);
+  });
+
+  it("X72: Assist borrows from the party, and has nothing to borrow alone", () => {
+    const ours = [
+      creature("rattata", { level: 50, moves: ["assist"] }),
+      creature("pidgey", { level: 50, moves: ["gust"], uid: 3 }),
+    ];
+    const theirs = creature("machop", { level: 50, moves: ["splash"], uid: 2 });
+
+    const borrowed = resolveTurn(
+      startBattle(SEED, TAG, ours, [theirs]),
+      [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }],
+      TRAINER_RULES,
+    ).battle;
+    expect(usedBy(borrowed.events, 0)).toEqual(["assist", "gust"]);
+
+    const alone = turn(fought(ours[0], theirs), 0, 0);
+    expect(alone.events.some((event) => event.t === "fizzled" && event.side === 0)).toBe(true);
+  });
+
+  it("X73: Instruct makes the target do it again", () => {
+    const ours = creature("rattata", { level: 50, moves: ["instruct", "splash"] });
+    const theirs = creature("machop", { level: 50, moves: ["tackle"], uid: 2 });
+
+    const first = turn(fought(ours, theirs), 1, 0);
+    const second = turn(first.battle, 0, 0);
+    // Rattata moves first, so the instructed Tackle comes before Machop's own.
+    expect(usedBy(second.events, 1)).toEqual(["tackle", "tackle"]);
+    expect(second.events.filter((event) => event.t === "damage" && event.side === 0)).toHaveLength(2);
+  });
+
+  it("X74: Spite takes four uses off what was last used", () => {
+    const ours = creature("rattata", { level: 50, moves: ["spite"] });
+    const theirs = creature("machop", { level: 50, moves: ["tackle"], uid: 2 });
+
+    const first = turn(fought(ours, theirs), 0, 0);
+    expect(first.events.some((event) => event.t === "fizzled" && event.side === 0)).toBe(true);
+
+    const second = turn(first.battle, 0, 0);
+    // Their Tackle: one spent by using it twice, four by the Spite.
+    expect(activeOf(second.battle, 1).pp[0]).toBe(moveById("tackle").pp - 2 - 4);
+    expect(second.events.some((event) => event.t === "spite" && event.amount === 4)).toBe(true);
   });
 });
