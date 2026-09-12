@@ -226,6 +226,12 @@ player learns to stop reading. It reads `stageFactor` out of the engine
 rather than carrying a ladder of its own, and `lib/mods.ts` is the whole of
 it.
 
+A move's hover note says what the engine does with it as well as what the
+manifest row says: the confusion Sweet Kiss carries, the seed, the shield, the
+weather. `lib/effectText.ts` is one sentence per effect shape, and the
+`never` at the bottom of its switch makes a new shape a compile error rather
+than a blank on the screen.
+
 Moves are chosen there too: any four of everything the creature has naturally
 learned by its current level, rearranged **in town**. Being able to rebuild a
 moveset in front of a wild creature would make every type matchup a formality.

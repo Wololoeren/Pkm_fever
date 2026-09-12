@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { move as moveById } from "@/engine/dex";
 import { displayPower } from "@/engine/moves";
+import { effectLines } from "@/lib/effectText";
 import { typeColor } from "@/render/palette";
 
 /**
@@ -209,6 +210,12 @@ export function MoveNote({
           Restores {entry.heal[0]}/{entry.heal[1]} of full health.
         </span>
       ) : null}
+
+      {/* The half of a move the manifest cannot say: what statusmoves.ts does
+          with it. Sweet Kiss's whole point is here and nowhere in its row. */}
+      {effectLines(moveId).map((line, at) => (
+        <span key={at}>{line}</span>
+      ))}
 
       {lands !== null ? (
         <span className={lands > 4 ? "good" : lands < 4 ? "error" : "muted"}>
