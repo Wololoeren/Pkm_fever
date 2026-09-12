@@ -746,8 +746,14 @@ export function activeOf(state: BattleState, side: SideIndex): Individual {
   return combatant.team[combatant.active];
 }
 
-/** Stage multipliers as a fraction, never a float. */
-function stageFactor(stage: number): [number, number] {
+/**
+ * Stage multipliers as a fraction, never a float.
+ *
+ * Exported for the stat sheet's Mod column, which shows the same fraction
+ * beside the number it multiplies. The sheet must not have a ladder of its
+ * own to disagree with this one.
+ */
+export function stageFactor(stage: number): [number, number] {
   const clamped = Math.max(-6, Math.min(6, stage));
   return clamped >= 0 ? [2 + clamped, 2] : [2, 2 - clamped];
 }

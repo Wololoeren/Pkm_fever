@@ -156,6 +156,17 @@ point — three systems feed each number, and until you can see them side by
 side there is no way to tell a well-bred creature from a lucky one, or to see
 what a nature is actually worth.
 
+In a battle the sheet grows a seventh column, **Mod**, for the one creature
+that is out and only once something has touched it: a stage as the sheet
+already writes a nature (`+2`, `−1`), a split number where a Power Split
+rewrote it (`=77`), a half for a paralysed Speed, with the exact multiplier
+in the tooltip. The column is absent rather than empty the rest of the time —
+outside a battle, for a creature in reserve, and for the one out before
+anything has happened to it — because a column of dashes is a column a
+player learns to stop reading. It reads `stageFactor` out of the engine
+rather than carrying a ladder of its own, and `lib/mods.ts` is the whole of
+it.
+
 Moves are chosen there too: any four of everything the creature has naturally
 learned by its current level, rearranged **in town**. Being able to rebuild a
 moveset in front of a wild creature would make every type matchup a formality.

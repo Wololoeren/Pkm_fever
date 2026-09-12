@@ -19,6 +19,7 @@ import { effortSpent } from "@/engine/effort";
 import { expForLevel, levelFromExp } from "@/engine/progression";
 import { STAT_IDS, type Individual, type StatId } from "@/engine/types";
 import { isSpecial, variant } from "@/engine/variants";
+import { battleMods, factorText, stageText, type StatMod } from "@/lib/mods";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
 import { GenderMark } from "./PartyStrip";
@@ -44,6 +45,36 @@ const STAT_LABELS: Record<StatId, string> = {
   spd: "Sp. Def",
   spe: "Speed",
 };
+
+/**
+ * One cell of the Mod column: the stage as the sheet already writes a nature,
+ * a split number where a move rewrote it, and a half for a paralysed Speed.
+ * The multiplier goes in the tooltip, once, rather than in the cell.
+ */
+function ModCell({ mod }: { mod?: StatMod }) {
+  if (!mod) return <td className="num muted">—</td>;
+  const parts: string[] = [];
+  const notes: string[] = [];
+  if (mod.override !== undefined) {
+    parts.push(`=${mod.override}`);
+    notes.push(`${mod.override} in use, split or swapped with the foe's`);
+  }
+  if (mod.stage) {
+    parts.push(stageText(mod.stage));
+    notes.push(`${mod.stage > 0 ? "raised" : "lowered"} ${Math.abs(mod.stage)} stage${Math.abs(mod.stage) === 1 ? "" : "s"} (${factorText(mod.factor)})`);
+  }
+  if (mod.halved) {
+    parts.push("½");
+    notes.push("halved by paralysis");
+  }
+  const bad = mod.stage < 0 || mod.halved;
+  const good = mod.stage > 0 && !mod.halved;
+  return (
+    <td className={`num ${good ? "good" : bad ? "error" : ""}`} title={notes.join("; ")}>
+      {parts.join(" ")}
+    </td>
+  );
+}
 
 function MoveRow({
   moveId,
@@ -127,6 +158,11 @@ export function Inspect({
   const plain = computeStats(entry, { ...creature, variantId: "normal" });
   const special = {} as Record<StatId, number>;
   for (const stat of STAT_IDS) special[stat] = stats[stat] - plain[stat];
+
+  // What the battle is doing to these numbers right now, or null — and the
+  // column is not drawn at all when it is null. See lib/mods.ts for why a
+  // column of dashes would be worse than no column.
+  const mods = battleMods(state, index);
 
   const toNext = creature.level < 100 ? expForLevel(creature.level + 1) - creature.exp : 0;
 
@@ -227,6 +263,7 @@ export function Inspect({
                 <th className="num">EV</th>
                 <th className="num">Special</th>
                 <th className="num">Total</th>
+                {mods ? <th className="num">Mod</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -253,6 +290,7 @@ export function Inspect({
                     {special[stat] === 0 ? "—" : special[stat] > 0 ? `+${special[stat]}` : special[stat]}
                   </td>
                   <td className="num strong">{stats[stat]}</td>
+                  {mods ? <ModCell mod={mods[stat]} /> : null}
                 </tr>
               ))}
             </tbody>
