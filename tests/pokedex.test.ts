@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyInput, initialState, reduce, stateHash, type GameState } from "@/engine/engine";
-import { DEX_REVEAL, dexOf } from "@/engine/pokedex";
+import { DEX_REVEAL, dexOf, searchDex } from "@/engine/pokedex";
 import { play, testWorld } from "./helpers";
 
 /**
@@ -82,5 +82,54 @@ describe("the reveal", () => {
     expect(shown.routes.find((route) => route.routeId === first.routeId)?.table).not.toBeNull();
     const hidden = dexOf(world, { ...state, nextSlot: { ...state.nextSlot, [first.routeId]: DEX_REVEAL - 1 } });
     expect(hidden.routes.find((route) => route.routeId === first.routeId)?.table).toBeNull();
+  });
+});
+
+describe("searching, and where it lives", () => {
+  it("PD6: a name, a number, a type or 'caught' finds it, and every term must match", () => {
+    const world = testWorld(SEED);
+    const { state } = play(world, 600);
+    const dex = dexOf(world, state);
+    const first = dex.entries[0];
+
+    expect(searchDex(dex.entries, "")).toHaveLength(dex.entries.length);
+    expect(searchDex(dex.entries, first.name.slice(0, 3).toUpperCase()).some((entry) => entry.speciesId === first.speciesId)).toBe(true);
+    expect(searchDex(dex.entries, `#${first.num}`).some((entry) => entry.speciesId === first.speciesId)).toBe(true);
+    expect(searchDex(dex.entries, "caught").every((entry) => entry.caught)).toBe(true);
+    expect(searchDex(dex.entries, "seen").every((entry) => !entry.caught)).toBe(true);
+    expect(searchDex(dex.entries, "zzzz-nothing")).toEqual([]);
+    // Two terms narrow rather than widen.
+    const caughtCount = searchDex(dex.entries, "caught").length;
+    expect(searchDex(dex.entries, "caught normal").length).toBeLessThanOrEqual(caughtCount);
+  });
+
+  it("PD8: a picture only for what you hold, in that creature's own colours", () => {
+    const world = testWorld(SEED);
+    const { state } = play(world, 300);
+    const dex = dexOf(world, state);
+    for (const entry of dex.entries) {
+      if (entry.caught) {
+        const owned = [...state.party, ...state.box].find((one) => one.speciesId === entry.speciesId);
+        // Released ones are still caught, and have no picture.
+        if (owned) expect(entry.variantId).toBe([...state.party, ...state.box].sort((a, b) => a.uid - b.uid).find((one) => one.speciesId === entry.speciesId)!.variantId);
+      } else {
+        expect(entry.variantId).toBeNull();
+      }
+    }
+  });
+
+  it("PD7: it lives only where a table has been earned", () => {
+    const world = testWorld(SEED);
+    const { state } = play(world, 600);
+    const dex = dexOf(world, state);
+    const earned = new Set(dex.routes.filter((route) => route.table).map((route) => route.routeId));
+    for (const entry of dex.entries) {
+      for (const routeId of entry.livesOn) {
+        expect(earned.has(routeId), `${entry.speciesId} claims ${routeId} without its table`).toBe(true);
+      }
+    }
+    // Force every table hidden and nothing lives anywhere.
+    const none = dexOf(world, { ...state, nextSlot: {} });
+    expect(none.entries.every((entry) => entry.livesOn.length === 0)).toBe(true);
   });
 });

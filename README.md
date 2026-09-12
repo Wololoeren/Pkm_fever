@@ -760,6 +760,14 @@ catch, an egg, a gift and a trade all count and releasing one later does not
 unwrite having had it. It is in the hash and it is not an `ENGINE_VERSION`
 bump: no input does anything different.
 
+The panel is a list you can search — a name, a number, a type, or the words
+"caught" and "seen", every term typed having to match — beside the one you
+picked: its sprite and types, where you first met it, and the **region map
+with that place ringed**, and, dashed, every place whose table you have earned
+that says it lives there. It is the same drawing as the map under the field,
+exported from `MiniMap` with marks on it, because a second region map that
+placed a route differently would be a second world.
+
 The dex is the one panel allowed a denominator, and it earns it. A route's
 table is shown only once the route has been asked **`DEX_REVEAL` times** —
 ten encounters, read off `nextSlot`, which already counts every encounter a

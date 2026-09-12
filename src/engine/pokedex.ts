@@ -35,6 +35,19 @@ export interface DexEntry {
   caught: boolean;
   /** Where it was first met, when it has been. */
   where: string | null;
+  /**
+   * Every route whose table you have earned that lists it, outward. Only the
+   * earned ones: the dex may say where a thing lives once a route has been
+   * asked enough, and not before, which is the whole price of the reveal.
+   */
+  livesOn: string[];
+  /**
+   * What one you hold looks like, or null when you hold none. An appearance
+   * is a fact about a creature, so the dex shows a picture only when there is
+   * a creature to take it from; a seen-but-never-caught species has no
+   * picture, because the one you met is not yours to draw.
+   */
+  variantId: string | null;
 }
 
 export interface DexRoute {
@@ -58,21 +71,6 @@ export interface Dex {
 
 export function dexOf(world: World, state: GameState): Dex {
   const caught = new Set(state.caught);
-  const entries: DexEntry[] = [];
-  for (const spec of ALL_SPECIES) {
-    const where = state.whereMet[spec.id];
-    if (where === undefined) continue;
-    entries.push({
-      speciesId: spec.id,
-      num: spec.num,
-      name: spec.name,
-      seen: true,
-      caught: caught.has(spec.id),
-      where,
-    });
-  }
-  entries.sort((a, b) => a.num - b.num || a.speciesId.localeCompare(b.speciesId));
-
   const order = (id: string) => {
     const route = world.routes.get(id);
     return route ? route.depth * 100 + route.ring : 9999;
@@ -96,6 +94,40 @@ export function dexOf(world: World, state: GameState): Dex {
     })
     .sort((a, b) => order(a.routeId) - order(b.routeId) || a.routeId.localeCompare(b.routeId));
 
+  // Which earned tables name each species, so an entry can say where it
+  // lives without a second pass over the routes.
+  const homes = new Map<string, string[]>();
+  for (const route of routes) {
+    for (const { speciesId } of route.table ?? []) {
+      const list = homes.get(speciesId);
+      if (list) list.push(route.routeId);
+      else homes.set(speciesId, [route.routeId]);
+    }
+  }
+
+  // The first of each species you hold, in the order they became yours.
+  const held = new Map<string, string>();
+  for (const one of [...state.party, ...state.box].sort((a, b) => a.uid - b.uid)) {
+    if (!held.has(one.speciesId)) held.set(one.speciesId, one.variantId);
+  }
+
+  const entries: DexEntry[] = [];
+  for (const spec of ALL_SPECIES) {
+    const where = state.whereMet[spec.id];
+    if (where === undefined) continue;
+    entries.push({
+      speciesId: spec.id,
+      num: spec.num,
+      name: spec.name,
+      seen: true,
+      caught: caught.has(spec.id),
+      where,
+      livesOn: homes.get(spec.id) ?? [],
+      variantId: held.get(spec.id) ?? null,
+    });
+  }
+  entries.sort((a, b) => a.num - b.num || a.speciesId.localeCompare(b.speciesId));
+
   return {
     seen: entries.length,
     caught: entries.filter((entry) => entry.caught).length,
@@ -103,4 +135,31 @@ export function dexOf(world: World, state: GameState): Dex {
     entries,
     routes,
   };
+}
+
+/**
+ * The entries that match what was typed.
+ *
+ * A name or part of one, a dex number, a type, or the words "caught" and
+ * "seen" — every term typed has to match, so "grass caught" is the Grass
+ * types you own. Case does not matter and neither does the "#". Empty is
+ * everything, in dex order.
+ */
+export function searchDex(entries: readonly DexEntry[], query: string): DexEntry[] {
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.replace(/^#/, ""))
+    .filter(Boolean);
+  if (!terms.length) return [...entries];
+
+  return entries.filter((entry) => {
+    const types = speciesById(entry.speciesId).types;
+    return terms.every((term) => {
+      if (term === "caught") return entry.caught;
+      if (term === "seen" || term === "uncaught") return !entry.caught;
+      if (/^\d+$/.test(term)) return entry.num === Number(term) || String(entry.num).startsWith(term);
+      return entry.name.toLowerCase().includes(term) || (types as readonly string[]).includes(term);
+    });
+  });
 }

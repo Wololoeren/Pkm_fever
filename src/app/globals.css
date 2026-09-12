@@ -89,8 +89,19 @@ kbd {
 .linkButton { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
 .plainList { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
 ol.plainList { list-style: decimal inside; }
-.dexList { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; }
-.dexList li { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 0.9rem; }
+.dexLayout { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(220px, 260px); gap: 14px; align-items: start; }
+@media (max-width: 720px) { .dexLayout { grid-template-columns: 1fr; } }
+.dexSearch { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.dexList { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
+.dexRow { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; font-size: 0.9rem; color: inherit; cursor: pointer; }
+.dexRow:hover { border-color: var(--line); }
+.dexRow.picked { border-color: var(--accent); background: var(--panel-2); }
+.dexRow .dexName { flex: 1; }
+.dexCard { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.dexCardHead { display: flex; gap: 10px; align-items: center; align-self: stretch; }
+.dexRoutes { margin-top: 10px; }
+.dexRoutes summary { cursor: pointer; }
+.dexRoutes summary h4 { display: inline; margin: 0; }
 .dexNum { font-family: var(--mono); font-size: 0.8rem; min-width: 3.2em; }
 .dexName { border-left: 3px solid var(--line); padding-left: 6px; }
 .dexRoute { margin-top: 6px; font-size: 0.9rem; line-height: 1.5; }

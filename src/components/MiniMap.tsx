@@ -138,8 +138,30 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
   );
 }
 
-/** The region: the whole graph, and which dot you are standing on. */
-function RegionMap({ world, state, outer }: { world: World; state: GameState; outer: string }) {
+/** A ring the Pokédex asks for: where a species was met, or where it lives. */
+export interface MapMark {
+  routeId: string;
+  kind: "met" | "lives";
+}
+
+/**
+ * The region: the whole graph, and which dot you are standing on.
+ *
+ * Exported for the Pokédex, which draws the same map with rings on it. The
+ * same drawing on purpose: a second region map that placed a route
+ * differently would be a second world.
+ */
+export function RegionMap({
+  world,
+  state,
+  outer,
+  marks = [],
+}: {
+  world: World;
+  state: GameState;
+  outer: string;
+  marks?: readonly MapMark[];
+}) {
   const size = MINI_WIDTH;
   const pad = 9;
 
@@ -211,6 +233,28 @@ function RegionMap({ world, state, outer }: { world: World; state: GameState; ou
             strokeOpacity={walked ? 0.85 : 0.3}
             strokeWidth={walked ? 2 : 1.25}
           />
+        );
+      })}
+
+      {/* Rings under the dots, so a marked place is still the colour it was.
+          Solid for where a thing was met, dashed for where it lives. */}
+      {marks.map((mark) => {
+        const place = world.routes.get(mark.routeId);
+        if (!place || (place.kind !== "route" && place.kind !== "town")) return null;
+        const here = at(place.cell);
+        return (
+          <circle
+            key={`${mark.kind}:${mark.routeId}`}
+            cx={here.x}
+            cy={here.y}
+            r={dot + (mark.kind === "met" ? 5 : 7)}
+            fill="none"
+            stroke={mark.kind === "met" ? "var(--accent)" : "var(--muted)"}
+            strokeWidth={mark.kind === "met" ? 2.5 : 1.5}
+            strokeDasharray={mark.kind === "met" ? undefined : "3 2"}
+          >
+            <title>{`${place.label} — ${mark.kind === "met" ? "first met here" : "lives here"}`}</title>
+          </circle>
         );
       })}
 
