@@ -40,8 +40,69 @@ import { BIOME_IDS } from "./biomes";
  * above applied.
  *
  * 26 is the field. Twenty-four abilities joined the roll, and a roll that
- * lands on Drought today landed on something else yesterday. */
-export const ENGINE_VERSION = 26;
+ * lands on Drought today landed on something else yesterday.
+ *
+ * 27 is the move flags. Two-turn moves now spend a turn charging, beams spend
+ * the turn after recovering, twenty-eight moves flinch, ten bind, four
+ * rampage, Rollout doubles and Bide gives back what it took. Every one of
+ * those changes what a recorded turn comes to — a Hyper Beam that used to hit
+ * every turn now hits every other one — so a log recorded before this replays
+ * to a different battle, which is precisely what this number exists to
+ * refuse. It also adds named rolls (`-bind`, `-rage`), and a battle that draws
+ * one more number from the stream diverges from that point on whatever else
+ * agrees.
+ *
+ * 28 is the trainer's policy. Everybody who is not the grass now picks a move
+ * by searching for it rather than by rolling for one, and a trainer battle in a
+ * log recorded under 27 is a battle against a different opponent — same
+ * team, different choices, different result. The grass still rolls, so a
+ * save that never fought a person would replay; the version cannot tell
+ * which saves those are, so it refuses all of them.
+ *
+ * 29 is the evolution being asked about. Growth reports what is *ready* and
+ * stops; the answer is an input; a save carries the unanswered ones. So a log
+ * recorded under 28 is a log with no answers in it, and replaying it would
+ * evolve everything it ever grew past — which is exactly the silent
+ * reinterpretation this number exists to refuse. It is also the trainers
+ * moving: route trainers now stand clear of doorways and of anywhere they
+ * would wall a route off, and a recorded walk steps into a battle where it
+ * used to take a step. And Explosion, Self-Destruct and Memento now take
+ * their user down with them, which decides battles that used to be won.
+ *
+ * 30 is the rival gaining on you. He was a flat three levels above your party
+ * average every time; he is now level with you the first time he catches you
+ * and two further ahead at each meeting after. Every recorded rival battle
+ * from the second one on is therefore a battle against a different team, and
+ * the first one is a battle against a weaker one.
+ *
+ * 31 is the two new marks a creature can carry — `prize` and `cheat` — and
+ * the `prize` input that puts a bracket's reward in a save. Neither mark is in
+ * the state hash and an old log contains no prize input, so a save written
+ * under 30 replays to exactly the same game. The bump is for the *file*: a
+ * save from 30 has no `cheat` field on anything in it, so every creature in it
+ * would read as honestly earned — including one conjured out of the menu
+ * before the mark existed. Refusing them is the only reading that does not
+ * quietly launder the saves this was built to catch.
+ *
+ * 32 is three things that all add state a save from 31 does not carry: the
+ * printer (`lastWild` and `printedAt`), the six brackets out in the fields
+ * (`arena`), and the seven inks now lying in cabins. The inks are the reason
+ * this is not optional — they are placed during world generation, so a world
+ * built under 31 has different things in its cabins and a recorded walk picks
+ * up something else.
+ *
+ * 33 is experience being shared. Everybody who stood opposite the creature
+ * that went down takes a cut of what it was worth, so every battle a save ever
+ * recorded in which anything was switched out ends with a differently levelled
+ * party — which is most of them.
+ *
+ * Folded into the same number, unreleased: Brenn the smith. Adding anybody to
+ * the roster is a bump by the rule above — people are solid and move the tiles
+ * everyone else was placed on — and 33 had not reached anybody's saves yet.
+ *
+ * Also folded in: the testing bench's prize draw now reads the world seed, so
+ * a recorded `prize` cheat takes a different creature than it did. */
+export const ENGINE_VERSION = 33;
 
 // ------------------------------------------------------------------ stats
 
@@ -184,6 +245,37 @@ export interface Individual {
    * can decide whether it cares.
    */
   traded: boolean;
+  /**
+   * Whether this was won in a bracket rather than raised.
+   *
+   * The same hole as `traded` and marked for the same reason: the three on
+   * offer are rolled from the tournament that produced them, and a tournament
+   * happened in other people's browsers. The save records which of the three
+   * was taken, carried whole, because there is no seed here it could be
+   * derived from.
+   *
+   * A separate field rather than a second meaning for `traded`, because they
+   * are different claims about where a creature came from and a check-in desk
+   * may well feel differently about them: a trade is somebody else's raising,
+   * and a prize is the game's own.
+   */
+  prize: boolean;
+  /**
+   * Whether a testing shortcut made or altered this one.
+   *
+   * `GameState.cheated` already says a save touched the menu, and that is a
+   * fact about the *log*: it cannot say which creature. Trading a cheated
+   * level 50 into a clean save carries the creature and leaves the flag
+   * behind, so the receiving log is honestly not cheated and the team is
+   * still impossible.
+   *
+   * This is the half that travels with the thing. Set by `give`, and by every
+   * shortcut that edits one in place — a wild creature whose level was set to
+   * 100 was not caught at 100. Like `traded` and `prize` it is never cleared:
+   * an origin that could be washed off by passing a creature between two
+   * saves would not be worth recording.
+   */
+  cheat: boolean;
 }
 
 // ------------------------------------------------------------------ world

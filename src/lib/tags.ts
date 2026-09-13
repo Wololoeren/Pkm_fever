@@ -2,7 +2,7 @@ import { aimFactor, stageFactor, type Combatant } from "@/engine/battle";
 import { factorText } from "./mods";
 import { BATTLE_STAT_IDS, type Individual } from "@/engine/types";
 import type { AimStat, SideConditionId } from "@/engine/statusmoves";
-import type { StageStat } from "@/engine/dex";
+import { move as moveEntry, type StageStat } from "@/engine/dex";
 
 /**
  * Everything happening to one side of a battle, as badges.
@@ -358,6 +358,93 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
         key: "afloat",
         label: `AFLOAT ${vol.afloat}`,
         title: `Floating — Ground attacks pass underneath it for ${turnsText(vol.afloat)} more`,
+        cls: "rise",
+      });
+    }
+
+    /*
+     * What a damaging move can leave behind.
+     *
+     * Every one of these is something the player has to be able to see or the
+     * turn ahead is unreadable: a creature that is going to be forced into
+     * the same move next turn, one that cannot act at all, one losing an
+     * eighth a turn to a bind it cannot leave. The plate is where a battle
+     * says what is true, and M9 is the test that keeps this list level with
+     * the interface.
+     */
+    if (vol.hidden) {
+      out.push({
+        key: "hidden",
+        label: "AWAY",
+        title:
+          vol.hidden === "sky"
+            ? "Up in the sky — almost nothing can reach it until it comes down"
+            : vol.hidden === "ground"
+              ? "Underground — almost nothing can reach it until it surfaces"
+              : vol.hidden === "water"
+                ? "Underwater — almost nothing can reach it until it surfaces"
+                : "Out of the world — nothing at all can reach it",
+        cls: "rise",
+      });
+    }
+    if (vol.committed) {
+      out.push({
+        key: "committed",
+        label: "COMMITTED",
+        title:
+          vol.commitment === "charge"
+            ? `Charging ${moveEntry(vol.committed).name} — it goes off next turn, and nothing else can be picked`
+            : vol.commitment === "roll"
+              ? `Rolling — ${moveEntry(vol.committed).name} again next turn, at twice this turn's power`
+              : `Locked into ${moveEntry(vol.committed).name} — nothing else can be picked, and it ends in confusion`,
+        cls: vol.commitment === "roll" ? "rise" : "fall",
+      });
+    }
+    if (vol.recharging) {
+      out.push({
+        key: "recharging",
+        label: "SPENT",
+        title: "Recovering — it loses its next turn getting its breath back",
+        cls: "fall",
+      });
+    }
+    if (vol.flinched) {
+      out.push({
+        key: "flinched",
+        label: "FLINCHED",
+        title: "Flinched — it does not move this turn",
+        cls: "fall",
+      });
+    }
+    if (vol.bound) {
+      out.push({
+        key: "bound",
+        label: `BOUND ${vol.bound}`,
+        title: `Held fast — an eighth of its health every turn, and it cannot switch out or run, for ${turnsText(vol.bound)} more`,
+        cls: "fall",
+      });
+    }
+    if (vol.biding) {
+      out.push({
+        key: "biding",
+        label: "BIDING",
+        title: `Biding — taking it for ${turnsText(vol.biding)} more, then giving back twice everything it took`,
+        cls: "rise",
+      });
+    }
+    if (vol.curled) {
+      out.push({
+        key: "curled",
+        label: "CURLED",
+        title: "Curled up — a Rollout from here starts at twice the power",
+        cls: "rise",
+      });
+    }
+    if (vol.fresh) {
+      out.push({
+        key: "fresh",
+        label: "NEW",
+        title: "Just arrived — it has not had a turn yet, so a Fake Out still works",
         cls: "rise",
       });
     }

@@ -92,6 +92,36 @@ cheapest answer to most of the list.
 | **Seen** (Foresight, Odor Sleuth, Miracle Eye) | its Ghost does not stop Normal and Fighting, or its Dark does not stop Psychic. Scrappy for one battle |
 | **Afloat** (Magnet Rise, Telekinesis) | Ground *attacks* do nothing to it, for **5** or **3** turns. A Sand Attack still lands |
 
+### What a damaging move leaves behind
+
+The rows above all arrived with the status moves. These came later and from
+the other direction: a damaging move whose entire identity is a flag on its
+manifest row — `charge`, `recharge`, `partiallytrapped`, a `flinch` secondary
+— and which, until the build script carried those flags, was dealt out with
+its power and none of its cost. Hyper Beam was a hundred and fifty power with
+no recharge; Fly hit the turn it was used.
+
+| | Arithmetic |
+| --- | --- |
+| **Committed** (Fly, Dig, Solar Beam; Outrage, Thrash; Rollout) | the move next turn is this one, whatever is picked. A **charge** is one turn and then the blow; a **rage** is **2–3** turns and then confusion; a **roll** is up to **5**, doubling each time. Switching out and running are both refused while it runs |
+| **Away** (the `hidden` half of a charge) | up in the sky, underground, underwater or out of the world. Nothing reaches it but the short list per hiding place — Gust and Thunder find a Fly, Earthquake finds a Dig, Surf finds a Dive, and **nothing at all** finds a Phantom Force |
+| **Curled** (Defence Curl) | a Rollout from here starts at **twice** the power, on top of whatever the run has already doubled |
+| **Recharging** (Hyper Beam and nine others) | the next turn is lost, **whether or not the blow landed**. Asked before sleep, paralysis and confusion, because it is the second half of last turn rather than a condition |
+| **Flinched** | it does not move this turn. Written by whoever moved first and swept at the end of the turn **read or not**, which is why a flinch from the slower side is worth nothing |
+| **Bound** (Wrap, Fire Spin, and eight others) | `max(1, floor(maxHp / 8))` every turn for **4 or 5**, rolled, and it can neither switch out nor run while it holds |
+| **Biding** (Bide) | **2** turns of taking it, then **twice** the total move damage taken, exactly — no type chart, no critical hit. Only move damage counts; a Bide spent being poisoned has nobody to give it back to |
+| **New** (`fresh`) | it has not had a turn since it arrived, which is the whole of what Fake Out asks. Written on arrival and spent the moment the slot resolves a move — a turn spent asleep is a turn had |
+
+Two more belong to the **side** rather than the appearance, and so survive a
+switch:
+
+- **Future Sight** and **Doom Desire** land at the end of the turn after next,
+  on **whoever is standing there** — which is the entire reason to throw one.
+  The number is settled when the move is used rather than when it arrives.
+- **U-turn**, **Volt Switch** and **Flip Turn** hit and then leave, and
+  **Dragon Tail** and **Circle Throw** hit and drive the *other* side out.
+  Neither leaves anything behind to show on a plate.
+
 ### The shield streak
 
 A shield put up on consecutive turns gets rarer, and that is the whole of what

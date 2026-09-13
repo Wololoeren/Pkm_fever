@@ -20,11 +20,18 @@ import { appearanceId, CHROMA_IDS, TOP_TIER } from "./variants";
  *
  * ## What makes him worth being ready for
  *
- * His team is *built out of yours*. As many as you have, three levels above
- * your average, and every one of them chosen to beat one of yours — so a party
- * that has grown lopsided is a party he has noticed. There is no way to prepare
- * for him in general; you prepare by not having an obvious weakness, which is
- * the thing the rest of the game never asks you to do.
+ * His team is *built out of yours*. As many as you have, and every one of them
+ * chosen to beat one of yours — so a party that has grown lopsided is a party
+ * he has noticed. There is no way to prepare for him in general; you prepare by
+ * not having an obvious weakness, which is the thing the rest of the game never
+ * asks you to do.
+ *
+ * And he *gains on you*. The first time he catches you he is at your party's
+ * average exactly; every meeting after that he is two levels further ahead
+ * than the last. A flat edge made him the same fight forever — your party grew
+ * and his grew with it and the gap never moved — which is fine for somebody
+ * standing on a route and wrong for the one thing that keeps coming back. The
+ * people on the routes already work this way; see `REMATCH_LEVELS`.
  *
  * And he is *decorated*. Chromas and high shine at rates nothing else in this
  * world comes close to, because he is the one trainer you are meant to
@@ -90,8 +97,25 @@ const CHROMA_CHANCE = 700;
 /** And the chance of real shine on top of that. */
 const SHINE_CHANCE = 550;
 
-/** Levels above the average of your party. */
-const LEVEL_EDGE = 3;
+/**
+ * Levels above the average of your party, per time he has already caught you.
+ *
+ * It was a flat three, which made him the same fight forever: your party grew,
+ * his grew with it, and the gap never moved. That is the right shape for a
+ * *trainer* on a route and the wrong one for the thing the game keeps sending
+ * after you — the tenth meeting should not be the first meeting again.
+ *
+ * So he escalates, the way the people on the routes already do: they come back
+ * `REMATCH_LEVELS` stronger for every beating they have taken, and this is the
+ * same rule with a smaller step. Two rather than three because he brings *as
+ * many as you have* and picks every one of them to counter one of yours, so
+ * the same step compounds harder on him than on somebody standing still with a
+ * written-down team.
+ *
+ * The first meeting is therefore at your average exactly, and the edge is
+ * something he earns by turning up.
+ */
+const LEVEL_STEP = 2;
 
 /**
  * What he brings against one of yours.
@@ -143,14 +167,30 @@ function appearanceOf(rng: Rng): string {
  * actually changes what turns up. Whether that is preparation or cheating on
  * his part is left to the player.
  */
-export function rivalTeam(seed: string, at: number, party: readonly Individual[]): Individual[] {
+export function rivalTeam(
+  seed: string,
+  at: number,
+  party: readonly Individual[],
+  /**
+   * How many times he has caught you *before* this one.
+   *
+   * Nought on the first meeting, which is what puts that fight at your party's
+   * average exactly. The caller subtracts, because `rivalVisits` counts the
+   * appearance that is happening right now and the arithmetic here should not
+   * have to know that.
+   *
+   * Defaulted so the two dozen call sites in the tests that only care about
+   * *who* he brings do not have to say anything about *how strong*.
+   */
+  metBefore = 0,
+): Individual[] {
   const alive = party.length ? party : [];
   if (!alive.length) return [];
 
   const average = Math.round(
     alive.reduce((total, one) => total + one.level, 0) / alive.length,
   );
-  const level = Math.max(2, Math.min(100, average + LEVEL_EDGE));
+  const level = Math.max(2, Math.min(100, average + Math.max(0, metBefore) * LEVEL_STEP));
 
   return alive.map((mine, slot) => {
     const rng = rngFor(seed, "rival", at, slot);
@@ -180,6 +220,8 @@ export function rivalTeam(seed: string, at: number, party: readonly Individual[]
       heldItem: null,
       nickname: null,
       traded: false,
+      prize: false,
+      cheat: false,
       parents: null,
       gender: rollGender(rng),
     };

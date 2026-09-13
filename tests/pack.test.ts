@@ -49,14 +49,19 @@ describe("packing a log", () => {
    * change. It is here so that a change which quietly stops packing anything
    * fails rather than merely getting slower, which is exactly how a codec
    * rots: it keeps decoding correctly and stops earning its keep.
+   *
+   * Three and a half, not four. It was four until trainers started choosing
+   * their moves, at which point their battles in the fixture got shorter and
+   * the walk between them longer, and the ratio landed at 3.97 — the
+   * generator changing, exactly as promised above, not the codec.
    */
-  it("PK3: a walking log packs at least four times smaller", () => {
+  it("PK3: a walking log packs at least three and a half times smaller", () => {
     const world = testWorld("PACK2");
     const { inputs } = play(world, 4000);
 
     const plain = JSON.stringify(inputs).length;
     const packed = JSON.stringify(packInputs(inputs)).length;
-    expect(packed * 4).toBeLessThan(plain);
+    expect(packed * 7).toBeLessThan(plain * 2);
   });
 
   it("PK4: every input the engine can take has an opcode", () => {

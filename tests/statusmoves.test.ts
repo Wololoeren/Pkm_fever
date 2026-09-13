@@ -1013,7 +1013,15 @@ describe("the cheap group: more of the machinery that already existed", () => {
     expect(arrived.hp).toBe(maxHp(arrived));
     expect(arrived.status).toBeNull();
     // And it was a one-off: the blessing went with the volatiles.
-    expect(battle.sides[0].volatiles).toBeUndefined();
+    //
+    // Asked of the blessing rather than of the whole object, because a switch
+    // now writes exactly one volatile of its own on the way in — `fresh`, the
+    // marker that says this slot has not had a turn yet and a Fake Out would
+    // still work on it. That is created *by* the arrival rather than surviving
+    // it, so "switching clears every volatile" is intact; what it no longer
+    // means is "and leaves nothing behind".
+    expect(battle.sides[0].volatiles?.blessing).toBeUndefined();
+    expect(battle.sides[0].volatiles).toEqual({ fresh: true });
 
     // Alone, it fails rather than fainting for nobody.
     const alone = turn(fought(ours[0], theirs), 0, 0, TRAINER_RULES);

@@ -492,6 +492,14 @@ const NPC_COLOURS: Record<NpcKind, string> = {
   quest: "#c9a83a",
   gym: "#c95a7a",
   buy: "#b09a5a",
+  // The machine, and the man running a bracket out of a field.
+  print: "#7ab0c9",
+  arena: "#c97a4a",
+  // A colour you would not want to look at for long, which is the idea.
+  shred: "#9a5a5a",
+  cut: "#8a8ac4",
+  // Forge-coloured, which is to say the colour of something that has just been hit.
+  forge: "#c9844a",
   // The five at the end of the world, and the one who keeps their door.
   cup: "#a55ac9",
   // Grey, and grey is the point. Every other colour here says something

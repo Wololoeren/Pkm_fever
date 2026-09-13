@@ -40,7 +40,7 @@ export type Damage =
    * STAB, no effectiveness multiplier. That is how these read in the games,
    * and it is the whole point of them.
    */
-  | { t: "exact"; amount: number; selfKo?: boolean }
+  | { t: "exact"; amount: number }
   /** Nothing happens, and the log says so rather than reporting a hit of 0. */
   | { t: "fails" };
 
@@ -154,9 +154,6 @@ function retaliate(taken: number, numerator: number, denominator: number): Damag
  *    The engine has the party but no multi-hit moves at all, and adding them
  *    is a larger change than this fix. 30 is roughly one hit at mid base
  *    attack.
- *  - bide: two turns of charging, then double what was absorbed. There is no
- *    multi-turn move state, so it is a plain weak normal attack with the +1
- *    priority the manifest already gives it.
  *  - trumpcard: no longer a stand-in. Power points exist now, so it reads
  *    them: 40 with five or more left, and 200 on the last one. It was the
  *    only entry on this list waiting for something the game has since grown.
@@ -171,7 +168,6 @@ const STAND_IN_POWER: Record<string, number> = {
   heavyslam: 60,
   heatcrash: 60,
   beatup: 30,
-  bide: 60,
   naturalgift: 80,
   fling: 30,
 };
@@ -228,6 +224,20 @@ export function variableDamage(move: MoveEntry, ctx: DamageContext): Damage {
   if (stand !== undefined) return { t: "power", power: stand };
 
   switch (move.id) {
+    /*
+     * Bide, which this module is never actually asked about.
+     *
+     * It is a zero-power non-status move, so `hasVariableDamage` is true of
+     * it and V2 requires it to be named here rather than caught by the
+     * default — but battle.ts intercepts it well before the damage path,
+     * because two turns of taking it and a third of giving it back is a
+     * mechanic rather than a formula. It used to be a stand-in sixty power
+     * with none of that, which is why it is worth saying out loud that it is
+     * not one any more.
+     */
+    case "bide":
+      return { t: "fails" };
+
     // Level damage, flat.
     case "nightshade":
     case "seismictoss":
@@ -253,7 +263,10 @@ export function variableDamage(move: MoveEntry, ctx: DamageContext): Damage {
 
     // Trade the user's remaining health for the same damage.
     case "finalgambit":
-      return { t: "exact", amount: Math.max(1, ctx.attacker.hp), selfKo: true };
+      // The fainting is not here: `selfdestruct: "ifHit"` on the manifest row
+      // says the user does not survive, and `afterMove` is the one place that
+      // is paid — beside Explosion, Memento and the rest of the family.
+      return { t: "exact", amount: Math.max(1, ctx.attacker.hp) };
 
     // One hit, all of it. The manifest's 30% accuracy is the whole balance.
     case "fissure":

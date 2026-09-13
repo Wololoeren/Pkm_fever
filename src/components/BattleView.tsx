@@ -14,11 +14,10 @@ import { displayPower } from "@/engine/moves";
 import { anyPp, ppLeft, maxPp } from "@/engine/pp";
 import { computeStats } from "@/engine/stats";
 import type { Individual } from "@/engine/types";
-import { displayName, narrate } from "@/lib/narrate";
+import { displayName, narrateParts, type LogLine } from "@/lib/narrate";
 import { badgesFor } from "@/lib/tags";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, TeamBalls, VariantTag } from "./PartyStrip";
-import { EvolutionScene } from "./EvolutionScene";
 import { beatsFor, catchFor } from "@/lib/beats";
 import { useBeat, useCatch, useEntrance } from "./useBeat";
 import { useCues } from "./useCues";
@@ -237,34 +236,18 @@ export function BattleView({
 }) {
   const [switching, setSwitching] = useState(false);
 
-  // An evolution to show, if this turn produced one and it has not been sat
-  // through yet. Keyed by the battle and the turn it happened on, so the same
-  // one is never shown twice and a later one is never missed.
-  const [evolvedKey, setEvolved] = useState<string | null>(null);
-  const evolving = (() => {
-    const event = battle.events.find(
-      (one) => one.t === "exp" && one.evolved && one.evolvedFrom,
-    );
-    if (!event || event.t !== "exp" || !event.evolved || !event.evolvedFrom) return null;
-
-    // Which creature earned it, so the scene can show that one rather than a
-    // factory-colours stand-in. `uid` is on the event for exactly this: the
-    // creature has already changed by the time anything reads the event, and
-    // the team is the only place its appearance is recorded. Experience only
-    // ever goes to the side we are driving, and "normal" is the honest answer
-    // if that ever stops being true.
-    const grown = battle.sides[role].team.find((one) => one.uid === event.uid);
-
-    const key = `${battle.tag}:${battle.turn}:${event.evolved}`;
-    return evolvedKey === key
-      ? null
-      : {
-          key,
-          from: event.evolvedFrom,
-          to: event.evolved,
-          variantId: grown?.variantId ?? "normal",
-        };
-  })();
+  /*
+   * The scene does not play here any more.
+   *
+   * It used to, off the turn's `exp` event, because a battle evolved the
+   * creature on the spot and the event was a report of something already
+   * true. It is an *offer* now — nothing has changed species, and the player
+   * has not been asked — so playing twenty seconds of it mid-battle would be
+   * showing a thing that may not happen, over a battle that is still going.
+   *
+   * The offer waits in `pendingEvolutions` and is answered where every other
+   * offer is: out in the field, once the battle is over. `page.tsx` plays it.
+   */
 
   // What this turn looked like, and the two elements each side animates. The
   // refs are handed to `useBeat`, which restarts on the turn number.
@@ -284,6 +267,17 @@ export function BattleView({
   const player = activeOf(battle, role);
   const foe = activeOf(battle, them);
   const mustSwitch = battle.awaitingSwitch[role];
+  /**
+   * The move that is going to happen whatever is pressed.
+   *
+   * A creature part-way through a Fly, a Rollout or an Outrage has had the
+   * choice taken away, and the engine deliberately accepts *any* button
+   * rather than greying all but one — greying them all is how a battle ends
+   * up with nothing legal to press. So the menu has to say so instead, or the
+   * player presses Tackle, watches an Outrage come out, and concludes the
+   * buttons are broken.
+   */
+  const committed = battle.sides[role].volatiles?.committed ?? null;
   const ourTeam = battle.sides[role].team;
   const wildBattle = balls !== undefined;
   const canAct = !busy && !footer && !battle.outcome;
@@ -303,14 +297,30 @@ export function BattleView({
     }
   }, [battle, role, mustSwitch, switching, canAct, onAction]);
 
-  // The keyboard's half of switching. S opens the picker, a number picks,
-  // Escape closes. On the capture phase, and stopping there, because the
-  // page's own battle keys read the same numbers as moves — and while the
-  // picker is open a number is a creature, not a move.
+  /*
+   * The keyboard's half of switching. X opens the picker, a number picks,
+   * Escape closes. On the capture phase, and stopping there, because the
+   * page's own battle keys read the same numbers as moves — and while the
+   * picker is open a number is a creature, not a move.
+   *
+   * **X rather than S, and the repeat guard, are the same bug fixed twice.**
+   * S is the walk-south key. Walking south into tall grass is the single
+   * commonest way to meet anything in this game, and the key is still held
+   * when the battle opens — so the operating system's auto-repeat arrived
+   * here as a fresh press and the switch picker was open before the player
+   * had seen what they had run into.
+   *
+   * Changing the key fixes the case that happens constantly. Throwing away
+   * `event.repeat` fixes the whole class, including B and R and the number
+   * keys, and including whatever this is rebound to next.
+   */
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (!canAct) return;
       if (event.ctrlKey || event.altKey || event.metaKey) return;
+      // A key held down since before this battle existed is not a decision
+      // about it.
+      if (event.repeat) return;
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
@@ -335,7 +345,7 @@ export function BattleView({
         return;
       }
 
-      if (key === "s" && targets.length) {
+      if (key === "x" && targets.length) {
         event.preventDefault();
         event.stopImmediatePropagation();
         setSwitching(true);
@@ -360,9 +370,57 @@ export function BattleView({
   useCatch(ballRef, foeSprite, burstRef, attempt, battle.turn);
   useCues(battle);
 
-  const lines = narrate(battle.events, (side) =>
+  const lines = narrateParts(battle.events, (side) =>
     side === role ? displayName(player) : `${opponentLabel} ${displayName(foe)}`.trim(),
   );
+
+  /*
+   * The whole battle, not just the turn that has just happened.
+   *
+   * `BattleState.events` is *this turn's* narration and is replaced every
+   * turn — deliberately, because it is derived and the state hash leaves it
+   * out. So the transcript does not exist anywhere until something keeps it,
+   * and keeping it in the engine would mean a save that grows with every turn
+   * of every battle for the sake of some words nobody replays.
+   *
+   * So it is kept here, in the view, which is exactly as long as it is worth
+   * having: a new battle is a new tag and a fresh scroll.
+   */
+  const [history, setHistory] = useState<{ tag: string; turn: number; lines: LogLine[] }>({
+    tag: battle.tag,
+    turn: -1,
+    lines: [],
+  });
+
+  useEffect(() => {
+    setHistory((held) => {
+      // A different battle is a different transcript.
+      if (held.tag !== battle.tag) return { tag: battle.tag, turn: battle.turn, lines: [...lines] };
+      // Appended once per turn, and only forwards. React can render the same
+      // turn twice and a peer can hand us the same state again; neither is a
+      // reason to say everything twice.
+      if (battle.turn <= held.turn) return held;
+      return { tag: battle.tag, turn: battle.turn, lines: [...held.lines, ...lines] };
+    });
+    // `lines` is rebuilt every render, so it cannot be a dependency without
+    // this running every render. The turn is what actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [battle.tag, battle.turn]);
+
+  /** Everything said so far, with this turn on the end even before the effect
+   * has run — so the newest line is never a frame late. */
+  const transcript =
+    history.tag === battle.tag && battle.turn <= history.turn
+      ? history.lines
+      : [...(history.tag === battle.tag ? history.lines : []), ...lines];
+
+  // Pinned to the bottom as it grows, the way a chat log is: the newest line
+  // is the one being read, and scrolling up is a deliberate act.
+  const logRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const box = logRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [transcript.length]);
 
   const actions = (
     <>
@@ -403,10 +461,18 @@ export function BattleView({
                   <button
                     key={moveId}
                     type="button"
-                    className={`moveBtn${left === 0 ? " spent" : ""}`}
+                    className={`moveBtn${left === 0 ? " spent" : ""}${
+                      committed && committed !== moveId ? " overridden" : ""
+                    }`}
                     style={{ borderLeftColor: typeColor(entry.type) }}
-                    disabled={left === 0}
-                    title={left === 0 ? `${entry.name} has no uses left` : undefined}
+                    disabled={left === 0 && !committed}
+                    title={
+                      committed
+                        ? `${moveById(committed).name} happens this turn whatever is pressed`
+                        : left === 0
+                          ? `${entry.name} has no uses left`
+                          : undefined
+                    }
                     onClick={() => onAction({ t: "fight", moveIndex: index })}
                   >
                     {/* The key that presses it. One to four already worked and
@@ -467,7 +533,7 @@ export function BattleView({
               {targets.length ? (
                 <>
                   {" · "}
-                  <kbd>S</kbd> switch
+                  <kbd>X</kbd> switch
                 </>
               ) : null}
               {wildBattle ? (
@@ -484,15 +550,6 @@ export function BattleView({
 
   return (
     <div className="battle">
-      {evolving ? (
-        <EvolutionScene
-          from={evolving.from}
-          to={evolving.to}
-          variantId={evolving.variantId}
-          onDone={() => setEvolved(evolving.key)}
-        />
-      ) : null}
-
       <div className="stage">
         {/* Who you have, up the left. It used to sit a long way below the
             battle, under the bag, which meant checking what was left on the
@@ -575,9 +632,30 @@ export function BattleView({
               <span className="openingWho">{opponentLabel.replace(/'s$/, "")}:</span> {opening}
             </p>
           ) : null}
-          <div className="log">
-            {lines.length ? (
-              lines.map((line, i) => <p key={i}>{line}</p>)
+          <div className="log" ref={logRef}>
+            {transcript.length ? (
+              transcript.map((line, at) => (
+                <p key={at}>
+                  {line.map((part, index) =>
+                    part.t === "text" ? (
+                      <span key={index}>{part.text}</span>
+                    ) : part.t === "key" ? (
+                      <span key={index} className="logKey">
+                        {part.text}
+                      </span>
+                    ) : (
+                      // Whose move it was decides the colour, and only this
+                      // component knows which side the reader is sitting on.
+                      <span
+                        key={index}
+                        className={part.side === role ? "logMine" : "logTheirs"}
+                      >
+                        {part.text}
+                      </span>
+                    ),
+                  )}
+                </p>
+              ))
             ) : (
               <p className="muted">
                 {opponentLabel} {displayName(foe)} is out!

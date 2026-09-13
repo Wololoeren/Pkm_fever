@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeOf,
+  battleHash,
   catchOdds,
   isFainted,
   maxHp,
@@ -19,7 +20,7 @@ import {
 } from "@/engine/battle";
 import { anyPp } from "@/engine/pp";
 import { ALL_MOVES, effectiveness, move } from "@/engine/dex";
-import { awardExp, evolutionAt, expForLevel, levelFromExp } from "@/engine/progression";
+import { awardExp, evolutionAt, evolve, expForLevel, levelFromExp } from "@/engine/progression";
 import type { Individual } from "@/engine/types";
 import { creature } from "./helpers";
 
@@ -350,13 +351,22 @@ describe("progression", () => {
     expect(grown.movesLearned).toEqual([]);
   });
 
-  it("B23: reaching the level evolves it", () => {
+  it("B23: reaching the level offers the evolution, and does not take it", () => {
     const bulbasaur = creature("bulbasaur", { level: 5 });
     expect(evolutionAt(bulbasaur)).toBeNull();
 
     const grown = awardExp(bulbasaur, expForLevel(20) - bulbasaur.exp);
-    expect(grown.evolvedTo).toBe("ivysaur");
-    expect(grown.individual.speciesId).toBe("ivysaur");
+    expect(grown.evolveTo).toBe("ivysaur");
+    // And it is still a Bulbasaur. Growth reports what is ready and stops:
+    // saying no is the player's, and a decision has to reach the engine as an
+    // input or the save cannot replay it.
+    expect(grown.individual.speciesId).toBe("bulbasaur");
+
+    // Taking it is the separate step, and it keeps the health fraction the
+    // way levelling does rather than the raw number.
+    const changed = evolve(grown.individual, grown.evolveTo!);
+    expect(changed.speciesId).toBe("ivysaur");
+    expect(changed.hp).toBeGreaterThan(0);
   });
 
   it("B24: levelling keeps the proportion of health, not a free heal", () => {
@@ -382,10 +392,14 @@ describe("move data", () => {
 });
 
 describe("evolving", () => {
-  it("B28: the event says what it became and what it was", () => {
-    // Both halves, because by the time anything reads this the creature has
-    // already changed — a screen that wants to show the change has no way
-    // back to the thing it changed from.
+  it("B28: the event says what it is ready to become, and does not change it", () => {
+    // Both halves, because a screen showing the change needs the thing it
+    // would change from and has no other way back to it.
+    //
+    // And the creature is still a Caterpie afterwards. A battle no longer
+    // evolves anybody: it reports the offer, and whoever owns the party asks
+    // — because saying no has to be a decision the save records, or a replay
+    // would evolve what the player refused.
     const mine = creature("caterpie", { uid: 1, level: 6, moves: ["tackle"] });
     const theirs = creature("magikarp", { uid: 2, level: 40, hp: 1, moves: ["splash"] });
 
@@ -407,7 +421,7 @@ describe("evolving", () => {
     expect(evolved).not.toBeNull();
     expect(evolved!.evolvedFrom).toBe("caterpie");
     expect(evolved!.evolved).toBe("metapod");
-    expect(battle.sides[0].team[0].speciesId).toBe("metapod");
+    expect(battle.sides[0].team[0].speciesId).toBe("caterpie");
   });
 
   it("B29: and says nothing about it when nothing evolved", () => {
@@ -474,5 +488,184 @@ describe("conditions the manifest has and this engine does not", () => {
 
     // Poison, because that is the nearest condition this engine has.
     expect(live.sides[1].team[0].status).toBe("psn");
+  });
+});
+
+/**
+ * Experience, split between everybody who took part.
+ *
+ * Switching out was a pure loss before this: send something in to take a hit,
+ * bring it back, and it had done all the work and earned none of the
+ * experience. That taught exactly one lesson — never switch — which is the
+ * opposite of what a switch is for.
+ *
+ * `BattleState.sharing` is the whole mechanism: who has stood opposite *this*
+ * creature, reset when the other side sends out somebody new.
+ */
+describe("who earned it", () => {
+  /** Two of ours against one very weak thing, so the fight ends on cue. */
+  function bout(ours: Individual[], theirs: Individual[], lead = 0) {
+    return startBattle("SHARE", "wild:share:0", ours, theirs, lead);
+  }
+
+  function team(count: number, level = 30): Individual[] {
+    return Array.from({ length: count }, (_, at) =>
+      creature("machop", { uid: at + 1, level, moves: ["karatechop", "tackle"] }),
+    );
+  }
+
+  /** Beaten in one, by handing the other side no health at all. */
+  function finish(state: BattleState) {
+    const flattened: BattleState = {
+      ...state,
+      sides: [
+        state.sides[0],
+        { ...state.sides[1], team: state.sides[1].team.map((one) => ({ ...one, hp: 1 })) },
+      ],
+    };
+    return resolveTurn(flattened, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], WILD_RULES);
+  }
+
+  it("X70: the lead is the only one owed a share, to begin with", () => {
+    const state = bout(team(3), [creature("caterpie", { uid: 9, level: 3, iv: 0 })], 1);
+    expect(state.sharing).toEqual([1]);
+  });
+
+  it("X71: something switched out and back in is still owed its share", () => {
+    // The whole point. Sending one in to take a hit and bringing it back used
+    // to earn it nothing at all.
+    const ours = team(2);
+    let state = bout(ours, [creature("caterpie", { uid: 9, level: 3, iv: 0 })]);
+    state = resolveTurn(state, [{ t: "switch", partyIndex: 1 }, { t: "fight", moveIndex: 0 }], WILD_RULES).battle;
+    expect(state.sharing.sort()).toEqual([0, 1]);
+
+    const before = state.sides[0].team.map((one) => one.exp);
+    const done = finish(state);
+
+    // Both of them, and neither by accident: two `exp` events, one per uid.
+    const paid = done.battle.events.filter((one) => one.t === "exp");
+    expect(paid).toHaveLength(2);
+    expect(new Set(paid.map((one) => (one as { uid: number }).uid))).toEqual(new Set([1, 2]));
+
+    for (let at = 0; at < 2; at++) {
+      expect(done.battle.sides[0].team[at].exp, `slot ${at}`).toBeGreaterThan(before[at]);
+    }
+  });
+
+  it("X72: the other side switching starts the list again", () => {
+    // The list is about *one* opposing creature. Without the reset, beating a
+    // team of six would pay the whole party six times over for the work it
+    // did against the first one.
+    const ours = team(2);
+    const theirs = [
+      creature("caterpie", { uid: 9, level: 3, iv: 0 }),
+      creature("weedle", { uid: 10, level: 3, iv: 0 }),
+    ];
+    let state = bout(ours, theirs);
+    state = resolveTurn(state, [{ t: "switch", partyIndex: 1 }, { t: "fight", moveIndex: 0 }], TRAINER_RULES).battle;
+    expect(state.sharing.sort()).toEqual([0, 1]);
+
+    // They send out somebody new: only whoever we have standing has faced it.
+    state = resolveTurn(state, [{ t: "fight", moveIndex: 0 }, { t: "switch", partyIndex: 1 }], TRAINER_RULES).battle;
+    expect(state.sharing).toEqual([1]);
+  });
+
+  it("X73: the split is the yield divided, and never rounds to nothing", () => {
+    // One creature takes the lot; six take a sixth each. What matters is that
+    // the sixth is not zero — a party that all took a turn against a Caterpie
+    // should each come away with something.
+    const alone = finish(bout(team(1), [creature("caterpie", { uid: 9, level: 5, iv: 0 })]));
+    const soloPaid = alone.battle.events.find((one) => one.t === "exp") as { amount: number };
+
+    const ours = team(6);
+    let crowd = bout(ours, [creature("caterpie", { uid: 9, level: 5, iv: 0 })]);
+    // Everybody takes a turn out.
+    for (let at = 1; at < 6; at++) {
+      crowd = resolveTurn(crowd, [{ t: "switch", partyIndex: at }, { t: "fight", moveIndex: 0 }], WILD_RULES).battle;
+    }
+    expect(crowd.sharing.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+
+    const shared = finish(crowd);
+    const each = shared.battle.events.filter((one) => one.t === "exp") as { amount: number }[];
+    expect(each).toHaveLength(6);
+    for (const one of each) {
+      expect(one.amount).toBeGreaterThan(0);
+      expect(one.amount).toBeLessThan(soloPaid.amount);
+    }
+    // Roughly a sixth each, allowing for the floor and the never-zero rule.
+    expect(each[0].amount).toBeLessThanOrEqual(Math.ceil(soloPaid.amount / 6));
+  });
+
+  it("X74: effort is not split — it is a lesson, not a prize", () => {
+    // Two creatures that both fought a Machop have both been hit by a Machop.
+    // This is also what the games do.
+    const ours = team(2);
+    let state = bout(ours, [creature("machop", { uid: 9, level: 5, iv: 0 })]);
+    state = resolveTurn(state, [{ t: "switch", partyIndex: 1 }, { t: "fight", moveIndex: 0 }], WILD_RULES).battle;
+
+    const done = finish(state);
+    const efforts = done.battle.events.filter((one) => one.t === "effort") as { amount: number }[];
+    expect(efforts).toHaveLength(2);
+    // The same amount each, rather than half apiece.
+    expect(efforts[0].amount).toBe(efforts[1].amount);
+  });
+
+  it("X75: a participant that has fainted since is not paid, and not counted in the split", () => {
+    // Experience goes to creatures that can use it. A fainted one levelling up
+    // in a battle it is out of would be strange, and the games do not do it.
+    const ours = team(2);
+    let state = bout(ours, [creature("caterpie", { uid: 9, level: 3, iv: 0 })]);
+    state = resolveTurn(state, [{ t: "switch", partyIndex: 1 }, { t: "fight", moveIndex: 0 }], WILD_RULES).battle;
+    expect(state.sharing.sort()).toEqual([0, 1]);
+
+    // The first one is knocked out while sitting on the bench.
+    const wounded: BattleState = {
+      ...state,
+      sides: [
+        {
+          ...state.sides[0],
+          team: state.sides[0].team.map((one, at) => (at === 0 ? { ...one, hp: 0 } : one)),
+        },
+        state.sides[1],
+      ],
+    };
+    const benchedExp = wounded.sides[0].team[0].exp;
+
+    const done = finish(wounded);
+    const paid = done.battle.events.filter((one) => one.t === "exp") as { uid: number; amount: number }[];
+    expect(paid.map((one) => one.uid)).toEqual([2]);
+    expect(done.battle.sides[0].team[0].exp).toBe(benchedExp);
+
+    // And the one still standing takes the whole of it, not half.
+    const alone = finish(bout(team(1), [creature("caterpie", { uid: 9, level: 3, iv: 0 })]));
+    const solo = alone.battle.events.find((one) => one.t === "exp") as { amount: number };
+    expect(paid[0].amount).toBe(solo.amount);
+  });
+
+  it("X77: a lead that goes down taking the other one with it earns nothing", () => {
+    // Self-Destruct into a creature on its last point: both faint in the same
+    // turn, and the one that fainted is not paid for it.
+    const ours = [
+      creature("machop", { uid: 1, level: 30, moves: ["selfdestruct"] }),
+      creature("machop", { uid: 2, level: 30, moves: ["tackle"] }),
+    ];
+    const state = bout(ours, [creature("caterpie", { uid: 9, level: 3, iv: 0 })]);
+    const onePoint: BattleState = {
+      ...state,
+      sides: [state.sides[0], { ...state.sides[1], team: state.sides[1].team.map((one) => ({ ...one, hp: 1 })) }],
+    };
+
+    const done = resolveTurn(onePoint, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], WILD_RULES);
+    expect(done.battle.sides[0].team[0].hp).toBe(0);
+    expect(done.battle.sides[1].team[0].hp).toBe(0);
+    expect(done.battle.events.filter((one) => one.t === "exp")).toHaveLength(0);
+    expect(done.battle.sides[0].team[0].exp).toBe(state.sides[0].team[0].exp);
+  });
+
+  it("X76: who is owed is part of the battle hash", () => {
+    // Two peers that disagreed about this would agree about the whole battle
+    // right up until something fainted, which is the worst moment to find out.
+    const state = bout(team(2), [creature("caterpie", { uid: 9, level: 3, iv: 0 })]);
+    expect(battleHash({ ...state, sharing: [0, 1] })).not.toBe(battleHash(state));
   });
 });

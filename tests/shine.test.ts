@@ -24,6 +24,7 @@ import {
 } from "@/engine/breeding";
 import { countOf, item, ITEMS, LURE_MOVES, LURES } from "@/engine/items";
 import { NPCS, SHINE_GLITTER, SHINE_PRICE } from "@/engine/npc";
+import { evolve } from "@/engine/progression";
 import { rngFor } from "@/engine/rng";
 import { routeId as worldRouteId } from "@/engine/world";
 import { walkable } from "@/engine/terrain";
@@ -423,8 +424,15 @@ describe("an appearance survives becoming something else", () => {
     // new species.
     const found = battle.sides[0].team.find((one) => one.uid === grown!.uid);
     expect(found, "the event named a uid that is not on the team").toBeDefined();
-    expect(found!.speciesId).toBe("metapod");
-    expect(found!.variantId).toBe("shiny:tide");
+    // Still a Caterpie: the battle offers the change rather than making it.
+    expect(found!.speciesId).toBe("caterpie");
+
+    // The appearance is what this file is about, and it has to survive the
+    // step that actually changes the species — which is now `evolve`, reached
+    // through an input, rather than something growth did on its own.
+    const changed = evolve(found!, grown!.evolved!);
+    expect(changed.speciesId).toBe("metapod");
+    expect(changed.variantId).toBe("shiny:tide");
   });
 
   it("S19: a stone keeps it, and the notice says which creature it was", () => {

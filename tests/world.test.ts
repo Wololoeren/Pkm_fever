@@ -3,6 +3,7 @@ import { opposite, type Bearing } from "@/engine/layout";
 import { ALL_SPECIES, movesAtLevel, species, STARTER_TRIOS } from "@/engine/dex";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
 import { passable, walkable } from "@/engine/terrain";
+import { PROPS } from "@/engine/props";
 import { STAT_IDS } from "@/engine/types";
 import { CENSUS_TOTAL, CHROMA_IDS, TOP_TIER, variant } from "@/engine/variants";
 import { encounterTable, pickStarters, STARTER_COUNT, wildAt } from "@/engine/world";
@@ -591,4 +592,143 @@ function walkFrom(
     }
   }
   return steps;
+}
+
+/**
+ * Where the cast is allowed to stand.
+ *
+ * Route trainers were the one placement in the world that did not go through
+ * `nearestSpot`, and so the one with none of its standards: `buildTrainers`
+ * took any walkable tile at all. `TILE.DOOR` is walkable — it has to be, you
+ * walk through it — so a trainer could be dealt a gym doorway, and more often
+ * the single step in front of one, which is the only way in.
+ *
+ * A gym you cannot enter is a badge you cannot earn, on a save with no way to
+ * reroll the world.
+ */
+describe("nobody stands where you need to walk", () => {
+  /** Everybody solid on a route, from all three rosters. */
+  function peopleOn(world: ReturnType<typeof testWorld>, routeId: string) {
+    const out: { x: number; y: number; id: string; from: string }[] = [];
+    for (const one of world.trainers.get(routeId) ?? []) {
+      out.push({ x: one.x, y: one.y, id: one.id, from: "trainer" });
+    }
+    for (const one of world.npcs.get(routeId) ?? []) {
+      out.push({ x: one.x, y: one.y, id: one.id, from: "npc" });
+    }
+    for (const one of world.critters.get(routeId) ?? []) {
+      out.push({ x: one.x, y: one.y, id: one.id, from: "critter" });
+    }
+    return out;
+  }
+
+  // Sixteen worlds is sixteen full generations; the default timeout is for
+  // tests that do arithmetic, not tests that build worlds.
+  it("W26: nobody is standing in a doorway, or on the step in front of one", { timeout: 60_000 }, () => {
+    // More seeds than the rest of this file uses, and deliberately: the
+    // trainer that prompted this turned up on one route of one seed in eight.
+    // A rule about a rare placement needs enough worlds to have seen it.
+    const many = Array.from({ length: 16 }, (_, at) => `door${at}`);
+    const wrong: string[] = [];
+    let doors = 0;
+
+    for (const seed of many) {
+      const world = testWorld(seed);
+      for (const route of world.routes.values()) {
+        const people = peopleOn(world, route.id);
+        if (!people.length) continue;
+
+        for (let y = 0; y < route.height; y++) {
+          for (let x = 0; x < route.width; x++) {
+            // Asked of the tile rather than of `route.doors`, which lists only
+            // the doors wired to an interior — a building whose room could not
+            // be built still has a door drawn on it.
+            if (route.tiles[y * route.width + x] !== DOOR_TILE) continue;
+            doors++;
+
+            for (const who of people) {
+              const blocking =
+                (who.x === x && who.y === y) ||
+                // Orthogonally adjacent only. A diagonal neighbour is beside
+                // the doorway rather than in front of it, and blocks nothing.
+                Math.abs(who.x - x) + Math.abs(who.y - y) === 1;
+              if (blocking) {
+                wrong.push(`${seed} ${route.id}: ${who.from} ${who.id} at ${who.x},${who.y} vs door ${x},${y}`);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // The evidence is worth nothing if there were no doors to stand in.
+    expect(doors).toBeGreaterThan(100);
+    expect(wrong, `somebody is blocking a door:\n${wrong.join("\n")}`).toEqual([]);
+  });
+
+  it("W27: and nobody is standing where they would wall the route off", () => {
+    // The other standard route trainers were missing. A route is a real maze
+    // with one-wide corridors, and a person is solid: a trainer on the wrong
+    // tile is everything past them unreachable for the rest of the save.
+    for (const seed of ["A1", "B2"]) {
+      const world = testWorld(seed);
+      for (const route of outdoorRoutes(world)) {
+        const people = peopleOn(world, route.id);
+        if (!people.length) continue;
+
+        // Props are solid too, and they are solid in both terms — the
+        // question is what the *cast* costs on top of the map as it is.
+        const props = new Set(
+          route.props.filter((prop) => !PROPS[prop.kind].walkable).map((prop) => `${prop.x},${prop.y}`),
+        );
+        const blocked = new Set([...props, ...people.map((who) => `${who.x},${who.y}`)]);
+        const open = reachable(route, props);
+        const withThem = reachable(route, blocked);
+
+        // Everybody standing costs exactly the tile they stand on, and
+        // nothing behind them.
+        const standingOnReachable = people.filter((who) => open.has(`${who.x},${who.y}`)).length;
+        expect(
+          withThem.size,
+          `${seed} ${route.id}: the cast cuts the route off`,
+        ).toBe(open.size - standingOnReachable);
+      }
+    }
+  });
+});
+
+/** `TILE.DOOR`, named here rather than imported as the whole table. */
+const DOOR_TILE = 10;
+
+/** Every tile you could walk to from the way in, given these are solid. */
+function reachable(
+  route: { width: number; height: number; tiles: ArrayLike<number>; entry: { x: number; y: number } },
+  blocked: Set<string>,
+): Set<string> {
+  const seen = new Set<string>();
+  const start = route.entry;
+  if (blocked.has(`${start.x},${start.y}`)) return seen;
+  if (!walkable(route.tiles[start.y * route.width + start.x])) return seen;
+
+  const queue = [start];
+  seen.add(`${start.x},${start.y}`);
+  for (let head = 0; head < queue.length; head++) {
+    const here = queue[head];
+    for (const [dx, dy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ]) {
+      const x = here.x + dx;
+      const y = here.y + dy;
+      if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
+      const key = `${x},${y}`;
+      if (seen.has(key) || blocked.has(key)) continue;
+      if (!walkable(route.tiles[y * route.width + x])) continue;
+      seen.add(key);
+      queue.push({ x, y });
+    }
+  }
+  return seen;
 }

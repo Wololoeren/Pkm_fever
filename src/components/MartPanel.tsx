@@ -59,6 +59,10 @@ const SHELF_LABEL: Record<ItemKind, string> = {
   hm: "Tools",
   tm: "Machines",
   key: "Keys",
+  // Never on a shelf — an ink is found, not bought — but the table is keyed
+  // on every kind there is, so leaving it out is a compile error rather than
+  // a shelf that silently disappears.
+  ink: "Inks",
 };
 
 export function MartPanel({

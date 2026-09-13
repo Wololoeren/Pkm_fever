@@ -8,7 +8,7 @@ It is written down rather than approximated. An ability that half works is
 worse than one that visibly does not exist yet — a player who catches a
 creature with Static and finds it does nothing has learned that abilities are
 unreliable, which is a much more expensive lesson than "there are 313 of these
-and 90 are in".
+and 112 are in".
 
 Each heading below is **one mechanic**. Adding it unlocks everything under it
 at once, which is what makes this a plan rather than a wishlist. They are in
@@ -18,17 +18,26 @@ rough order of how much the game gets back per unit of work.
 
 ## 1. Move flags — contact, punch, bite, sound, pulse, slicing, ballistic, powder
 
-**What is missing.** `moves.json` carries type, category, power, accuracy, PP,
-priority, crit ratio, target, status, boosts, secondary, drain, recoil and
-heal. It does not carry the flag set. `@pkmn/dex` has it, so this is a
-`scripts/build-dex.mjs` change and one new field — the cheapest item on this
-list by a wide margin.
+**The data has arrived; the wiring has not.** This section used to say
+`moves.json` did not carry the flag set and that copying it was the cheapest
+item on the list. It was, and it has been done: `scripts/build-dex.mjs` copies
+it, `MoveEntry.flags` holds it, and 263 moves say `contact`, 24 `punch`, 10
+`bite`, 32 `sound`, 7 `pulse`, 25 `slicing`, 26 `bullet` and 8 `powder`.
+
+It was copied for `charge` and `recharge` — the two-turn and beam moves needed
+it — and the rest came along in the same field, which was the argument for
+carrying the whole useful set at once rather than two flags with a caller.
+
+So **every row below is now an engine change of a few lines rather than a data
+problem**, and this is the cheapest section on this list by a wider margin than
+before. The place to put most of them is `landDamage`, where the blow is
+already known to have landed and the move is in hand.
 
 **Deliberately not approximated.** "Physical" is not "contact": Earthquake and
 Rock Slide are physical and touch nothing, and Grass Knot is special and
 absolutely does. Wiring Static to `category === "physical"` would give roughly
 the right answer often enough to look correct and be wrong in exactly the
-matchups people plan around.
+matchups people plan around. That trade no longer has to be made either way.
 
 | Ability | Waiting on |
 | --- | --- |
@@ -65,39 +74,56 @@ one place — Flying, Levitate and Magnet Rise are the three ways off the ground
 
 ## 4. Held items
 
-**What is missing.** A creature has no item slot. This is a small data change
-and a large design one: the item catalogue would need battle items, and the
-"census, not lottery" rule has to have something to say about where they come
-from.
+**Also out of date.** This said a creature has no item slot.
+`Individual.heldItem` is that slot, 111 held items and berries are in, and the
+battle reads and spends them — see [`items.md`](./items.md).
+
+What is left is not the slot but the *moving*: an item that is given, taken,
+swapped or switched off crosses from battle state into the bag, which is the
+line `docs/moves-deferred.md` draws under its own "items that move in a battle"
+heading.
 
 | Ability | Waiting on |
 | --- | --- |
-| Klutz, Unburden, Harvest, Pickup, Symbiosis, Ripen | a held item |
-| Magician, Pickpocket (the stealing half), Sticky Hold | a held item |
-| Unnerve, As One (the Unnerve half) | a held berry |
+| Klutz, Unburden, Harvest, Ripen | nothing — each reads `heldItem` and is simply not built |
+| Sticky Hold | an item that can be taken, so there is something to hold on to |
+| Magician, Pickpocket (the stealing half), Symbiosis, Pickup | an item changing hands mid-battle |
+| Unnerve, As One (the Unnerve half) | a held berry being *withheld*, which `eatBerry` has no hook for |
 
-## 5. Volatile conditions — confusion, infatuation, trapping, flinching
+## 5. Volatile conditions — all of which now exist
 
-**What is missing.** `Individual.status` holds one non-volatile condition.
-There is nowhere to put a condition that belongs to a *slot in a battle* rather
-than to a creature, and no turn counter for one.
+**This section is out of date and worth reading as a record of that.** It said
+there was nowhere to put a condition belonging to a slot rather than a
+creature. `Combatant.volatiles` is that place, it holds thirty-odd fields, and
+every condition this section was waiting on is in it: `confusion` and
+`infatuated` arrived with the status moves, `trapped` with Mean Look, and
+`flinched` with the twenty-eight moves that cause it. Forced switches are in
+too — Roar and Whirlwind through `forceOut`, Dragon Tail and Circle Throw
+through the move row.
 
-| Ability | Waiting on |
+So none of these is blocked. They are simply not built.
+
+| Ability | Reads |
 | --- | --- |
-| Own Tempo, Tangled Feet | confusion |
-| Oblivious, Cute Charm (the infatuation half) | infatuation |
-| Inner Focus, Stench, Steadfast | flinching |
-| Shadow Tag, Arena Trap, Suction Cups | trapping / forced switches |
+| Own Tempo, Tangled Feet | `confusion` |
+| Oblivious, Cute Charm (the infatuation half) | `infatuated` |
+| Inner Focus, Steadfast | `flinched` |
+| Stench | a flinch chance added to every move, which is the one that wants new plumbing rather than a read |
+| Shadow Tag, Arena Trap, Suction Cups | `trapped`, `bound`, and the two force-out paths |
 | Run Away | escape, which wild battles do differently here |
+
+Inner Focus is the pick of them: one line in `canAct`, and it is the answer to
+a mechanic the game has just grown.
 
 ## 6. Multi-hit and fixed-damage move shapes
 
-**What is missing.** `moves.ts` already computes the damage the manifest cannot
-express, but a move still lands exactly once.
+**Half of this has arrived too.** It said a move still lands exactly once;
+thirty-one of them now land two to five times, and `hitsOf` is the loop.
 
 | Ability | Waiting on |
 | --- | --- |
-| Skill Link, Parental Bond | multi-hit |
+| Skill Link | nothing — `hitsOf` returning the top of the range |
+| Parental Bond | a second swing at half power, which the loop can express |
 | Sheer Force | secondary effects being *removable* per hit |
 | Serene Grace | secondary chance doubling — trivial once Sheer Force's shape exists |
 

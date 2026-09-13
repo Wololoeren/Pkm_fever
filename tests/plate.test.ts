@@ -205,11 +205,19 @@ describe("what is happening to a creature", () => {
     // If this ever drops to a handful the test has stopped testing anything.
     expect(fields.length).toBeGreaterThan(8);
 
-    /** Bookkeeping rather than a condition, and the one honest exemption:
+    /**
+     * Bookkeeping rather than a condition, and the honest exemptions.
+     *
      * `shieldStreak` is how the engine remembers that the last two turns were
-     * also spent shielding, so the third one usually fails. It is not
-     * something being done to the creature and there is nothing to show. */
-    const exempt = new Set(["shieldStreak"]);
+     * also spent shielding, so the third one usually fails. The other four
+     * are the detail of a commitment — which kind it is, how many turns are
+     * left, how many blows a Rollout has landed, and how much a Bide has
+     * taken. None of them is a separate thing being done to the creature:
+     * they are read *by* the COMMITTED and BIDING badges, which is exactly
+     * where a player should meet them. A badge apiece would be four badges
+     * saying one thing.
+     */
+    const exempt = new Set(["shieldStreak", "commitment", "commitTurns", "rolled", "bided"]);
 
     // One value per field that reads as "on". Every kind the engine writes is
     // either a flag, a count or one of two words.
@@ -233,6 +241,14 @@ describe("what is happening to a creature", () => {
       afloat: 3,
       types: ["water"],
       seen: "ghost",
+      committed: "outrage",
+      hidden: "sky",
+      curled: true,
+      recharging: true,
+      flinched: true,
+      bound: 4,
+      biding: 2,
+      fresh: true,
     };
 
     for (const field of fields) {

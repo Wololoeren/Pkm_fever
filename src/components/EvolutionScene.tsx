@@ -17,9 +17,20 @@ import { Sprite } from "./Sprite";
  * the corner end it immediately — the same key that leaves a conversation,
  * because "get me out of this" should not be a different key each time.
  *
- * Nothing here touches game state. The evolution already happened in the
- * engine, on the turn the experience was awarded; this is a picture of
- * something that is already true, which is why skipping it costs nothing.
+ * **And, where there is something to refuse, a way to refuse it.** The scene
+ * is two different things depending on who asked for it, and `onCancel` is
+ * what tells them apart:
+ *
+ * - After a **stone**, it is a picture. The item is spent and the creature has
+ *   already changed, so there is nothing to say no to and <kbd>E</kbd> only
+ *   makes the picture shorter.
+ * - After **growing into it**, it *is the question*. Nothing has changed
+ *   species yet; running to the end says yes and <kbd>B</kbd> says no, and
+ *   the answer goes back to the engine as an input either way.
+ *
+ * Nothing here touches game state in either case — it reports which answer it
+ * got and the caller applies it, because a component that reached into a save
+ * would be a decision the input log never saw.
  *
  * It is a picture of *this* creature, which took a while to be true. The scene
  * asked for `variantId="normal"` and got it — so the one moment the game
@@ -50,6 +61,7 @@ export function EvolutionScene({
   to,
   variantId,
   onDone,
+  onCancel,
 }: {
   from: string;
   to: string;
@@ -62,6 +74,16 @@ export function EvolutionScene({
    */
   variantId: string;
   onDone: () => void;
+  /**
+   * Stopping it, when there is something to stop.
+   *
+   * Absent for the scenes that are only a picture — a stone has already been
+   * spent, and a reveal you can refuse after the fact would be refusing
+   * nothing. Present when the scene *is* the question, which is every
+   * evolution grown into: `B`, and a button, and neither is the same as
+   * skipping. Skipping says "yes, get on with it"; this says no.
+   */
+  onCancel?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
   const started = useRef(performance.now());
@@ -85,7 +107,19 @@ export function EvolutionScene({
       if (event.ctrlKey || event.altKey || event.metaKey) return;
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-      if (event.key.toLowerCase() !== "e") return;
+      const key = event.key.toLowerCase();
+
+      // B stops it, where stopping it is a thing that can be done. Beside E
+      // rather than instead of it, because they are opposite answers to the
+      // same screen and a player who wants out of the animation should not
+      // have to remember which kind of "out" this one is.
+      if (key === "b" && onCancel) {
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+        return;
+      }
+      if (key !== "e") return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -94,7 +128,7 @@ export function EvolutionScene({
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onDone]);
+  }, [onDone, onCancel]);
 
   const before = speciesById(from);
   const after = speciesById(to);
@@ -177,9 +211,20 @@ export function EvolutionScene({
         <div className="evolveFill" style={{ width: `${Math.min(100, (elapsed / TOTAL) * 100)}%` }} />
       </div>
 
-      <button type="button" className="ghost evolveSkip" onClick={onDone}>
-        Skip <kbd>E</kbd>
-      </button>
+      <div className="evolveButtons">
+        {/* Both, when both mean something, and worded as the opposite answers
+            they are. "Skip" on a scene you can also refuse would be the one
+            word in the game where the fast way out and the way out are the
+            same button. */}
+        {onCancel ? (
+          <button type="button" className="ghost evolveStop" onClick={onCancel}>
+            Stop it <kbd>B</kbd>
+          </button>
+        ) : null}
+        <button type="button" className="ghost evolveSkip" onClick={onDone}>
+          {onCancel ? "Let it" : "Skip"} <kbd>E</kbd>
+        </button>
+      </div>
     </div>
   );
 }

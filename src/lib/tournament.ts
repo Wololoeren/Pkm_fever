@@ -1,5 +1,4 @@
 import {
-  aiAction,
   DUEL_RULES,
   isFainted,
   maxHp,
@@ -8,6 +7,7 @@ import {
   type BattleAction,
   type BattleState,
 } from "@/engine/battle";
+import { trainerAction } from "@/ai";
 import { fullPp } from "@/engine/pp";
 import type { Individual } from "@/engine/types";
 import { normaliseSeed } from "./save";
@@ -113,7 +113,10 @@ export function playMatch(seed: string, size: number, a: Entrant, b: Entrant): M
   let state: BattleState = startBattle(seed, tag, teamA, teamB);
 
   while (!state.outcome) {
-    const actions: [BattleAction, BattleAction] = [aiAction(state, 0), aiAction(state, 1)];
+    // Both chairs are played by the trainer's policy rather than at random:
+    // a bracket decided by which side happened to roll its good move is a
+    // bracket that says nothing about the teams in it.
+    const actions: [BattleAction, BattleAction] = [trainerAction(state, 0), trainerAction(state, 1)];
     state = resolveTurn(state, actions, DUEL_RULES).battle;
   }
 

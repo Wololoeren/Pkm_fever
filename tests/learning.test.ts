@@ -14,7 +14,7 @@ import {
 import { canLearnMachine, learnset, MACHINE_MOVES, machinesFor, move as moveById } from "@/engine/dex";
 import { item, MACHINE_ITEMS, MART_STOCK } from "@/engine/items";
 import { awardExp, expForLevel } from "@/engine/progression";
-import { startBattle } from "@/engine/battle";
+import { maxHp, startBattle } from "@/engine/battle";
 import { NPCS } from "@/engine/npc";
 import { QUESTS } from "@/engine/quests";
 import { machinesUpTo } from "@/engine/world";
@@ -164,10 +164,25 @@ describe("growing into a move", () => {
     const after = applyInput(world, holding, { t: "useItem", item: "rarecandy", index: 0 });
 
     expect(after.party[0].level).toBe(7);
-    // Setting the level and rebuilding the moveset threw away the choice and
-    // never evolved anything. Growth does both properly.
-    expect(after.party[0].speciesId).toBe("metapod");
+    // Setting the level and rebuilding the moveset threw away the choice.
+    // Growth keeps it.
     expect(after.party[0].moves).toContain("tackle");
+
+    // And the evolution is *offered* rather than taken. A candy is bought,
+    // and paying money to be evolved against your will is a worse deal than
+    // the same thing happening in the grass.
+    expect(after.party[0].speciesId).toBe("caterpie");
+    expect(after.pendingEvolutions).toEqual([{ uid: 703, to: "metapod" }]);
+
+    // Saying yes is the second input, and it is what actually changes it.
+    const taken = applyInput(world, after, { t: "evolve", uid: 703, to: "metapod", accept: true });
+    expect(taken.party[0].speciesId).toBe("metapod");
+    expect(taken.pendingEvolutions).toEqual([]);
+
+    // And saying no leaves it alone, and does not ask again.
+    const kept = applyInput(world, after, { t: "evolve", uid: 703, to: "metapod", accept: false });
+    expect(kept.party[0].speciesId).toBe("caterpie");
+    expect(kept.pendingEvolutions).toEqual([]);
   });
 
   it("L8: an offer made mid-battle reaches the save when the battle ends", () => {
@@ -347,5 +362,131 @@ describe("machines", () => {
         }
       }
     }
+  });
+});
+
+/**
+ * Saying no to an evolution.
+ *
+ * These games have always let you stop one, and this one did not: `awardExp`
+ * applied the change the instant the level was gained, so the twenty-second
+ * scene the game stops everything to play was a picture of something already
+ * true and there was nowhere to stand to refuse it.
+ *
+ * The fix is the shape the move offers already had. Growth reports what is
+ * *ready*; the answer arrives as an input; the save records which answer was
+ * given. That last part is the whole reason it could not simply be a button in
+ * the scene: a save is a seed and a list of inputs, so a refusal the log never
+ * saw is a refusal a replay would overrule.
+ */
+describe("growing into something else", () => {
+  /** A Caterpie one level short of Metapod, and a candy to close the gap. */
+  function ready(seed: string) {
+    const { world, state } = started(seed);
+    const mine = creature("caterpie", { uid: 900, level: 6, moves: ["tackle"] });
+    return {
+      world,
+      state: { ...state, party: [mine], bag: { ...state.bag, rarecandy: 3 } } as GameState,
+    };
+  }
+
+  it("L9: growing into it asks rather than taking it", () => {
+    const { world, state } = ready("EVO1");
+    const grown = applyInput(world, state, { t: "useItem", item: "rarecandy", index: 0 });
+
+    expect(grown.party[0].level).toBe(7);
+    expect(grown.party[0].speciesId).toBe("caterpie");
+    expect(grown.pendingEvolutions).toEqual([{ uid: 900, to: "metapod" }]);
+  });
+
+  it("L10: saying no leaves it alone, and asks again next time it grows", () => {
+    const { world, state } = ready("EVO2");
+    const grown = applyInput(world, state, { t: "useItem", item: "rarecandy", index: 0 });
+    const kept = applyInput(world, grown, {
+      t: "evolve",
+      uid: 900,
+      to: "metapod",
+      accept: false,
+    });
+
+    expect(kept.party[0].speciesId).toBe("caterpie");
+    expect(kept.pendingEvolutions).toEqual([]);
+
+    // And asked again on the next level, which is what these games do: a
+    // refusal is a decision about this moment, and an Everstone is the
+    // decision about all of them. A "no" that stuck for good would quietly
+    // strand the creature one item short of ever changing.
+    const older = applyInput(world, kept, { t: "useItem", item: "rarecandy", index: 0 });
+    expect(older.party[0].level).toBe(8);
+    expect(older.party[0].speciesId).toBe("caterpie");
+    expect(older.pendingEvolutions).toEqual([{ uid: 900, to: "metapod" }]);
+  });
+
+  it("L11: saying yes changes it, and keeps the appearance and the health", () => {
+    const { world } = ready("EVO3");
+    const { state } = started("EVO3");
+    // Shiny and half-hurt, because both are things an evolution must not eat.
+    const mine = creature("caterpie", {
+      uid: 900,
+      level: 6,
+      moves: ["tackle"],
+      variantId: "shiny",
+    });
+    const hurt = { ...mine, hp: Math.max(1, Math.floor(maxHp(mine) / 2)) };
+    const holding: GameState = {
+      ...state,
+      party: [hurt],
+      bag: { ...state.bag, rarecandy: 1 },
+    };
+
+    const grown = applyInput(world, holding, { t: "useItem", item: "rarecandy", index: 0 });
+    const became = applyInput(world, grown, {
+      t: "evolve",
+      uid: 900,
+      to: "metapod",
+      accept: true,
+    });
+
+    expect(became.party[0].speciesId).toBe("metapod");
+    // The appearance is the creature's and not the species', so it survives.
+    expect(became.party[0].variantId).toBe("shiny");
+    // Full, because a candy heals — the fraction it keeps is the one it had
+    // *after* the candy, which is all of it. What matters here is that the
+    // number moved with the pool rather than being left where it was.
+    expect(became.party[0].hp).toBe(maxHp(became.party[0]));
+    expect(became.party[0].hp).toBeGreaterThan(maxHp(hurt));
+  });
+
+  it("L12: an unanswered offer is part of the save, and both answers replay", () => {
+    const world = testWorld("EVO4");
+    // A starter is dealt at five and the trios change at sixteen, so this is
+    // eleven candies rather than one. Read off the state rather than named
+    // here: which of the nine trios the seed dealt is not what this is about.
+    const base: Input[] = [
+      { t: "pickStarter", index: 0 },
+      { t: "cheat", cheat: { op: "items" } },
+      ...Array.from(
+        { length: 11 },
+        () => ({ t: "useItem", item: "rarecandy", index: 0 }) as Input,
+      ),
+    ];
+
+    const grown = reduce(world, base);
+    const offer = grown.pendingEvolutions[0];
+    expect(offer, "eleven candies offered nothing to evolve").toBeDefined();
+
+    const yes: Input[] = [...base, { t: "evolve", ...offer, accept: true }];
+    const no: Input[] = [...base, { t: "evolve", ...offer, accept: false }];
+
+    // Each replays to itself, and the two are different games. That second
+    // half is the point: if a refusal did not change the state hash, the log
+    // would not be recording the decision at all.
+    expect(stateHash(reduce(world, yes))).toBe(stateHash(reduce(world, yes)));
+    expect(stateHash(reduce(world, no))).toBe(stateHash(reduce(world, no)));
+    expect(stateHash(reduce(world, yes))).not.toBe(stateHash(reduce(world, no)));
+
+    // And an outstanding question is itself part of the hash, so a save with
+    // one waiting cannot be mistaken for one without.
+    expect(stateHash(grown)).not.toBe(stateHash(reduce(world, no)));
   });
 });

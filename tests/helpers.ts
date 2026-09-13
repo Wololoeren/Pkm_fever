@@ -101,6 +101,8 @@ export function creature(
     heldItem: options.heldItem ?? null,
     nickname: null,
     traded: false,
+    prize: false,
+    cheat: false,
     parents: null,
     gender: options.gender ?? "female",
   };

@@ -35,8 +35,10 @@ npm run dev
 Then open <http://localhost:3100>. Pick a seed, choose one of the three
 starters it deals you — one grass, one fire, one water — and walk east out of
 Hearth into the grass. Arrow keys or WASD to move; in a battle,
-<kbd>1</kbd>–<kbd>4</kbd> for moves, <kbd>B</kbd> to throw a ball, <kbd>R</kbd>
-to run, <kbd>Enter</kbd> to dismiss a result.
+<kbd>1</kbd>–<kbd>4</kbd> for moves, <kbd>X</kbd> to switch, <kbd>B</kbd> to
+throw a ball, <kbd>R</kbd> to run, <kbd>Enter</kbd> to dismiss a result.
+Switching is <kbd>X</kbd> and not <kbd>S</kbd> because <kbd>S</kbd> is the
+key you are already holding when the grass produces something.
 
 Your progress autosaves to the browser as you go, and **Save to file** hands
 you the seed and input log as JSON — that is the whole save.
@@ -48,18 +50,21 @@ src/lib/       save files, narration, and the WebRTC transport
 src/components/  the UI
 src/data/      the generated manifest: 1,134 species, 791 moves, the type chart
 scripts/       the build step that generates it
-tests/         661 tests, including the replay property everything rests on
-docs/          the four reference pages: status, abilities, items, and what is deferred
+tests/         846 tests, including the replay property everything rests on
+docs/          the reference pages: status, abilities, items, the trainer's policy, and what is deferred
 ```
 
 Working: world generation and the census, the overworld — a town you walk
 around and buildings you walk into, routes with meandering paths, woodland,
 ponds and tall grass, and a camera that follows you — wild encounters, a
 full single battle system — damage, the type chart, criticals, accuracy, stat
-stages, five status conditions, drain, recoil and healing — plus catching,
+stages, five status conditions, drain, recoil and healing, two-turn moves and
+the turn a beam spends recovering, flinching, binding, rampages, hit-and-run
+and blows that land two turns later — plus catching,
 experience, levelling, move learning, evolution, breeding, the box, save/load,
 field notes on everything you have met, ninety-nine things the people on the
-routes will tell you, and **PvP over WebRTC** — battles at any size from 1v1 to 6v6, and trading.
+routes will tell you, and **PvP over WebRTC** — battles at any size from 1v1 to
+6v6, trading, and live knockout brackets for four, eight or sixteen.
 
 Not yet: a tournament bracket — though a bracket is a spreadsheet and a series
 of 1v1s, which already work.
@@ -93,6 +98,16 @@ They also forced a small correction. Battles used to ask one question — "is
 this wild?" — which decided both whether you could throw a ball and whether
 you gained experience. A trainer is worth experience but cannot be caught, and
 a person is neither, so the flag became two.
+
+A person also *chooses*. The grass picks a move at random and always will —
+that is what a wild creature is — but everybody else searches: every legal
+action against the three replies you are likeliest to make, played out on
+the real engine six times on renamed dice and one turn further with a cheap
+policy, and the best position wins. All of it is integer arithmetic on a
+pure engine, so a trainer battle replays identically on any machine, which
+is what lets the opponent's choices stay out of the save file.
+[`docs/ai.md`](./docs/ai.md) is the page: why a GAN is the wrong tool, what
+the numbers said, and how to train the policy underneath the search.
 
 ### PvP
 
@@ -150,7 +165,63 @@ an actual playthrough. `lib/verify.ts` is the whole of it and is pure, so
 the engine gives it, a cheat leaves a mark that survives everything after it,
 and a log the engine refuses says *which input* rather than "corrupt".
 
-### Tournament mode
+### Live brackets
+
+The file-based bracket below is an organiser with a folder of saves. This is
+the other kind: four, eight or sixteen people in a room, playing their own
+matches. Under **PvP → Tournament**, the host picks the field and the format —
+anything from 1v1 to 6v6 — everybody types a name and brings a team, and the
+host shares a room code the way a duel does.
+
+**One match at a time, and everybody watches.** That is the whole shape of it:
+a bracket among people who know each other is half spectating, and running the
+rounds in parallel would mean nobody ever sees the match they are about to play
+the winner of. The two in the live match play it; everybody else is sent the
+resolved battle after every turn and watches it happen.
+
+**The host is not a referee.** They hold the door and nothing else. The draw
+comes out of the room code and the peer ids through `drawOrder`, and every
+client computes it independently from the same locked roster — so a host who
+fancied an easy side has nothing to reach for, and the host is in the hat like
+everybody else. Results are announced by both players in the match and must
+agree; two clients claiming different winners stops the bracket rather than
+picking one, which is the same rule the duel's hash check follows.
+
+**If somebody closes their laptop**, the same search that plays every trainer
+in the game sits down in their chair. In a room of sixteen that is close to
+certain to happen, and the alternative is an afternoon that stops dead. It is
+also the one place a bracket asks for trust — the surviving player drives both
+chairs — and it is bounded by the frames being broadcast, so the room watches
+the AI's moves as they happen.
+
+**Winning it pays.** The champion is offered three creatures at **level 1** and
+takes one: the starter screen again, at the other end of the game, with better
+odds. A level 50 handed to the winner walks into the next bracket and wins it
+too; a level 1 is worth nothing today and everything in forty hours, which is
+the trade the whole game runs on. The odds scale with the *rounds survived* —
+winning a sixteen is four wins and a four is two — and they move shine, colour,
+abilities and the IV floor together. The three on offer are rolled from the
+room code and the champion, so everybody computes the same three and a winner
+who did not like theirs cannot reroll by rejoining.
+
+Two players' teams are exchanged in the open when a match starts, the way a
+duel does it — broadcast rather than sent across, so the gallery builds the
+same battle and watches from the first turn rather than from whichever frame
+lands first. Every team the room announces is remembered for the rest of the
+tournament, so a player who fights in round one and closes their laptop in
+round two is still played by the AI with the creatures they actually brought.
+
+What comes out is marked `prize` and reported at check-in beside the trades,
+for the same reason: a tournament happened in other people's browsers, so the
+creature is carried whole in the input rather than derived from this seed. It
+is the one thing about it a replay cannot prove, and the verify page says so.
+
+`engine/bracket.ts` is the draw, `engine/prize.ts` is the reward and
+`engine/tourney.ts` is the protocol — all three pure and transport-free, so
+`T1`–`T14` and `U1`–`U10` play whole brackets in memory with no network and no
+timing.
+
+### Tournament mode, from files
 
 Same seed, fixed hours, bring six. `/tournament` is the bracket: drop
 everybody's save on it, each is replayed and checked in exactly as the verify
@@ -176,6 +247,28 @@ brings fewer than the team size, or played a different seed when the rules say
 everybody played the same one, is listed with the reason and left out.
 `lib/tournament.ts` is pure and `T1` to `T4` run a three-entrant bracket
 without a browser.
+
+### What a creature says about where it came from
+
+Three marks, and they travel with the creature rather than with the log,
+because a log is a fact about one save and a creature can change hands.
+
+- **`traded`** — raised in somebody else's world and carried whole in the
+  input that brought it. The save still replays; it just no longer proves this
+  one.
+- **`prize`** — won by taking a bracket. Rolled from a tournament that happened
+  in other people's browsers, so the same hole and the same treatment.
+- **`cheat`** — made or edited by the testing menu. `GameState.cheated` already
+  says a *log* used the menu, and that is exactly what cannot survive a trade:
+  cheat a level 100 into one save, hand it to another, and the receiving log is
+  honestly clean while the team is impossible. The mark on the creature goes
+  with it.
+
+All three are shown on the inspector, on a PvP team sheet and on the verify
+page, and none of them is ever cleared — an origin that could be washed off by
+passing a creature between two saves would not be worth recording. Only the
+shortcuts that *make or edit a creature* set `cheat`: a save full of free Ultra
+Balls is a cheated save, and the creatures in it were still caught.
 
 ### Today's seed
 
@@ -397,13 +490,22 @@ twenty moves, and then catches up. You can see him the whole time, there is a
 number over his head counting down, and there is nothing to do about it except
 be ready or run for a town. He does not follow you into one.
 
-**His team is built out of yours.** As many as you have, three levels above your
-average, and each one picked for a type that beats one of yours — so a party
-that has grown lopsided is a party he has noticed. There is no preparing for him
-in general; you prepare by not having an obvious weakness, which is the one
-thing the rest of the game never asks. And he is *decorated*: chromas and high
-shine at rates nothing else comes close to, because the colours you have spent
-forty hours hunting are what he turns up wearing.
+**His team is built out of yours.** As many as you have, and each one picked for
+a type that beats one of yours — so a party that has grown lopsided is a party
+he has noticed. There is no preparing for him in general; you prepare by not
+having an obvious weakness, which is the one thing the rest of the game never
+asks. And he is *decorated*: chromas and high shine at rates nothing else comes
+close to, because the colours you have spent forty hours hunting are what he
+turns up wearing.
+
+**And he gains on you.** The first time he catches you he is at your party's
+average exactly; every meeting after that he is two levels further ahead than
+the last — the fifth is eight above you, the tenth eighteen. It was a flat three
+forever, which made him the same fight every time: your party grew, his grew
+with it, and the gap never moved. The people standing on the routes already come
+back three levels stronger for every beating they have taken from you, and this
+is that rule with a smaller step, because he brings as many as you have and
+counters every one of them.
 
 He comes once at the start and then every 2,500 moves, measured from the last
 time rather than as a modulo on the clock, so a long encounter does not eat into

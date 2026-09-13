@@ -21,6 +21,12 @@ import { variant } from "@/engine/variants";
  */
 
 function Result({ report }: { report: Verification }) {
+  // How much of the team did not come from this playthrough. The count that
+  // matters for "bring six", as opposed to how many trades ever happened.
+  const tradedNow = report.party.filter((one) => one.traded).length;
+  const prizedNow = report.party.filter((one) => one.prize).length;
+  const cheatedNow = report.party.filter((one) => one.cheat).length;
+
   return (
     <div className="menuCard">
       <h2>{report.ok ? "Replays cleanly" : "Does not replay"}</h2>
@@ -51,7 +57,46 @@ function Result({ report }: { report: Verification }) {
             </tr>
             <tr>
               <td>Cheated</td>
-              <td className={`num ${report.cheated ? "error" : "good"}`}>{report.cheated ? "yes" : "no"}</td>
+              <td className={`num ${report.cheated || cheatedNow ? "error" : "good"}`}>
+                {report.cheated ? "yes" : "no"}
+                {/* A save that never touched the menu can still be holding
+                    something that was conjured out of one somewhere else and
+                    traded across. `cheated` cannot say that; the mark on the
+                    creature can. */}
+                {cheatedNow ? (
+                  <span className="error">
+                    {" "}
+                    · {cheatedNow} cheated {cheatedNow === 1 ? "creature" : "creatures"} in the party
+                  </span>
+                ) : null}
+              </td>
+            </tr>
+            {/* Beside `Cheated` rather than below the party, because the two
+                are read together or not at all: "cheated: no" on its own, next
+                to a creature that came out of somebody else's save, is the
+                misleading half of a true statement. */}
+            <tr>
+              <td>Traded in</td>
+              <td className={`num ${tradedNow ? "warn" : "good"}`}>
+                {report.trades.length === 0
+                  ? "none"
+                  : `${report.trades.length} ${report.trades.length === 1 ? "trade" : "trades"}`}
+                {tradedNow ? (
+                  <span className="warn">
+                    {" "}
+                    · {tradedNow} still in the party
+                  </span>
+                ) : null}
+              </td>
+            </tr>
+            <tr>
+              <td>Won in a bracket</td>
+              <td className={`num ${prizedNow ? "warn" : "good"}`}>
+                {report.prizes.length === 0
+                  ? "none"
+                  : `${report.prizes.length} ${report.prizes.length === 1 ? "prize" : "prizes"}`}
+                {prizedNow ? <span className="warn"> · {prizedNow} still in the party</span> : null}
+              </td>
             </tr>
             <tr>
               <td>Engine</td>
@@ -79,12 +124,62 @@ function Result({ report }: { report: Verification }) {
               ) : null}{" "}
               <span className="muted">Lv{one.level}</span>
               {one.variantId !== "normal" ? <span className="tag"> {variant(one.variantId).name}</span> : null}
+              {/* The one thing on this page that is not derived from the seed,
+                  said on the line where somebody is looking at it. */}
+              {one.traded ? <span className="tag warn"> TRADED IN</span> : null}
+              {one.prize ? <span className="tag warn"> PRIZE</span> : null}
+              {one.cheat ? <span className="tag fall"> CHEAT</span> : null}
             </li>
           ))}
         </ul>
       ) : (
         <p className="muted">Nobody. The log ends before a starter was picked.</p>
       )}
+
+      {report.prizes.length ? (
+        <>
+          <h3>Prizes · {report.prizes.length}</h3>
+          <p className="muted">
+            Won by taking a bracket. The three on offer are rolled from the tournament that
+            produced them, in other people&apos;s browsers, so like a trade this one is carried
+            whole in the log rather than derived from this seed.
+          </p>
+          <ul className="plainList">
+            {report.prizes.map((one) => (
+              <li key={one.at}>
+                <span className="muted">move {one.at + 1}</span> · <strong>{one.name}</strong>{" "}
+                <span className="muted">Lv{one.level}</span>
+                {one.variantId !== "normal" ? (
+                  <span className="tag"> {variant(one.variantId).name}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {report.trades.length ? (
+        <>
+          <h3>Trades · {report.trades.length}</h3>
+          <p className="muted">
+            A traded creature was raised in another save and is carried whole in the log rather
+            than derived from this seed. Replaying proves everything else; it cannot prove these.
+          </p>
+          <ul className="plainList">
+            {report.trades.map((one) => (
+              <li key={one.at}>
+                <span className="muted">move {one.at + 1}</span> · gave{" "}
+                <strong>{one.gave.name}</strong> <span className="muted">Lv{one.gave.level}</span> ·
+                got <strong>{one.got.name}</strong>{" "}
+                <span className="muted">Lv{one.got.level}</span>
+                {one.got.variantId !== "normal" ? (
+                  <span className="tag"> {variant(one.got.variantId).name}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -143,6 +238,11 @@ export default function VerifyPage() {
             player has. The seed, the move count, the hash and the cheated mark are what a
             tournament check-in needs; the party is listed so &quot;bring six&quot; can be checked by
             eye.
+          </p>
+          <p className="muted">
+            Anything received in a trade is called out separately, with the move it arrived on.
+            It was raised in another save and is carried whole in the log rather than derived
+            from this seed — so it is the one thing on the page that replaying cannot prove.
           </p>
           <div className="row">
             <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}>

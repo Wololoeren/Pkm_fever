@@ -85,6 +85,17 @@ const OPS: Record<Exclude<Input["t"], "move">, number> = {
   useTool: 31,
   fly: 32,
   release: 33,
+  // Appended, never renumbered: a save written before this existed has no
+  // 34 in it, and one written after has to mean the same thing forever.
+  evolve: 34,
+  prize: 35,
+  print: 36,
+  arenaEnter: 37,
+  arenaFight: 38,
+  arenaPrize: 39,
+  shred: 40,
+  cut: 41,
+  reforge: 42,
 };
 
 /** The same table read backwards, built once. */

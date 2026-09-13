@@ -324,21 +324,101 @@ function selfBoostsOf(move) {
   return { chance: move.self.chance ?? 100, boosts };
 }
 
+/**
+ * The flag set — the half of a move's data this manifest never carried at all.
+ *
+ * Showdown keeps a move's *kind* here rather than in its numbers: whether it
+ * touches, whether it charges for a turn, whether the user has to recover
+ * afterwards, whether it is a punch or a bite or a sound. None of it was being
+ * copied, and every mechanic built on it was therefore unreachable — which is
+ * how Hyper Beam came to be a 150-power move with no recharge and Fly came to
+ * hit the turn it was used.
+ *
+ * Carried as a sorted array rather than an object because it is read as a set
+ * and written to disk: sorted keys make a rebuild on the same data
+ * byte-identical, which is the property that lets a diff be reviewed.
+ *
+ * **Filtered to what a battle could ever ask.** Showdown's flag set also
+ * carries a dozen names that only mean something to its own move-calling
+ * plumbing — `metronome`, `mirror`, `failcopycat`, `noparentalbond` and the
+ * rest. They are excluded here rather than carried and ignored, so that a flag
+ * appearing in this manifest is a claim the engine is expected to honour, and
+ * `X58` can check exactly that.
+ */
+const CARRIED_FLAGS = new Set([
+  // What the battle acts on today.
+  "charge",
+  "recharge",
+  "futuremove",
+  "defrost",
+  // What Sleep Talk and Instruct already ask about.
+  "nosleeptalk",
+  "failinstruct",
+  // What the deferred lists are waiting for: the contact family, and the four
+  // that gate an ability apiece. Carried now because they cost nothing on top
+  // of the ones above and the build script is the thing both lists name.
+  "contact",
+  "punch",
+  "bite",
+  "sound",
+  "pulse",
+  "bullet",
+  "slicing",
+  "wind",
+  "powder",
+  "dance",
+  "bypasssub",
+  "reflectable",
+  "protect",
+  "gravity",
+  "heal",
+]);
+
+function flagsOf(move) {
+  const kept = Object.keys(move.flags ?? {}).filter((flag) => CARRIED_FLAGS.has(flag));
+  return kept.length ? kept.sort() : null;
+}
+
+/**
+ * A condition a move puts on somebody, named rather than described.
+ *
+ * The manifest cannot hold what `partiallytrapped` *does* — that is engine
+ * behaviour, and it lives in battle.ts the way every other shape does. What it
+ * can hold is *which* condition, which is the part that varies per move and
+ * was being dropped. Ten moves are a partial trap, four lock their user into a
+ * rampage, ten leave the user recharging, twenty-eight flinch.
+ *
+ * Carried verbatim, including the names the engine does not act on. A manifest
+ * that quietly omitted the ones we have not built would be a manifest that
+ * cannot be used to find out what is missing, and `actsOnSomething` is the
+ * place that decision belongs — one gate, in one file, that the guards read.
+ */
+function volatileOf(raw) {
+  return raw ?? null;
+}
+
 /** Showdown models a secondary as a chance plus whatever it inflicts. Only
  * the parts the battle system understands are carried across, so a move never
- * claims an effect the engine will silently drop. */
+ * claims an effect the engine will silently drop.
+ *
+ * `volatile` is the late arrival, and the expensive omission: twenty-eight
+ * moves carry `flinch` here and nothing else, so without it Iron Head and Air
+ * Slash were plain attacks and Fake Out was a 40-power priority move with no
+ * reason to exist. */
 function secondaryOf(move) {
   const raw = move.secondary ?? (move.secondaries?.length ? move.secondaries[0] : null);
   if (!raw) return null;
 
   const status = raw.status ?? null;
   const boosts = boostsOf(raw.boosts ?? raw.self?.boosts);
-  if (!status && !boosts) return null;
+  const volatile = volatileOf(raw.volatileStatus);
+  if (!status && !boosts && !volatile) return null;
 
   return {
     chance: raw.chance ?? 100,
     status,
     boosts,
+    volatile,
     self: Boolean(raw.self && !raw.boosts),
   };
 }
@@ -412,6 +492,46 @@ const moves = [...usedMoves]
      * is about to happen.
      */
     alwaysCrit: Boolean(move.willCrit),
+    flags: flagsOf(move),
+    /**
+     * What the move leaves on the target, and what it leaves on its user.
+     *
+     * Two fields rather than one because they are two different questions and
+     * a move can answer both: Wrap puts `partiallytrapped` on the target,
+     * Hyper Beam puts `mustrecharge` on itself, and Outrage puts `lockedmove`
+     * on itself while doing nothing to the target at all.
+     */
+    volatile: volatileOf(move.volatileStatus),
+    selfVolatile: volatileOf(move.self?.volatileStatus),
+    /**
+     * The user leaves after the move.
+     *
+     * A string rather than a boolean because Showdown uses it for three
+     * different things: `true` is an ordinary hit-and-go (U-turn, Volt
+     * Switch, Flip Turn), `copyvolatile` is Baton Pass and `shedtail` is Shed
+     * Tail. Only the first is honoured; the other two want stage-passing
+     * across a switch, which is its own deferred mechanic and is named as one
+     * in `docs/moves-deferred.md`. Carrying the string rather than collapsing
+     * it to a flag is what lets the engine tell them apart instead of
+     * quietly turning Baton Pass into a worse U-turn.
+     */
+    selfSwitch: move.selfSwitch ? String(move.selfSwitch) : null,
+    /** Whoever was hit is driven out. Roar and Whirlwind do it with no damage
+     * at all; Dragon Tail and Circle Throw do it after the blow lands. */
+    forceSwitch: Boolean(move.forceSwitch),
+    /**
+     * The user does not survive its own move.
+     *
+     * Two values upstream and the difference matters: `"always"` is Explosion,
+     * Self-Destruct and Misty Explosion, where the user goes down even against
+     * something the blow could not touch; `"ifHit"` is Final Gambit, Memento,
+     * Healing Wish and Lunar Dance, where nothing is paid if nothing landed.
+     *
+     * Uncopied, this was the same shape of hole as the recharge flag and a
+     * louder one: Explosion is **250 base power** and was costing its user
+     * precisely nothing.
+     */
+    selfdestruct: move.selfdestruct ? String(move.selfdestruct) : null,
   }))
   .sort((a, b) => (a.id < b.id ? -1 : 1));
 

@@ -50,7 +50,20 @@ export interface GrowthResult {
    * offered and stops there.
    */
   movesOffered: string[];
-  evolvedTo: string | null;
+  /**
+   * What it is *ready* to become, if anything — not what it became.
+   *
+   * Growth used to apply the evolution itself, and the field was called
+   * `evolvedTo` because that is what it meant: by the time anybody read it,
+   * the creature had already changed. Which left nowhere to stand to say no.
+   *
+   * Evolution is now an offer, for exactly the reason a move that will not fit
+   * is an offer: it is the player's decision, and a decision has to reach the
+   * engine as an *input* or the save cannot replay it. Growth says what is
+   * ready and stops there; `evolve` below is what applies it, once somebody
+   * has said yes.
+   */
+  evolveTo: string | null;
 }
 
 /**
@@ -77,7 +90,7 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
       levelsGained: 0,
       movesLearned: [],
       movesOffered: [],
-      evolvedTo: null,
+      evolveTo: null,
     };
   }
 
@@ -101,8 +114,8 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
     movesLearned.push(moveId);
   }
 
-  const evolvedTo = evolutionAt(grown);
-  if (evolvedTo) grown = { ...grown, speciesId: evolvedTo };
+  // Read, and deliberately not applied. See `GrowthResult.evolveTo`.
+  const evolveTo = evolutionAt(grown);
 
   const afterStats = computeStats(speciesById(grown.speciesId), grown);
   return {
@@ -110,8 +123,29 @@ export function awardExp(individual: Individual, amount: number): GrowthResult {
     levelsGained,
     movesLearned,
     movesOffered,
-    evolvedTo,
+    evolveTo,
   };
+}
+
+/**
+ * Becoming the other thing, once somebody has said yes.
+ *
+ * Split out of `awardExp` so that the moment a creature changes is a moment
+ * the player chose, reachable from three roads that all have to agree: growing
+ * into it in a battle, growing into it on a Rare Candy, and a stone.
+ *
+ * The health fraction is kept across the change, exactly as levelling keeps
+ * it. An evolution usually raises maximum HP, and a creature that came out of
+ * it at the same *number* would have quietly lost a slice of its health bar —
+ * which is the sort of thing nobody notices and everybody feels.
+ */
+export function evolve(individual: Individual, into: string): Individual {
+  const beforeStats = computeStats(speciesById(individual.speciesId), individual);
+  const fraction = beforeStats.hp > 0 ? individual.hp / beforeStats.hp : 0;
+
+  const changed = { ...individual, speciesId: into };
+  const afterStats = computeStats(speciesById(into), changed);
+  return { ...changed, hp: Math.max(1, Math.round(afterStats.hp * fraction)) };
 }
 
 /**

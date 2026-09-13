@@ -86,6 +86,73 @@ export function termAtLevel(term: number, level: number): { now: number; max: nu
   };
 }
 
+/** Where every point of one stat came from. The columns add to `total`. */
+export interface StatBreakdown {
+  base: number;
+  iv: number;
+  nature: number;
+  ev: number;
+  /** +5, or level + 10 on HP. */
+  flat: number;
+  /** What the variant multiplier added (or took) after everything else. */
+  special: number;
+  total: number;
+  /** The unscaled sum, 2*base + IV + nature + floor(EV/4). */
+  raw: number;
+}
+
+/**
+ * The same arithmetic as computeStat, split so the parts add up exactly.
+ *
+ * Scaling each term on its own and summing loses points to rounding — at
+ * level one a base of 190 and an IV of 31 are "1 + 0" apart but 2 together.
+ * So the terms are added in pipeline order and each is credited with what the
+ * running sum gained when it joined: the IV that tips 190 over 200 gets the
+ * point it tipped. The attribution depends on the order; the total does not.
+ */
+export function statBreakdown(
+  base: number,
+  stat: StatId,
+  level: number,
+  iv: number,
+  ev: number,
+  natureTerm: number,
+  variantMult: number,
+): StatBreakdown {
+  const scale = (sum: number) => Math.floor(Math.max(0, sum) * level / 100);
+  const terms = [2 * base, iv, stat === "hp" ? 0 : natureTerm, Math.floor(ev / 4)];
+
+  const shares: number[] = [];
+  let sum = 0;
+  for (const term of terms) {
+    const before = scale(sum);
+    sum += term;
+    shares.push(scale(sum) - before);
+  }
+
+  const flat = stat === "hp" ? level + 10 : 5;
+  const unmultiplied = scale(sum) + flat;
+  const total = Math.floor(unmultiplied * variantMult / 1000);
+
+  return {
+    base: shares[0],
+    iv: shares[1],
+    nature: shares[2],
+    ev: shares[3],
+    flat,
+    special: total - unmultiplied,
+    total,
+    raw: sum,
+  };
+}
+
+/** A term's share now, keeping its sign — a nature can take points away, and
+ * the scaling rounds toward zero so −24 at level one is worth nothing rather
+ * than a whole point off. */
+export function signedAtLevel(term: number, level: number): number {
+  return Math.sign(term) * Math.floor(Math.abs(term) * level / 100);
+}
+
 /** What a base stat contributes: doubled, then scaled by level. */
 export function baseAtLevel(base: number, level: number): { now: number; max: number } {
   return termAtLevel(2 * base, level);

@@ -23,6 +23,17 @@ export interface Secondary {
   chance: number;
   status: StatusId | null;
   boosts: Boosts | null;
+  /**
+   * A condition rather than a status or a stage: `flinch` on twenty-eight
+   * moves, `confusion` on eleven, and four one-offs the engine does not act on.
+   *
+   * The last field of the five to be carried across, and the most expensive
+   * omission of the lot: without it Iron Head, Rock Slide, Air Slash and
+   * Waterfall were plain attacks, Fake Out was a forty-power priority move
+   * with no reason to exist, and Dynamic Punch was a hundred-power move that
+   * missed half the time for nothing.
+   */
+  volatile: string | null;
   /** Whether the boosts land on the user rather than the target. */
   self: boolean;
 }
@@ -89,6 +100,74 @@ export interface MoveEntry {
    * critted one time in twenty-four like anything else.
    */
   alwaysCrit: boolean;
+  /**
+   * What kind of move this is, as opposed to how hard it hits.
+   *
+   * Showdown keeps a move's kind in a flag set — whether it touches, whether
+   * it charges for a turn, whether the user needs the next turn to recover,
+   * whether it is a punch, a bite, a sound or a powder. None of it was
+   * carried, and every mechanic built on it was therefore unreachable: Hyper
+   * Beam was a hundred and fifty power with no recharge, and Fly hit the turn
+   * it was used.
+   *
+   * A sorted array, filtered in the build script to the flags a battle could
+   * ever ask about — so a flag on a row here is a claim the engine is expected
+   * to honour, which is what `X58` checks. Null rather than an empty array for
+   * the moves that carry none, the way every other optional field on this row
+   * says "nothing to see".
+   */
+  flags: readonly string[] | null;
+  /**
+   * The condition the move leaves on whoever it hit.
+   *
+   * `partiallytrapped` on the ten binding moves, `bide` on Bide, and
+   * thirty-odd names the engine does not act on — Taunt's, Disable's,
+   * Encore's, and the rest of the move-restriction family that
+   * `docs/moves-deferred.md` files under its own heading. Carried whole rather
+   * than trimmed to what is built, because a manifest that quietly omitted the
+   * unbuilt ones could not be used to find out what is missing;
+   * `actsOnSomething` is the one place that decision is made.
+   */
+  volatile: string | null;
+  /**
+   * And the condition it leaves on its own user.
+   *
+   * Two fields rather than one because a move can do both, and because they
+   * are answered at different moments: `mustrecharge` on the ten beam moves
+   * and `lockedmove` on the four rampages are facts about the attacker that
+   * outlive the blow.
+   */
+  selfVolatile: string | null;
+  /**
+   * The user leaves after the move, and which kind of leaving.
+   *
+   * A string rather than a flag because Showdown uses one field for three
+   * mechanics: `"true"` is an ordinary hit-and-go — U-turn, Volt Switch, Flip
+   * Turn — while `"copyvolatile"` is Baton Pass and `"shedtail"` is Shed Tail,
+   * both of which want stages carried across a switch and are deferred as
+   * such. Keeping the string is what lets the engine tell them apart instead
+   * of quietly turning Baton Pass into a worse U-turn.
+   */
+  selfSwitch: string | null;
+  /**
+   * Whoever was hit is driven out.
+   *
+   * Roar and Whirlwind do it with no damage at all and are handled as status
+   * effects; Dragon Tail and Circle Throw do it after the blow lands, which is
+   * why the flag has to live on the move row as well.
+   */
+  forceSwitch: boolean;
+  /**
+   * The user does not survive its own move.
+   *
+   * `"always"` for Explosion, Self-Destruct and Misty Explosion — the user
+   * goes down even against something the blow could not touch, which is the
+   * whole risk of them. `"ifHit"` for Final Gambit, Memento, Healing Wish and
+   * Lunar Dance, where nothing is paid if nothing landed.
+   *
+   * Until this was carried, Explosion was 250 base power at no cost at all.
+   */
+  selfdestruct: string | null;
 }
 
 export const ALL_SPECIES = speciesData as unknown as SpeciesEntry[];

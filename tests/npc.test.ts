@@ -13,6 +13,7 @@ import {
   type GameState,
 } from "@/engine/engine";
 import { countOf } from "@/engine/items";
+import { ARENAS } from "@/engine/arenas";
 import { GYMS } from "@/engine/gyms";
 import { BIOME_IDS } from "@/engine/biomes";
 import { matchesWant, NPCS } from "@/engine/npc";
@@ -81,8 +82,15 @@ describe("where people stand", () => {
         posts.length,
       );
 
+      // And the six running brackets out of a field, expanded from
+      // `arenas.ts` exactly as the gym leaders are from `gyms.ts`.
+      const hosts = placed.filter((who) => who.kind === "arena");
+      expect(hosts.length, `${seed}: the arenas were not expanded`).toBe(ARENAS.length);
+
       // Minus one, because the authored Greycoat is in NPCS already.
-      expect(placed.length).toBe(NPCS.length + GYMS.length + staff + posts.length - 1);
+      expect(placed.length).toBe(
+        NPCS.length + GYMS.length + ARENAS.length + staff + posts.length - 1,
+      );
 
       for (const who of placed) {
         const route = world.routes.get(who.route)!;

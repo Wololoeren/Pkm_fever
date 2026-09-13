@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DuelSession, type DuelMessage } from "@/engine/duel";
 import { learnableAt } from "@/engine/dex";
-import { applyInput, initialState, MAX_MOVES, movesRefusal } from "@/engine/engine";
+import { applyInput, initialState, MAX_MOVES, movesRefusal, reduce, stateHash, type Input } from "@/engine/engine";
+import { cheatPrizeOffer } from "@/engine/prize";
+import { STAT_IDS } from "@/engine/types";
 import { TradeSession, type TradeMessage } from "@/engine/trade";
 import type { Individual } from "@/engine/types";
 import { countOf } from "@/engine/items";
@@ -252,5 +254,125 @@ describe("choosing moves", () => {
     const outside = walkOut(world, state);
     expect(world.routes.get(outside.route)?.kind).toBe("route");
     expect(movesRefusal(world, outside, 0, outside.party[0].moves)).toBe("moves are rearranged in town");
+  });
+});
+
+/**
+ * The prize bench.
+ *
+ * A shortcut for looking at what a bracket pays without winning one, which
+ * otherwise costs four wins and three other people in a room. It is a cheat
+ * like every other: it marks the save, it marks the creature, and it lands in
+ * the log.
+ *
+ * The interesting property is that the *offer* is recomputed rather than
+ * carried. `takePrize` has to carry a creature whole because a real tournament
+ * happened in browsers this seed cannot see; this one happened nowhere, so the
+ * log says which roll and which of the three, and a replay produces the same
+ * creature from the same two numbers.
+ */
+describe("the prize bench", () => {
+  it("P11: it takes what it showed, and marks it twice", () => {
+    const { world, state } = inTown("BENCH1");
+    const offered = cheatPrizeOffer(world.seed, 0, 8, state.nextUid);
+    expect(offered).toHaveLength(3);
+
+    const after = applyInput(world, state, {
+      t: "cheat",
+      cheat: { op: "prize", size: 8, roll: 0, index: 1 },
+    });
+
+    const won = [...after.party, ...after.box].at(-1)!;
+    // The one the bench had on screen in that position, not another roll.
+    expect(won.speciesId).toBe(offered[1].speciesId);
+    expect(won.variantId).toBe(offered[1].variantId);
+    expect(won.level).toBe(1);
+
+    // Both marks. `prize` because that is what it is; `cheat` because the
+    // menu made it — without the second, the bench would be a way to conjure
+    // a prize that checks in looking legitimately won.
+    expect(won.prize).toBe(true);
+    expect(won.cheat).toBe(true);
+    expect(after.cheated).toBe(true);
+
+    // And it arrived with a moveset and full health, like anything else does.
+    expect(won.moves.length).toBeGreaterThan(0);
+    expect(won.hp).toBeGreaterThan(0);
+  });
+
+  it("P12: the same log always produces the same creature", () => {
+    // The offer is recomputed from `roll` and `size` rather than carried, so
+    // this is the property that keeps it an ordinary cheat.
+    const world = testWorld("BENCH2");
+    const log: Input[] = [
+      { t: "pickStarter", index: 0 },
+      { t: "cheat", cheat: { op: "prize", size: 16, roll: 7, index: 2 } },
+    ];
+    expect(stateHash(reduce(world, log))).toBe(stateHash(reduce(world, log)));
+
+    // A different roll or a different slot is a different creature, which is
+    // what makes the reroll button worth having.
+    const taken = (roll: number, index: number) =>
+      reduce(world, [
+        { t: "pickStarter", index: 0 },
+        { t: "cheat", cheat: { op: "prize", size: 16, roll, index } },
+      ] as Input[]).party.at(-1)!;
+
+    expect(taken(7, 2).speciesId).not.toBe(taken(7, 0).speciesId);
+    expect(stateHash(reduce(world, log))).not.toBe(
+      stateHash(
+        reduce(world, [
+          { t: "pickStarter", index: 0 },
+          { t: "cheat", cheat: { op: "prize", size: 16, roll: 8, index: 2 } },
+        ] as Input[]),
+      ),
+    );
+  });
+
+  it("P13: it refuses a field that is not a bracket, and a slot that is not offered", () => {
+    const { world, state } = inTown("BENCH3");
+    expect(() =>
+      applyInput(world, state, {
+        t: "cheat",
+        // Six is a team size, not a bracket size. Refused rather than rounded
+        // to something nearby, which would be the bench quietly testing a
+        // field the game cannot run.
+        cheat: { op: "prize", size: 6 as never, roll: 0, index: 0 },
+      }),
+    ).toThrow(/bracket/);
+
+    expect(() =>
+      applyInput(world, state, { t: "cheat", cheat: { op: "prize", size: 4, roll: 0, index: 9 } }),
+    ).toThrow(/no such prize/);
+  });
+
+  it("P15: the bench draws from this world, so two worlds see two benches", () => {
+    const species = (seed: string) => cheatPrizeOffer(seed, 0, 8, 1).map((one) => one.speciesId);
+    expect(species("BENCH5")).toEqual(species("BENCH5"));
+    expect(species("BENCH6")).not.toEqual(species("BENCH5"));
+
+    // And the engine takes from the same draw the menu previews for that world.
+    const { world, state } = inTown("BENCH6");
+    const after = applyInput(world, state, { t: "cheat", cheat: { op: "prize", size: 8, roll: 0, index: 0 } });
+    expect([...after.party, ...after.box].at(-1)!.speciesId).toBe(
+      cheatPrizeOffer(world.seed, 0, 8, state.nextUid)[0].speciesId,
+    );
+  });
+
+  it("P14: a bigger field on the bench really is a better roll", () => {
+    // The reason the bench exists: seeing that the field size moves the odds.
+    // Over enough rolls rather than on one, because these are odds.
+    function sample(size: 4 | 8 | 16) {
+      let ivs = 0;
+      let seen = 0;
+      for (let roll = 0; roll < 200; roll++) {
+        for (const one of cheatPrizeOffer("BENCH4", roll, size, 1)) {
+          ivs += STAT_IDS.reduce((total, stat) => total + one.ivs[stat], 0);
+          seen++;
+        }
+      }
+      return ivs / seen;
+    }
+    expect(sample(16)).toBeGreaterThan(sample(4));
   });
 });

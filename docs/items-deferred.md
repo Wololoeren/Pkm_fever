@@ -11,38 +11,47 @@ whole row arrives at once. Most rows are one mechanic away.
 
 ---
 
-## Waiting on a volatile
+## Unblocked, and not built
 
-The largest group by far, and the cheapest to unlock. A **volatile** is a
-condition that lives on a creature for the rest of a battle and then is gone —
-confusion, flinching, a taunt, a substitute, Focus Energy. `BattleState` has
-`stages` per side and nothing else, so there is nowhere to write "this one is
-confused" or "this one flinched".
+**This section used to be the top of the list and it is now the bottom of the
+argument.** It read "nothing in the game has a volatile yet", and that has not
+been true for some time: confusion, trapping and eleven others arrived with the
+status moves, and flinching, partial trapping and the two-turn charge arrived
+with the damaging ones — see the second table in [`status.md`](./status.md).
 
-Nothing in the game has one yet, which is why this list is long: about half the
-in-battle items in the canon are a volatile in a wrapper.
+So these are no longer waiting on a mechanic. The mechanic is there, the item
+is not, and each is now a small piece of wiring rather than a feature:
+
+| Item | Reads |
+| --- | --- |
+| **King's Rock**, **Razor Fang** | `flinched`, which Iron Head and twenty-seven others already set |
+| **Persim Berry** | `confusion`, to cure |
+| **Berserk Gene** | `confusion`, to cause |
+| **Binding Band**, **Grip Claw** | `bound` — a harder squeeze, and a longer hold |
+| **Shed Shell** | `bound` and `trapped`, as the one way out of either |
+| **Power Herb** | `committed` with `commitment: "charge"`, skipped the way sun already skips a Solar Beam |
+
+That last one is the cheapest of the six and the most worth having: the engine
+already has the exact shape in `chargeSkipped`, and a Power Herb is that
+function returning true for one turn.
+
+## Still waiting on a volatile
+
+The rest of the group, and what each still wants. A **volatile** is a condition
+that lives on a creature for the rest of a battle and then is gone.
 
 | Item | What it needs |
 | --- | --- |
-| **King's Rock**, **Razor Fang** | Flinch |
-| **Persim Berry** | Confusion (to cure) |
-| **Berserk Gene** | Confusion (to cause) |
 | **Lansat Berry** | A crit-ratio boost that persists past the turn |
 | **Custap Berry** | A one-turn priority flag |
 | **Micle Berry** | A one-turn accuracy flag |
 | **Starf Berry** | A random stat +2 — the roll is easy, the "once" is not |
 | **White Herb** | A record of which stages were lowered |
 | **Mental Herb** | Taunt, Encore, Torment, Disable |
-| **Power Herb** | Two-turn charging moves |
-| **Throat Spray** | A "used a sound move" flag |
+| **Throat Spray** | A "used a sound move" flag — the `sound` flag is carried now, the record of having used one is not |
 | **Room Service** | Trick Room |
 | **Mirror Herb** | A record of what the other side just gained |
 | **Blunder Policy** | A "missed" flag that survives to the boost |
-| **Binding Band**, **Grip Claw** | Partial trapping (Wrap, Bind, Fire Spin) |
-| **Shed Shell** | Trapping (so there is something to escape) |
-
-Flinch alone would unlock King's Rock and Razor Fang; confusion would unlock
-Persim and Berserk Gene. Those two are the ones worth doing first.
 
 Big Root looked like it belonged here and does not: draining moves were already
 implemented, so it was one shape and no new mechanic. It is **in**.
@@ -76,11 +85,17 @@ Also absent, and also battle-level state.
 
 ---
 
-## Waiting on a contact flag
+## The contact flag, which has arrived
 
-The move manifest carries `power`, `accuracy`, `priority`, `critRatio`,
-`drain`, `recoil`, `heal`, `status`, `boosts` and `secondary` — and no flags at
-all. So "did that move make contact" is a question the data cannot answer.
+This section said "the move manifest carries no flags at all", and that was the
+whole obstacle. **It is no longer true.** `scripts/build-dex.mjs` now copies
+the flag set, `MoveEntry.flags` carries it, and 263 moves say `contact`, 24 say
+`punch` and 10 say `bite`. It was copied for the charge and recharge mechanics
+and these came along for free, which was the argument for carrying the whole
+useful set rather than the two flags with a caller.
+
+So none of these is waiting on data any more. Each is an engine change of a few
+lines, in `landDamage` where the blow is known to have landed:
 
 | Item | What it does |
 | --- | --- |
@@ -89,24 +104,23 @@ all. So "did that move make contact" is a question the data cannot answer.
 | **Protective Pads** | Its own contact moves stop being contact |
 | **Punching Glove** | Punching moves ×1.1, and stop being contact |
 
-Jaboca and Rowap Berry are **in**, and are the closest honest version of this
-shape: they read the move's *category*, which the manifest does carry. Rocky
-Helmet as "any physical move" was considered and rejected — it is a different
-item, and calling it Rocky Helmet would be the half-working kind.
-
-This one is a build-script change rather than an engine change: `@pkmn/dex`
-has the flags, `scripts/build-dex.mjs` simply does not copy them.
+Jaboca and Rowap Berry are **in**, and were the closest honest version of this
+shape while the data was missing: they read the move's *category*, which the
+manifest always carried. Rocky Helmet as "any physical move" was considered and
+rejected — it is a different item, and calling it Rocky Helmet would be the
+half-working kind. That trade no longer has to be made.
 
 ---
 
-## Waiting on multi-hit
+## Multi-hit, which has also arrived
 
-No move hits more than once. `variableDamage` computes a number and
-`landDamage` applies it, and there is no loop.
+This said "no move hits more than once", and that stopped being true when
+`multihit` started being copied across: thirty-one moves land two to five
+times, and `hitsOf` is the loop this section said did not exist.
 
 | Item | What it does |
 | --- | --- |
-| **Loaded Dice** | Multi-hit moves hit four or five times |
+| **Loaded Dice** | Multi-hit moves hit four or five times — `hitsOf` returning the top of the range |
 
 ---
 

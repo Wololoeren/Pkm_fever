@@ -10,7 +10,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "data": "node scripts/build-dex.mjs"
+    "data": "node scripts/build-dex.mjs",
+    "ai:train": "vite-node -c vitest.config.ts scripts/ai/train.ts",
+    "ai:eval": "vite-node -c vitest.config.ts scripts/ai/eval.ts"
   },
   "dependencies": {
     "next": "^15.4.5",

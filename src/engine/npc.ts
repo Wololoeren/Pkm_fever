@@ -30,7 +30,17 @@ export type NpcKind =
   | "buy"
   | "cup"
   /** The Grey Line: talk to one and pick another you have already walked to. */
-  | "travel";
+  | "travel"
+  /** The man with the 3D printer. See `engine/printer.ts`. */
+  | "print"
+  /** Somebody running an eight-player bracket against the machine. */
+  | "arena"
+  /** The man who takes one off your hands and pays in candy. */
+  | "shred"
+  /** And the one who turns one into a stone of its type. */
+  | "cut"
+  /** The smith, who changes a nature with a hammer. */
+  | "forge";
 
 /**
  * What a buyer pays for one rung of the shine ladder.
@@ -76,6 +86,8 @@ export interface NpcSpec {
   gymId?: string;
   /** cup: which of the five. */
   cupId?: string;
+  /** arena: which bracket they run. */
+  arenaId?: string;
 }
 
 /** Whether a creature satisfies what a trader is asking for. */
@@ -1190,6 +1202,104 @@ export const NPCS: readonly NpcPlacement[] = [
   // the words are this game's. That is the better joke anyway — a line lifted
   // whole is somebody else's, and a line that lands because you know what it is
   // *doing* is a joke you and the game are making together.
+
+  /*
+   * The man with the printer.
+   *
+   * In New Willow, where the future arrived and turned out to be a job — the
+   * same town the Slurm comes from, which is not a coincidence: a failed print
+   * has to hand over *something*, and there was already a can of it on the
+   * shelf.
+   *
+   * See `engine/printer.ts` for the whole shape of him. He is the one NPC in
+   * the game whose stock is decided by where you have just been walking.
+   */
+  {
+    id: "print-ivo",
+    name: "Ivo",
+    kind: "print",
+    where: { at: "town", town: "town-2", x: 20, y: 14 },
+    lines: [
+      "Additive chromatic reconstruction. It is a printer. It prints them in colour.",
+      "Only one specimen on file at a time, and it is whatever the scanner last picked up out in the grass — so if you want a copy of something, go and stand in front of it first.",
+      "Ivory is all I have loaded. Ran the rest dry months ago and the supplier has stopped answering. If you turn up a cartridge out there I will take it and the colour stays unlocked.",
+      "Fair warning: about one in four comes out as sludge. You get a can of Slurm and my sympathies, and the machine needs a while before it will go again.",
+    ],
+  },
+
+  /*
+   * The man who takes them off your hands.
+   *
+   * He never says what the machine does. He says everything *around* what the
+   * machine does — the noise, the paperwork, the drum, the fact that you would
+   * rather not see it — and lets you assemble it yourself, which is both
+   * funnier and the only way a joke like this is bearable.
+   *
+   * In New Willow, two doors down from the man with the printer, because the
+   * two of them are obviously the same joke told from opposite ends: one turns
+   * a scan into a creature and one turns a creature into a resource, and
+   * neither will be drawn on the middle step.
+   */
+  {
+    id: "shred-marv",
+    name: "Marv",
+    kind: "shred",
+    where: { at: "town", town: "town-2", x: 24, y: 16 },
+    lines: [
+      "Bring me one you are finished with and I will see you right. One Rare Candy for every three levels it managed. Cash terms, no haggling, no receipts.",
+      "What do I do with them? Reclamation. It is a reclamation business. There is a drum, and the drum turns, and I would honestly rather you waited outside while it does.",
+      "Do not think about it too hard. Nobody in this town thinks about anything too hard and we are all perfectly happy, look at us.",
+      "One a day, near enough. The machine gets hot, and when it gets hot it gets — well. It gets loud. Come back in a thousand steps or so.",
+    ],
+  },
+
+  /*
+   * The lapidary.
+   *
+   * Third of the three in New Willow who will take a creature off you, and the
+   * only one who is entirely candid about what happens to it. The printer
+   * makes them, the shredder will not say, and she tells you exactly: it goes
+   * on the wheel and it comes off as a stone.
+   *
+   * Which type of stone is not hers to choose and she says so — it is whatever
+   * the creature *is*, and a two-type creature is a coin toss. See
+   * `engine/lapidary.ts` for where that table comes from.
+   */
+  {
+    id: "cut-hessa",
+    name: "Hessa",
+    kind: "cut",
+    where: { at: "town", town: "town-2", x: 16, y: 18 },
+    lines: [
+      "Bring me one and it comes back a stone. Not a metaphor. It goes on the wheel and what comes off the wheel is a stone.",
+      "Which stone is not up to me and it is not up to you either — it is whatever the thing was. Fire comes off fire. Water comes off water.",
+      "Two types, two answers, and the wheel picks. I have never seen it favour one over the other and I have watched it a great deal more than is healthy.",
+      "One at a time. The wheel takes a thousand steps to cool and I have learned not to hurry it.",
+    ],
+  },
+
+  /*
+   * The smith.
+   *
+   * In Sanchford rather than New Willow with the other three, because he is
+   * not in their trade: they take a creature off you and he hands it straight
+   * back, just not quite as it was. See `engine/smith.ts` for why he is random,
+   * why he never lands on the nature it started with, and why he has no gate.
+   *
+   * He is completely at peace with the method. That is the joke.
+   */
+  {
+    id: "forge-brenn",
+    name: "Brenn",
+    kind: "forge",
+    where: { at: "town", town: "town-3", x: 18, y: 16 },
+    lines: [
+      "Temperament is just shape, and shape is just metal that has not been hit properly yet. Put it on the anvil.",
+      "I use the hammer. I have always used the hammer. People ask whether there is a gentler way and the answer is that there is a Mint, and it is expensive, and it is not a hammer.",
+      "It gets up different. Not the way you want, necessarily — the hammer does not take requests — but never the way it went down.",
+      "Costs it a little something. One point, somewhere in the breeding, wherever the blow lands. You cannot swing a hammer without leaving a mark.",
+    ],
+  },
 
   // ---------------------------------------------------------- Southpass
   //

@@ -1,13 +1,14 @@
 import { rollAbilities } from "./abilities";
 import { SCHOOL_LABEL } from "./school";
 import { ALL_SPECIES, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
-import { ITEMS, MACHINE_ITEMS } from "./items";
+import { INKS, ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
 import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
 import { TOWNS, TOWN_TRAINERS } from "./towns";
 import { dealHints } from "./hints";
 import { CUP_BIOME, CUP_IDS, CUP_NTH } from "./cup";
+import { ARENAS } from "./arenas";
 import { GYMS, gym, type GymSpec } from "./gyms";
 import {
   bandOf,
@@ -385,6 +386,8 @@ export function fishAt(
     heldItem: null,
     nickname: null,
     traded: false,
+    prize: false,
+    cheat: false,
     parents: null,
     gender: rollGender(rng),
   };
@@ -1262,6 +1265,20 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
         where: { at: "gym", gymId: spec.id },
       }),
     ),
+    // Six people running brackets out of a field, one per format. Expanded
+    // from `arenas.ts` the way the gym leaders are expanded from `gyms.ts`:
+    // the spec is the address and the difficulty, and the person standing at
+    // it is derived rather than written down twice.
+    ...ARENAS.map(
+      (spec): NpcPlacement => ({
+        id: `host-${spec.id}`,
+        name: spec.name,
+        kind: "arena",
+        arenaId: spec.id,
+        lines: spec.lines,
+        where: { at: "route", biome: spec.biome, nth: spec.nth },
+      }),
+    ),
   ];
 
   /**
@@ -1606,6 +1623,67 @@ function placePickups(
   }
 
   return placed;
+}
+
+/**
+ * One ink in each of the first seven cabins, so all seven colours exist.
+ *
+ * Scattered rather than placed by hand, and *guaranteed* rather than rolled:
+ * a colour the seed happened not to deal would be a door in the printer that
+ * no playthrough could ever open, and the printer's whole shape is that the
+ * colours arrive one at a time as you get further out.
+ *
+ * Cabins in distance order, so the near ones hold the first inks and the far
+ * ones the last — which makes the printer's list fill up as the world does.
+ * A world with fewer than seven cabins simply holds fewer inks; the ones it
+ * does hold are still the nearest ones, and the printer still says what it is
+ * missing.
+ */
+function placeInks(
+  seed: string,
+  routes: Map<string, Route>,
+  pickups: Map<string, PickupSpec[]>,
+): Map<string, PickupSpec[]> {
+  const cabins = [...routes.values()]
+    .filter((route) => route.kind === "interior" && route.id.endsWith(":cabin"))
+    // By the ring of the route the cabin belongs to, then by id, so the order
+    // is the world's rather than the map's insertion order.
+    .sort((a, b) => {
+      const ringA = routes.get(a.parent ?? "")?.ring ?? 0;
+      const ringB = routes.get(b.parent ?? "")?.ring ?? 0;
+      return ringA - ringB || a.id.localeCompare(b.id);
+    });
+
+  const inks = INKS.map((one) => one.id);
+  const next = new Map(pickups);
+
+  for (let at = 0; at < Math.min(inks.length, cabins.length); at++) {
+    const cabin = cabins[at];
+    const rng = rngFor(seed, "ink", cabin.id);
+
+    // Anywhere walkable that is not the way out. A cabin is one small room, so
+    // this is a handful of tiles and the ink is never hard to *see* — the
+    // finding is in opening the cabin at all.
+    const open: { x: number; y: number }[] = [];
+    for (let y = 1; y < cabin.height - 1; y++) {
+      for (let x = 1; x < cabin.width - 1; x++) {
+        if (!walkable(cabin.tiles[y * cabin.width + x])) continue;
+        if (x === cabin.entry.x && y === cabin.entry.y) continue;
+        if (cabin.doors.some((door) => door.x === x && door.y === y)) continue;
+        if (propBlocks(cabin, x, y)) continue;
+        open.push({ x, y });
+      }
+    }
+    if (!open.length) continue;
+
+    const spot = open[intBelow(rng, open.length)];
+    next.set(cabin.id, [
+      ...(next.get(cabin.id) ?? []),
+      { id: `${cabin.id}:ink`, x: spot.x, y: spot.y, item: inks[at] },
+    ]);
+  }
+
+  return next;
 }
 
 /** The walkable tile just inside a border gate. */
@@ -2270,6 +2348,8 @@ function placeCritters(
       heldItem: null,
       nickname: null,
       traded: false,
+      prize: false,
+      cheat: false,
       parents: null,
       gender: rollGender(rng),
     };
@@ -2405,6 +2485,8 @@ function placeCritters(
         heldItem: null,
         nickname: null,
         traded: false,
+        prize: false,
+        cheat: false,
         parents: null,
         gender: rollGender(rng),
       };
@@ -2556,12 +2638,21 @@ export function generateWorld(
   place(crown, crownRng, depthRing(3));
 
   const npcs = placeNpcs(seed, routes);
-  const pickups = placePickups(seed, routes, npcs, config.rings);
+  const pickups = placeInks(seed, routes, placePickups(seed, routes, npcs, config.rings));
 
   const trainers = new Map<string, TrainerSpec[]>();
   for (const route of routes.values()) {
     if (route.kind !== "route") continue;
-    const here = buildTrainers(seed, route, allSpecies, config.rings);
+    // The roster is already down, and a trainer has to be placed knowing it:
+    // two people who each leave the route walkable can still wall it off
+    // between them.
+    const here = buildTrainers(
+      seed,
+      route,
+      allSpecies,
+      config.rings,
+      new Set((npcs.get(route.id) ?? []).map((who) => `${who.x},${who.y}`)),
+    );
     if (here.length) trainers.set(route.id, here);
   }
 
@@ -2655,23 +2746,78 @@ const TRAINER_NAMES = [
  * of levels above the wild creatures, which makes a trainer the reason to
  * come back to a route rather than a wall across it.
  */
-function buildTrainers(seed: string, route: Route, allSpecies: readonly SpeciesEntry[], rings: number): TrainerSpec[] {
+function buildTrainers(
+  seed: string,
+  route: Route,
+  allSpecies: readonly SpeciesEntry[],
+  rings: number,
+  /**
+   * Who is already standing here, as "x,y".
+   *
+   * The roster is placed before this runs and the critters after it, and both
+   * of those go through `nearestSpot`, which refuses a tile that would cut the
+   * route off. This one did not know about either, so it was the one pass that
+   * could put somebody in a corridor an idler was already half-blocking —
+   * neither of them severing the route alone, the two of them together walling
+   * off everything past it. On one measured seed that was **1,155 tiles of
+   * duskhollow-2 reachable out of 2,583**.
+   */
+  busy: ReadonlySet<string>,
+): TrainerSpec[] {
   if (route.ring < 1) return [];
 
   const rng = rngFor(seed, "trainers", route.id);
   const table = encounterTable(allSpecies, route.biome, route.ring, rings);
   if (!table.length) return [];
 
-  // Open ground only, never tall grass, so a trainer is always visible and
-  // always avoidable. There is barely any TILE.PATH left on a route now — the
-  // corridors between rooms are the biome's own floor, sand in the ashflats
-  // and grass-cropped meadow elsewhere — so what counts as somewhere to stand
-  // is asked of the tile rather than assumed from one id.
+  /*
+   * Open ground only, never tall grass, so a trainer is always visible and
+   * always avoidable. There is barely any TILE.PATH left on a route now — the
+   * corridors between rooms are the biome's own floor, sand in the ashflats
+   * and grass-cropped meadow elsewhere — so what counts as somewhere to stand
+   * is asked of the tile rather than assumed from one id.
+   *
+   * **And not in a doorway.** This is the one placement in the world that did
+   * not go through `nearestSpot`, and so it was the one that had none of
+   * `nearestSpot`'s standards: a route trainer took any walkable tile at all.
+   * `TILE.DOOR` is walkable — it has to be, you walk through it — so a
+   * trainer could stand *in* a gym door, and more often stand on the single
+   * step in front of one, which is the only way in. Either way the building
+   * cannot be entered, and a gym you cannot enter is a badge you cannot earn.
+   *
+   * Every neighbour of a door is refused rather than just the step below it.
+   * A door faces south today and the step is the only walkable tile beside
+   * it, so the two rules pick out the same tile — but the broader one does
+   * not quietly stop working if a building is ever drawn facing another way,
+   * and standing clear of a doorway reads better regardless.
+   */
+  const doorish = new Set<string>();
+  for (let y = 0; y < route.height; y++) {
+    for (let x = 0; x < route.width; x++) {
+      if (route.tiles[y * route.width + x] !== TILE.DOOR) continue;
+      doorish.add(`${x},${y}`);
+      for (const [dx, dy] of [
+        [0, -1],
+        [0, 1],
+        [-1, 0],
+        [1, 0],
+      ]) {
+        doorish.add(`${x + dx},${y + dy}`);
+      }
+    }
+  }
+
   const open: { x: number; y: number }[] = [];
   for (let y = 2; y < route.height - 2; y++) {
     for (let x = 2; x < route.width - 2; x++) {
       const tile = route.tiles[y * route.width + x];
-      if (walkable(tile) && !hidesEncounters(tile)) open.push({ x, y });
+      if (!walkable(tile) || hidesEncounters(tile)) continue;
+      if (doorish.has(`${x},${y}`)) continue;
+      if (busy.has(`${x},${y}`)) continue;
+      // Nor on the way in, nor inside a boulder somebody else put there.
+      if (x === route.entry.x && y === route.entry.y) continue;
+      if (propBlocks(route, x, y)) continue;
+      open.push({ x, y });
     }
   }
   if (!open.length) return [];
@@ -2686,7 +2832,46 @@ function buildTrainers(seed: string, route: Route, allSpecies: readonly SpeciesE
   // somebody round most corners", which is what makes a route worth combing
   // rather than crossing.
   const wanted = 4 + intBelow(rng, 3) + (route.ring >= 5 ? 1 : 0);
-  const chosen = shuffle(rng, open).slice(0, wanted);
+
+  /*
+   * And nobody standing where they would wall the route off.
+   *
+   * The other standard `nearestSpot` has and this did not. A route is a real
+   * maze now, with one-wide corridors between its rooms, and a person is
+   * solid — so a trainer dealt the wrong tile is a wall across the only way
+   * through, with everything past it unreachable for the rest of the save.
+   *
+   * Checked against the ones already standing rather than against an empty
+   * map, because two trainers either side of a corridor are a wall that
+   * neither of them is on their own.
+   *
+   * Walked in shuffled order and taking the first that pass, rather than
+   * taking `wanted` and testing them: a rejection has to be replaced by
+   * *another* candidate, or a route with one bad tile in it quietly ends up
+   * with fewer people on it than the line above asks for.
+   */
+  // Seeded with the roster, not just the props. Keeping them out of `open`
+  // stops a trainer standing *on* an idler; it is having them in here that
+  // stops the two of them walling a corridor between them, which is the
+  // failure that is invisible one person at a time.
+  const standing = new Set<string>(busy);
+  for (const prop of route.props) {
+    if (!PROPS[prop.kind].walkable) standing.add(`${prop.x},${prop.y}`);
+  }
+  const chosen: { x: number; y: number }[] = [];
+  let baseline = reachableCount(route, standing);
+  for (const spot of shuffle(rng, open)) {
+    if (chosen.length >= wanted) break;
+    if (wouldSever(route, spot, standing, baseline)) continue;
+    standing.add(`${spot.x},${spot.y}`);
+    chosen.push(spot);
+    // Measured again rather than decremented by one. A spot in a pocket the
+    // entry cannot reach costs nothing when it is blocked, so "one fewer each
+    // time" drifts low — and a baseline that is too low is a severance test
+    // that passes everything, which is the failure mode that put seven people
+    // across one corridor.
+    baseline = reachableCount(route, standing);
+  }
 
   return chosen.map((spot, index) => {
     const size = 1 + intBelow(rng, Math.min(3, route.ring));
@@ -2770,6 +2955,8 @@ export function wildAt(
     heldItem: null,
     nickname: null,
     traded: false,
+    prize: false,
+    cheat: false,
     parents: null,
     gender,
   };

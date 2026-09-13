@@ -9,6 +9,7 @@ import {
   type BattleAction,
   type BattleState,
 } from "./battle";
+import { trainerAction } from "@/ai";
 import { fieldKey } from "./field";
 import {
   breed,
@@ -43,6 +44,7 @@ import { NATURE_IDS } from "./natures";
 import { effortSpent, gainEffort } from "./effort";
 import {
   awardExp,
+  evolve,
   evolutionByItem,
   expForLevel,
   forgottenMoves,
@@ -50,6 +52,8 @@ import {
   MOVE_SLOTS,
 } from "./progression";
 import { pickAbilities, rollAbilities } from "./abilities";
+import { isBracketSize, type BracketSize } from "./bracket";
+import { cheatPrizeOffer, prizeOffer } from "./prize";
 import { heldEffects, holdOf } from "./carry";
 import {
   awayFrom,
@@ -83,8 +87,8 @@ import {
 } from "./cup";
 import { hash32, intBelow, intBetween, rngFor } from "./rng";
 import { clampIvs, computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX } from "./stats";
-import { STAT_IDS, type Individual, type StatTable } from "./types";
-import { variant } from "./variants";
+import { STAT_IDS, type Individual, type StatId, type StatTable } from "./types";
+import { appearanceId, chroma, CHROMA_IDS, variant } from "./variants";
 import {
   encounterTriggers,
   fishAt,
@@ -118,6 +122,26 @@ import {
   type ItemSpec,
   type LureSpec,
 } from "./items";
+import { inkFor } from "./items";
+import { cutReady, cutWait, stoneFor } from "./lapidary";
+import { chippedStat, hasIvsLeft, nextNature, REFORGE_COST } from "./smith";
+import {
+  arena,
+  arenaBand,
+  arenaLevel,
+  ARENA_POOL,
+  ARENA_ROUNDS,
+  ARENA_SIZE,
+  isArena,
+} from "./arenas";
+import { PRIZE_CHOICES } from "./prize";
+import {
+  PRINT_CONSOLATION,
+  PRINT_FAILS,
+  PRINT_LEVEL,
+  printReady,
+  printWait,
+} from "./printer";
 
 /**
  * The reducer. Everything the player does arrives here as an Input, and the
@@ -169,6 +193,72 @@ export type Input =
    * trust. It is marked `traded` so a format can decide whether to accept it.
    */
   | { t: "trade"; give: number; receive: Individual }
+  /**
+   * A creature won in a bracket, and which of the three on offer was taken.
+   *
+   * Carried whole for exactly the reason `trade` is: the three were rolled
+   * from a tournament that happened in other people's browsers, off a room
+   * code this save has never seen, so there is nothing here to derive them
+   * from. The log stays replayable and this one creature is taken on trust —
+   * which is why it arrives marked `prize` and is reported at check-in beside
+   * the trades.
+   *
+   * It joins the party if there is room and goes to the box if there is not,
+   * the way a catch does. Refusing it for a full party would mean winning a
+   * tournament and being told to come back later.
+   */
+  | { t: "prize"; receive: Individual }
+  /**
+   * Asking the printer for a copy of the last thing you saw, in this colour.
+   *
+   * Everything about the result is derived — the species from `lastWild`, the
+   * failure roll from the world seed and the tick — so nothing is carried in
+   * the input and a replay produces the same creature, or the same can of
+   * Slurm. That is the whole difference between this and `prize`: a
+   * tournament happened somewhere the seed cannot see, and a print happens
+   * right here.
+   */
+  | { t: "print"; chromaId: string }
+  /**
+   * Handing a creature to the man with the machine, for candy.
+   *
+   * `confirm` is the uid, and it is a safety catch rather than ceremony: this
+   * is the second irreversible thing in the game a party list can slide under
+   * — the Appraiser was the first — and a mis-click on a list that moved is
+   * not undoable. The same guard, for the same reason.
+   */
+  | { t: "shred"; index: number; confirm: number }
+  /**
+   * Handing one to the lapidary, for a stone of its type.
+   *
+   * Nothing is carried: which stone comes back is rolled from the world seed,
+   * the tick and the creature, so a dual type cannot be rerolled by walking
+   * out and back in, and a replay hands back the same one.
+   */
+  | { t: "cut"; index: number; confirm: number }
+  /**
+   * Putting one on the smith's anvil: a different nature, one IV point fewer.
+   *
+   * Nothing is carried — which nature it lands on and which IV takes the dent
+   * are rolled from the seed, the tick and the creature — so a replay swings
+   * the same hammer at the same place, and a bad nature cannot be reloaded
+   * away.
+   */
+  | { t: "reforge"; index: number; confirm: number }
+  /**
+   * Entering the bracket the person in front of you is running.
+   *
+   * Nothing is carried: the draw, the seven opponents and every team in it are
+   * derived from the world seed, the arena and the tick it was entered on. So
+   * a replay of the same log walks into the same eight-player field — which is
+   * the difference between this and the PvP bracket, where the other seven are
+   * in other people's browsers and nothing about them can be derived at all.
+   */
+  | { t: "arenaEnter"; id: string }
+  /** Starting the next round's match. */
+  | { t: "arenaFight" }
+  /** And taking one of the three at the end of it. */
+  | { t: "arenaPrize"; index: number }
   /**
    * A testing shortcut.
    *
@@ -258,6 +348,21 @@ export type Input =
    */
   | { t: "learnMove"; uid: number; moveId: string; forget: string | null }
   /**
+   * Answering an evolution: yes, or no.
+   *
+   * `to` is carried as well as `uid` so that an answer names the question it
+   * is answering. Without it a stale click — the scene dismissed twice, an
+   * input log replayed against a slightly different world — could apply an
+   * evolution the player never saw offered.
+   *
+   * Saying no is a real answer and not a delay: the offer is cleared, the
+   * creature keeps growing, and it will not be asked about this threshold
+   * again. It is an input rather than a UI state precisely so that a replay
+   * refuses it again, which is the whole of why evolution had to stop being
+   * something `awardExp` did on its own.
+   */
+  | { t: "evolve"; uid: number; to: string; accept: boolean }
+  /**
    * Giving a creature something to carry, or taking it back.
    *
    * `item` of null takes whatever it has. Nothing is destroyed either way: an
@@ -292,7 +397,19 @@ export type Cheat =
   | { op: "warp"; route: string }
   | { op: "setVariant"; index: number; variantId: string }
   | { op: "setGender"; index: number; gender: Gender }
-  | { op: "setLevel"; index: number; level: number };
+  | { op: "setLevel"; index: number; level: number }
+  /**
+   * One of the three a bracket of `size` would offer, without playing one.
+   *
+   * For looking at the prize roll, which is otherwise four wins away and
+   * needs three other people in a room. `roll` picks *which* three — the
+   * menu bumps it to shuffle the offer — and `index` says which of them was
+   * taken. Both are in the input, so the same log always produces the same
+   * creature: the offer is recomputed on replay rather than carried, which is
+   * what keeps this an ordinary cheat rather than a second `prize` input with
+   * a creature smuggled inside it.
+   */
+  | { op: "prize"; size: BracketSize; roll: number; index: number };
 
 /** What just happened outside a battle, for the UI to phrase. Structured
  * rather than a string so display language is never part of the state hash;
@@ -309,6 +426,22 @@ export type Notice =
   | { t: "hatched"; boxed: boolean }
   | { t: "beatTrainer"; name: string; money: number }
   | { t: "traded"; given: string; received: string }
+  /** A bracket won, and which of the three was taken. */
+  | { t: "prize"; speciesId: string; variantId: string; boxed: boolean }
+  /** The machine worked. */
+  | { t: "printed"; speciesId: string; chromaId: string; boxed: boolean }
+  /** And the quarter of the time it does not. */
+  | { t: "printFailed"; item: string }
+  /** One handed to the shredder, and what it came to. */
+  | { t: "shredded"; name: string; level: number; candy: number }
+  /** And one handed to the lapidary. */
+  | { t: "cut"; name: string; item: string }
+  /** Off the anvil: which nature it was, which it is, and what it cost. */
+  | { t: "reforged"; name: string; from: string; to: string; stat: StatId }
+  /** A round of a bracket, taken. */
+  | { t: "arenaRound"; id: string; round: number }
+  /** And the last one. */
+  | { t: "arenaWon"; id: string }
   | { t: "used"; item: string; on: string }
   /** A move used out in the world, for the ones whose effect is not itself
    * visible — a map filled in, a walk home, health handed over. */
@@ -527,6 +660,71 @@ export interface GameState {
    */
   pendingMoves: { uid: number; moveId: string }[];
   /**
+   * Creatures standing at the edge of becoming something else.
+   *
+   * The same shape and the same reasoning as `pendingMoves` beside it, and it
+   * arrived for the same reason: an evolution used to be applied by `awardExp`
+   * the instant the level was gained, which meant the scene the game stops
+   * everything to play was a picture of something already true and there was
+   * nowhere to stand to say no. These games have always let you say no.
+   *
+   * A queue, because one battle can take a creature past two thresholds and
+   * because a party of six can all come out of a Cup run ready at once. Kept
+   * in the save, so an evolution offered at the end of a session is still
+   * waiting at the start of the next one rather than silently taken.
+   */
+  pendingEvolutions: { uid: number; to: string }[];
+  /**
+   * The species of the last wild creature you saw, or null.
+   *
+   * Written on sight rather than on a catch, because it is a scan: the
+   * printer works from what its camera last picked up, and losing to
+   * something does not unsee it. Only wild encounters count — a gym leader's
+   * ace is somebody's creature, not a specimen.
+   */
+  lastWild: string | null;
+  /**
+   * The bracket you are part-way through, or null.
+   *
+   * Only ever one, because you cannot be in two knockouts at once and a queue
+   * of them would be a queue nobody asked for. Three fields and no more: the
+   * whole draw is *derived* from these — who you face in each round, what they
+   * bring, and how the other half of the board went — so there is nothing here
+   * that could disagree with what is on screen.
+   *
+   * `entered` is the tick it began on, which is what every roll in it is named
+   * after. Two brackets entered at the same arena on different ticks are two
+   * different draws, and re-entering after losing gives you a new one rather
+   * than the one you just lost.
+   */
+  arena: { id: string; entered: number; round: number } | null;
+  /**
+   * The tick of the last print, or null before the first.
+   *
+   * A stamp rather than a countdown, the same shape a rematch uses: a number
+   * decremented every step is a number that can drift out of step with the
+   * clock it was measured against.
+   */
+  printedAt: number | null;
+  /**
+   * The tick the shredder last took one, or null before the first.
+   *
+   * The same shape the printer's stamp has, and for the same reason: a number
+   * decremented on every step is a number that can drift out of step with the
+   * clock it was measured against. A thousand moves is deliberately longer
+   * than the printer's six hundred — the printer costs you a walk, and this
+   * costs you a creature.
+   */
+  shreddedAt: number | null;
+  /**
+   * The tick the lapidary last took one, or null before the first.
+   *
+   * Its own stamp rather than sharing the shredder's: two people, two
+   * machines, and one gate covering both would mean using one locked you out
+   * of the other for reasons no sign anywhere explains.
+   */
+  cutAt: number | null;
+  /**
    * Lures currently burning: item id, and the move count they die at.
    *
    * An expiry rather than a countdown, so nothing has to be decremented on
@@ -682,6 +880,12 @@ export function initialState(world: World): GameState {
     talking: null,
     helped: [],
     pendingMoves: [],
+    pendingEvolutions: [],
+    lastWild: null,
+    printedAt: null,
+    shreddedAt: null,
+    cutAt: null,
+    arena: null,
     lures: {},
     questsTaken: [],
     questsDone: [],
@@ -732,12 +936,20 @@ export function isWildBattle(battle: BattleState | null): boolean {
   );
 }
 
-function withMoves(individual: Individual): Individual {
+/**
+ * The moves a creature of this species and level would know, and full uses.
+ *
+ * Exported because a creature can now arrive from outside the world — a
+ * bracket prize is rolled bare, the way `wildAt` leaves one, and something has
+ * to give it a moveset before it can be shown or fought with. Both of these
+ * are pure functions of the creature, so handing them out costs nothing.
+ */
+export function withMoves(individual: Individual): Individual {
   const moves = movesAtLevel(individual.speciesId, individual.level);
   return { ...individual, moves, pp: fullPp(moves) };
 }
 
-function atFullHealth(individual: Individual): Individual {
+export function atFullHealth(individual: Individual): Individual {
   return { ...individual, hp: maxHp(individual) };
 }
 
@@ -763,7 +975,30 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))));
+  return onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))));
+}
+
+/**
+ * The last wild creature you laid eyes on, remembered.
+ *
+ * In the funnel rather than at the four places a wild battle can begin —
+ * grass, a tree, a rod, a creature standing in the world — because "the last
+ * one you saw" is a fact about the game rather than about any one of those
+ * roads, and a fifth road added later would silently not be one of them.
+ *
+ * On *seeing* rather than on beating or catching, which is what the printer
+ * asks about: it prints from a scan, and you do not have to win to be scanned.
+ *
+ * Returns the same object when nothing is new, like `noted` above and for the
+ * same reason: this runs once per input and a long save is ninety thousand of
+ * them.
+ */
+function onFile(state: GameState): GameState {
+  if (!state.battle || !isWildBattle(state.battle)) return state;
+  const side = state.battle.sides[1];
+  const wild = side.team[side.active];
+  if (!wild || state.lastWild === wild.speciesId) return state;
+  return { ...state, lastWild: wild.speciesId };
 }
 
 /**
@@ -862,7 +1097,11 @@ function followed(world: World, state: GameState): GameState {
   const lead = walked.party.findIndex((one) => !isFainted(one));
   if (lead < 0) return walked;
 
-  const team = rivalTeam(world.seed, walked.rivalSince, walked.party);
+  // `rivalVisits` was incremented when he appeared, twenty ticks ago, so it
+  // already counts the meeting that is about to happen. What his level edge is
+  // measured against is the ones *before* it, which is why this is one less:
+  // the first time he catches you he is at your average exactly.
+  const team = rivalTeam(world.seed, walked.rivalSince, walked.party, walked.rivalVisits - 1);
   if (!team.length) return { ...walked, rivalSince: null };
 
   let uid = walked.nextUid;
@@ -973,6 +1212,24 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return npcSell(world, state, input.index, input.take, input.confirm);
     case "learnMove":
       return learnMove(state, input.uid, input.moveId, input.forget);
+    case "prize":
+      return takePrize(state, input.receive);
+    case "print":
+      return print3d(world, state, input.chromaId);
+    case "shred":
+      return shred(world, state, input.index, input.confirm);
+    case "cut":
+      return cut(world, state, input.index, input.confirm);
+    case "reforge":
+      return reforge(world, state, input.index, input.confirm);
+    case "arenaEnter":
+      return enterArena(state, input.id);
+    case "arenaFight":
+      return arenaFight(world, state);
+    case "arenaPrize":
+      return takeArenaPrize(world, state, input.index);
+    case "evolve":
+      return answerEvolution(state, input.uid, input.to, input.accept);
     case "holdItem":
       return setHeld(world, state, input.index, input.item);
     case "claimQuest":
@@ -1028,10 +1285,18 @@ function setMoves(world: World, state: GameState, index: number, moves: string[]
 }
 
 /**
- * Applies a testing shortcut, and marks the save as having used one.
+ * Applies a testing shortcut, and marks both the save and whatever it touched.
  *
- * The mark is the point. Everything else here is a convenience; `cheated` is
- * what keeps the save honest about itself.
+ * The mark is the point, and there are two of them because they answer
+ * different questions. `state.cheated` says *this log* used the menu, and it
+ * cannot travel: hand the creature to another save and the receiving log is
+ * honestly clean. `Individual.cheat` travels with the thing, so a level 100
+ * conjured out of the menu says so wherever it ends up — including in a party
+ * checked in at a tournament desk on the other side of a trade.
+ *
+ * Every shortcut that *makes* or *edits* a creature sets it. The ones that
+ * only add money, balls, items or move you around do not: a save full of free
+ * Ultra Balls is a cheated save, and the creatures in it were still caught.
  */
 function cheat(world: World, state: GameState, op: Cheat): GameState {
   const next = { ...state, tick: state.tick + 1, cheated: true, notice: null };
@@ -1058,6 +1323,11 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
         heldItem: null,
         nickname: null,
         traded: false,
+        prize: false,
+        // The whole point. `state.cheated` says this *log* used the menu, and
+        // cannot survive the creature being traded into another save; this
+        // travels with the thing itself.
+        cheat: true,
         parents: null,
         gender: op.gender,
       });
@@ -1107,7 +1377,7 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
       return {
         ...next,
         party: state.party.map((creature, index) =>
-          index === op.index ? atFullHealth({ ...creature, variantId }) : creature,
+          index === op.index ? atFullHealth({ ...creature, variantId, cheat: true }) : creature,
         ),
       };
     }
@@ -1117,7 +1387,7 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
       return {
         ...next,
         party: state.party.map((creature, index) =>
-          index === op.index ? { ...creature, gender: op.gender } : creature,
+          index === op.index ? { ...creature, gender: op.gender, cheat: true } : creature,
         ),
       };
     }
@@ -1129,9 +1399,35 @@ function cheat(world: World, state: GameState, op: Cheat): GameState {
         ...next,
         party: state.party.map((creature, index) =>
           index === op.index
-            ? atFullHealth(withMoves({ ...creature, level, exp: expForLevel(level) }))
+            ? atFullHealth(withMoves({ ...creature, level, exp: expForLevel(level), cheat: true }))
             : creature,
         ),
+      };
+    }
+
+    case "prize": {
+      if (!isBracketSize(op.size)) throw new IllegalInput("no bracket is that size");
+      // Recomputed from the input rather than carried in it. `takePrize` has
+      // to carry the creature because a real tournament happened somewhere
+      // this seed cannot see; this one happened nowhere, so there is nothing
+      // to take on trust and the log can simply say which roll it wanted.
+      const offered = cheatPrizeOffer(world.seed, op.roll, op.size, state.nextUid);
+      const taken = offered[op.index];
+      if (!taken) throw new IllegalInput("no such prize");
+
+      const arrival = atFullHealth(withMoves({ ...taken, uid: state.nextUid, cheat: true }));
+      const boxed = state.party.length >= PARTY_LIMIT;
+      return {
+        ...next,
+        party: boxed ? state.party : [...state.party, arrival],
+        box: boxed ? [...state.box, arrival] : state.box,
+        nextUid: state.nextUid + 1,
+        notice: {
+          t: "prize",
+          speciesId: arrival.speciesId,
+          variantId: arrival.variantId,
+          boxed,
+        },
       };
     }
   }
@@ -1153,6 +1449,11 @@ function trade(world: World, state: GameState, give: number, receive: Individual
     ...receive,
     uid: state.nextUid,
     traded: true,
+    // `prize` is *not* cleared, and is spread through from whatever arrived.
+    // The two flags answer different questions — "somebody else raised this"
+    // and "a bracket produced this" — and a prize that changed hands is
+    // honestly both. Clearing it would let a creature launder its origin by
+    // being passed between two saves.
     // Whatever their client claimed, health is clamped to what this creature
     // can actually have here.
     hp: Math.max(0, Math.min(receive.hp, maxHp({ ...receive, uid: state.nextUid }))),
@@ -1311,6 +1612,373 @@ function withdraw(world: World, state: GameState, slot: 0 | 1): GameState {
   };
 }
 
+/**
+ * Taking one of the three a bracket offered.
+ *
+ * The twin of `trade`, and it makes the same trade-off for the same reason:
+ * the creature is carried whole in the input because a tournament happened
+ * somewhere this seed knows nothing about. Everything the engine can still
+ * insist on, it does — a fresh uid, the `prize` mark, and health clamped to
+ * what this creature can actually have here rather than whatever a client
+ * claimed.
+ *
+ * Deliberately not gated on being in town. A trade is two people standing in
+ * the same place; a prize is the end of a bracket, and whatever screen the
+ * champion is looking at when they pick is where they are.
+ */
+function takePrize(state: GameState, receive: Individual): GameState {
+  const boxed = state.party.length >= PARTY_LIMIT;
+  const arrival: Individual = {
+    ...receive,
+    uid: state.nextUid,
+    prize: true,
+    cheat: false,
+    hp: Math.max(0, Math.min(receive.hp, maxHp({ ...receive, uid: state.nextUid }))),
+  };
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: boxed ? state.party : [...state.party, arrival],
+    box: boxed ? [...state.box, arrival] : state.box,
+    nextUid: state.nextUid + 1,
+    notice: { t: "prize", speciesId: arrival.speciesId, variantId: arrival.variantId, boxed },
+  };
+}
+
+/**
+ * Why the printer will not run, or null.
+ *
+ * One predicate, two callers: the panel greys the button for exactly what the
+ * engine is about to refuse. The same shape every other refusal in this file
+ * has, and for the same reason.
+ */
+export function printRefusal(
+  world: World,
+  state: GameState,
+  chromaId: string,
+): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (!atPrinter(world, state)) return "you are not at the printer";
+  if (!state.lastWild) return "there is nothing on file yet";
+  if (!printReady(state.tick, state.printedAt)) {
+    return `still warming up — ${printWait(state.tick, state.printedAt)} moves`;
+  }
+  if (!CHROMA_IDS.includes(chromaId)) return "that is not a colour";
+
+  const ink = inkFor(chromaId);
+  if (ink !== null && !hasItem(state.bag, ink)) return `no ${chroma(chromaId).name.toLowerCase()} ink`;
+  return null;
+}
+
+/** Whether the person you are talking to is the one with the machine. */
+function atPrinter(world: World, state: GameState): boolean {
+  const person = speakingTo(world, state);
+  return person?.kind === "print";
+}
+
+/**
+ * A print.
+ *
+ * The cooldown is stamped whether it worked or not: the machine ran, and it
+ * is the *attempt* you come back for. A failed print that cost nothing would
+ * make the twenty-five percent free, and then the only real cost would be the
+ * walk.
+ */
+function print3d(world: World, state: GameState, chromaId: string): GameState {
+  const refusal = printRefusal(world, state, chromaId);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const next = { ...state, tick: state.tick + 1, printedAt: state.tick, talking: state.talking };
+  const rng = rngFor(world.seed, "print", state.tick);
+
+  // Rolled from the seed and the tick, so a bad print cannot be rerolled by
+  // reloading — the same log always fails in the same places.
+  if (intBelow(rng, 1000) < PRINT_FAILS) {
+    return {
+      ...next,
+      bag: addItem(next.bag, PRINT_CONSOLATION),
+      notice: { t: "printFailed", item: PRINT_CONSOLATION },
+    };
+  }
+
+  const built = atFullHealth(
+    withMoves({
+      pp: [],
+      abilities: rollAbilities(rng),
+      uid: state.nextUid,
+      speciesId: state.lastWild!,
+      level: PRINT_LEVEL,
+      exp: expForLevel(PRINT_LEVEL),
+      // A print is a copy of a scan, not a bred creature: the numbers are the
+      // machine's rather than a lineage's, and they are the same every time.
+      ivs: { hp: 15, atk: 15, def: 15, spa: 15, spd: 15, spe: 15 },
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
+      variantId: appearanceId(0, chromaId),
+      hp: 0,
+      status: null,
+      sleepTurns: 0,
+      moves: [],
+      heldItem: null,
+      nickname: null,
+      // Nothing about it is taken on trust: the species is in the log, the
+      // colour is in the input, and the roll is the seed's. A replay makes the
+      // same one, which is why it carries none of the three marks.
+      traded: false,
+      prize: false,
+      cheat: false,
+      parents: null,
+      gender: rollGender(rng),
+    }),
+  );
+
+  const boxed = state.party.length >= PARTY_LIMIT;
+  return {
+    ...next,
+    party: boxed ? state.party : [...state.party, built],
+    box: boxed ? [...state.box, built] : state.box,
+    nextUid: state.nextUid + 1,
+    notice: { t: "printed", speciesId: built.speciesId, chromaId, boxed },
+  };
+}
+
+/*
+ * ---------------------------------------------------------------- the arena
+ *
+ * An eight-player knockout against the machine, run out of a field by one of
+ * six people. Everything about it is derived from three numbers on the state —
+ * which arena, the tick it was entered on, and which round you are in — so
+ * there is exactly one copy of the draw and it is computed rather than stored.
+ *
+ * You play your own three matches. The other half of the board is decided by
+ * the seed rather than simulated, and the panel says so: simulating seven AI
+ * matches with the search would cost about two seconds *on every replay of the
+ * save*, which is a price the log cannot pay. What it buys — a name on a draw
+ * sheet that lost to another name — is flavour, and flavour is not worth
+ * making every load slower.
+ */
+
+/** What an opponent in this bracket is called. Named rather than numbered, so
+ * a bracket reads like a draw sheet instead of a spreadsheet. */
+const ARENA_NAMES: readonly string[] = [
+  "Bex",
+  "Corr",
+  "Dov",
+  "Esk",
+  "Fen",
+  "Gale",
+  "Hale",
+  "Ives",
+  "Juno",
+  "Kes",
+  "Lark",
+  "Mos",
+  "Nell",
+  "Orr",
+  "Pike",
+  "Quill",
+];
+
+/** The seven the machine fields, by name, for this draw. */
+export function arenaField(state: GameState): string[] {
+  if (!state.arena) return [];
+  const rng = rngFor(state.arena.id, "field", state.arena.entered);
+  const pool = [...ARENA_NAMES];
+  const picked: string[] = [];
+  while (picked.length < ARENA_SIZE - 1 && pool.length) {
+    picked.push(...pool.splice(intBelow(rng, pool.length), 1));
+  }
+  return picked;
+}
+
+/**
+ * The team you face this round.
+ *
+ * Drawn from the band `arenas.ts` picks for the level, at the format's size.
+ * Named off the arena, the tick and the round, so the same bracket always
+ * fields the same opponents — and losing one and re-entering gets a different
+ * draw rather than a rematch of the fight you just lost.
+ */
+export function arenaTeam(world: World, state: GameState): Individual[] {
+  if (!state.arena) return [];
+  const spec = arena(state.arena.id);
+  const level = arenaLevel(spec, state.tick, state.badges.length);
+  const [from, upto] = arenaBand(level);
+
+  const team: Individual[] = [];
+  let uid = state.nextUid;
+
+  for (let slot = 0; slot < spec.teamSize; slot++) {
+    const rng = rngFor(
+      world.seed,
+      "arena",
+      state.arena.id,
+      state.arena.entered,
+      state.arena.round,
+      slot,
+    );
+    const pick = ARENA_POOL[intBetween(rng, from, upto)];
+    // The last one is the ace and comes in at the full level; the rest are a
+    // shade under, which is the same shape a gym has and for the same reason:
+    // six identical levels reads as a wall rather than as a team.
+    const ace = slot === spec.teamSize - 1;
+
+    team.push(
+      atFullHealth(
+        withMoves({
+          pp: [],
+          abilities: rollAbilities(rng),
+          uid: uid++,
+          speciesId: pick,
+          level: ace ? level : Math.max(2, level - 1 - intBelow(rng, 3)),
+          exp: expForLevel(level),
+          // Better bred than a route trainer and short of the Cup, which is
+          // where a bracket belongs: somebody who came to win.
+          ivs: { hp: 24, atk: 24, def: 24, spa: 24, spd: 24, spe: 24 },
+          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+          natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
+          variantId: "normal",
+          hp: 0,
+          status: null,
+          sleepTurns: 0,
+          moves: [],
+          heldItem: null,
+          nickname: null,
+          traded: false,
+          prize: false,
+          cheat: false,
+          parents: null,
+          gender: rollGender(rng),
+        }),
+      ),
+    );
+  }
+
+  return team;
+}
+
+/** Why you cannot enter, or null. */
+export function arenaRefusal(state: GameState, id: string): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (!isArena(id)) return "no such bracket";
+  if (state.arena) return "you are already in one";
+  const spec = arena(id);
+  const able = state.party.filter((one) => !isFainted(one)).length;
+  if (able < spec.teamSize) {
+    return `it is ${spec.teamSize}v${spec.teamSize}, and you have ${able} standing`;
+  }
+  return null;
+}
+
+function enterArena(state: GameState, id: string): GameState {
+  const refusal = arenaRefusal(state, id);
+  if (refusal) throw new IllegalInput(refusal);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    // Named after the tick it began on, so re-entering after a loss is a new
+    // draw rather than the one that was just lost.
+    arena: { id, entered: state.tick, round: 0 },
+    talking: null,
+    notice: null,
+  };
+}
+
+/** Why the next match cannot start, or null. */
+export function arenaFightRefusal(state: GameState): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (!state.arena) return "you are not in a bracket";
+  if (state.arena.round >= ARENA_ROUNDS) return "there is nothing left to play";
+  const spec = arena(state.arena.id);
+  const able = state.party.filter((one) => !isFainted(one)).length;
+  if (able < spec.teamSize) return `you need ${spec.teamSize} standing`;
+  return null;
+}
+
+function arenaFight(world: World, state: GameState): GameState {
+  const refusal = arenaFightRefusal(state);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const team = arenaTeam(world, state);
+  if (!team.length) throw new IllegalInput("nobody to field");
+  const lead = state.party.findIndex((one) => !isFainted(one));
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    phase: "battle",
+    // Its own tag, so which round this was can be read back off the battle
+    // when it ends and nothing else has to remember.
+    battle: startBattle(
+      world.seed,
+      `${ARENA_TAG}${state.arena!.id}:${state.arena!.entered}:${state.arena!.round}`,
+      state.party,
+      team,
+      lead,
+    ),
+    nextUid: state.nextUid + team.length,
+    notice: null,
+  };
+}
+
+/** Which round of a bracket this battle is, or null if it is not one. */
+export function arenaRoundOf(battle: BattleState | null): number | null {
+  if (!battle?.tag.startsWith(ARENA_TAG)) return null;
+  const round = Number(battle.tag.split(":").at(-1));
+  return Number.isInteger(round) ? round : null;
+}
+
+/**
+ * The three a won bracket offers.
+ *
+ * Derived, unlike the PvP bracket's. That one happens in other people's
+ * browsers and has to carry the creature whole; this one happens here, so the
+ * log can simply say which of the three was taken and a replay rebuilds it.
+ */
+export function arenaPrizes(world: World, state: GameState): Individual[] {
+  if (!state.arena) return [];
+  return prizeOffer(
+    `${world.seed}|${state.arena.id}`,
+    String(state.arena.entered),
+    ARENA_SIZE,
+    state.nextUid,
+  ).map((one) => atFullHealth(withMoves(one)));
+}
+
+/** Why the prize cannot be taken, or null. */
+export function arenaPrizeRefusal(state: GameState, index: number): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (!state.arena) return "you are not in a bracket";
+  if (state.arena.round < ARENA_ROUNDS) return "you have not won it yet";
+  if (index < 0 || index >= PRIZE_CHOICES) return "no such prize";
+  return null;
+}
+
+function takeArenaPrize(world: World, state: GameState, index: number): GameState {
+  const refusal = arenaPrizeRefusal(state, index);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const won = arenaPrizes(world, state)[index];
+  if (!won) throw new IllegalInput("no such prize");
+
+  const arrival = { ...won, uid: state.nextUid, prize: true };
+  const boxed = state.party.length >= PARTY_LIMIT;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    // The bracket is over the moment its prize is taken. Left standing, the
+    // panel would go on offering three creatures for ever.
+    arena: null,
+    party: boxed ? state.party : [...state.party, arrival],
+    box: boxed ? [...state.box, arrival] : state.box,
+    nextUid: state.nextUid + 1,
+    notice: { t: "prize", speciesId: arrival.speciesId, variantId: arrival.variantId, boxed },
+  };
+}
+
 function collectEgg(world: World, state: GameState): GameState {
   if (!atDaycare(world, state)) throw new IllegalInput("you are not in the daycare");
   if (!state.daycare.eggReady) throw new IllegalInput("no egg yet");
@@ -1429,6 +2097,8 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
       heldItem: null,
       nickname: null,
       traded: false,
+      prize: false,
+      cheat: false,
       parents: null,
       // Last, so the IVs and nature a seed already dealt do not move.
       gender: rollGender(rng),
@@ -1772,7 +2442,7 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
     // the point it should have changed and leave it exactly as it was.
     const want = Math.min(MAX_LEVEL, next.level + spec.levels);
     const growth = awardExp(next, Math.max(0, expForLevel(want) - next.exp));
-    became = growth.evolvedTo;
+    became = growth.evolveTo;
     next = atFullHealth(growth.individual);
     offered = growth.movesOffered.map((moveId) => ({ uid: next.uid, moveId }));
   } else {
@@ -1789,22 +2459,23 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
     bag: removeItem(state.bag, itemId),
     pendingMoves: withOffers(state, offered),
     /*
-     * A candy that grew it into something else says so, and gets the reveal.
+     * A candy that grew it to the edge of something else *offers* it.
      *
-     * `awardExp` has always evolved on a candy — the level path is the same
-     * one a battle uses, deliberately — but the notice said "Used the Rare
-     * Candy on Gloom" and stopped there, so the one road to an evolution in
-     * this game that said nothing about it was the one where you had gone to
-     * a shop and paid for it. A stone gets twenty seconds; a candy doing the
-     * same thing was a line of small text naming the wrong species.
+     * It used to apply it, because `awardExp` did — the level path is the same
+     * one a battle uses, deliberately — and this notice was where that showed
+     * up. Both roads now stop one step short and ask, which is the point: a
+     * candy is bought, and spending money to be evolved against your will is
+     * a worse deal than the same thing happening in the grass.
      *
-     * The `from` is `target`, before growth, because by here `next` has
-     * already changed — the same reason the battle event and the stone's
-     * notice both carry two names.
+     * The notice goes back to the ordinary one. The reveal is driven by the
+     * offer rather than by a notice, so a candy and a battle produce the same
+     * scene from the same state instead of two screens that have to be kept
+     * in step.
      */
-    notice: became
-      ? { t: "evolved", from: target.speciesId, to: became, uid: next.uid }
-      : { t: "used", item: itemId, on: speciesById(next.speciesId).name },
+    pendingEvolutions: became
+      ? withEvolutions(state, [{ uid: next.uid, to: became }])
+      : state.pendingEvolutions,
+    notice: { t: "used", item: itemId, on: speciesById(next.speciesId).name },
   };
 }
 
@@ -2834,6 +3505,43 @@ export function offerRefusal(world: World, state: GameState): string | null {
         return "you have nothing they want - " + wantText(person.wants);
       }
       return null;
+
+    // Neither of these has a yes to say either, for the same reason the Grey
+    // Line does not: the printer is asking *which colour* and the arena is
+    // asking whether you are ready, and both answers are their own input with
+    // their own refusal. This branch is what makes `npcAccept` on one refuse
+    // rather than quietly do nothing.
+    case "print":
+      if (!state.lastWild) return "there is nothing on file yet";
+      if (!printReady(state.tick, state.printedAt)) {
+        return `the machine is still warming up — ${printWait(state.tick, state.printedAt)} moves`;
+      }
+      return "they want to know which colour, not whether";
+
+    case "arena":
+      return "they want to know whether you are entering, which is its own button";
+
+    // Also no yes. He wants to know *which one*, and every answer is a
+    // different creature with a different refusal — see `shredRefusal`.
+    case "shred":
+      if (!shredReady(state.tick, state.shreddedAt)) {
+        return `the machine is still running — ${shredWait(state.tick, state.shreddedAt)} moves`;
+      }
+      if (state.party.length <= 1) return "keep something that can fight";
+      return "they want to know which one, not whether";
+
+    // The same shape again: which one, not whether.
+    case "cut":
+      if (!cutReady(state.tick, state.cutAt)) {
+        return `the wheel is still turning — ${cutWait(state.tick, state.cutAt)} moves`;
+      }
+      if (state.party.length <= 1) return "keep something that can fight";
+      return "they want to know which one, not whether";
+
+    // And once more, with no gate to report: see `smith.ts` for why he has
+    // none.
+    case "forge":
+      return "they want to know which one, not whether";
   }
 }
 
@@ -2914,6 +3622,269 @@ export function appraiseRefusal(
 export function appraisal(creature: Individual): { money: number; glitter: number } {
   const tier = variant(creature.variantId).tier;
   return { money: tier * SHINE_PRICE, glitter: tier * SHINE_GLITTER };
+}
+
+/*
+ * ------------------------------------------------------------- the shredder
+ *
+ * A man who takes a creature off your hands and pays in Rare Candy, one for
+ * every three levels it had. He is very clear that he is not going to say what
+ * happens next, and he says it in a way that makes it perfectly obvious.
+ *
+ * ## What it is for
+ *
+ * A way to turn a creature you are done with into levels for one you are not.
+ * The daycare makes creatures and the box stores them; nothing until now
+ * *spent* one. A box of forty things you caught once and never used is a box
+ * with no exit, and this is the exit.
+ *
+ * ## Why one for three, and why a thousand moves
+ *
+ * A candy is a level, so one-for-three is a two-thirds loss: it is a bad rate
+ * on purpose. Feeding a level 60 in returns twenty levels, which is a real
+ * amount and nowhere near sixty — the exchange has to be worth doing and must
+ * never be worth *farming*, because a Rare Candy is the one item that buys the
+ * thing this game is otherwise entirely about.
+ *
+ * The thousand-move gate is the other half of that. Without it a stack of
+ * bred throwaways is an escalator: breed, shred, candy the good one, repeat.
+ * With it, the exchange is a decision you make about eight times an hour of
+ * walking, which is roughly how often you should be asked to think about it.
+ */
+
+/** How many levels buy one candy. */
+export const SHRED_PER_CANDY = 3;
+
+/** And how long before he will take another. */
+export const SHRED_COOLDOWN = 1000;
+
+/** What he pays for this one. Floor, so a level 2 is worth nothing at all. */
+export function shredValue(creature: Individual): number {
+  return Math.floor(creature.level / SHRED_PER_CANDY);
+}
+
+/** Whether he will take another yet. */
+export function shredReady(tick: number, shreddedAt: number | null): boolean {
+  return shreddedAt === null || tick - shreddedAt >= SHRED_COOLDOWN;
+}
+
+/** How many moves until he will. Zero when he is ready. */
+export function shredWait(tick: number, shreddedAt: number | null): number {
+  if (shreddedAt === null) return 0;
+  return Math.max(0, SHRED_COOLDOWN - (tick - shreddedAt));
+}
+
+/**
+ * Why he will not take this one, or null.
+ *
+ * One predicate, two callers: the panel greys the row for exactly what the
+ * engine is about to refuse, in the same words.
+ */
+export function shredRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  confirm: number,
+): string | null {
+  // The standing checks by hand rather than through `offerRefusal`, the way
+  // `travelRefusal` does them. `offerRefusal` answers "is there a plain yes to
+  // say", and for this kind there deliberately is not — it returns the
+  // sentence that says so, which would refuse every row on the panel.
+  if (state.phase !== "field") return "not right now";
+
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "shred") return "they are not taking anything";
+  if (!shredReady(state.tick, state.shreddedAt)) {
+    return `the machine is still running — ${shredWait(state.tick, state.shreddedAt)} moves`;
+  }
+
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (shredValue(creature) < 1) return "it is not worth a candy yet";
+  // The same rule the Appraiser follows: walking out of a town with nothing
+  // that can fight is a game that has quietly stopped working.
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+function shred(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = shredRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const going = state.party[index];
+  const paid = shredValue(going);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, slot) => slot !== index),
+    bag: addItem(state.bag, "rarecandy", paid),
+    shreddedAt: state.tick,
+    // `found` is untouched, exactly as it is when the Appraiser buys one: the
+    // census remembers what you have caught, not what you still hold, and
+    // handing one over does not un-see it.
+    notice: {
+      t: "shredded",
+      name: speciesById(going.speciesId).name,
+      level: going.level,
+      candy: paid,
+    },
+  };
+}
+
+/*
+ * -------------------------------------------------------------- the lapidary
+ *
+ * A creature in, an evolution stone of its type out. See `engine/lapidary.ts`
+ * for where the type-to-stone table comes from, which is the interesting half:
+ * there isn't one, it is derived from the manifest's own item evolutions.
+ */
+
+/**
+ * Why he will not take this one, or null.
+ *
+ * The standing checks by hand rather than through `offerRefusal`, for the
+ * reason the shredder's does the same: `offerRefusal` answers "is there a
+ * plain yes to say", and for this kind there deliberately is not.
+ */
+export function cutRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  confirm: number,
+): string | null {
+  if (state.phase !== "field") return "not right now";
+
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "cut") return "they are not cutting anything";
+  if (!cutReady(state.tick, state.cutAt)) {
+    return `the wheel is still turning — ${cutWait(state.tick, state.cutAt)} moves`;
+  }
+
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  // The uid, as at the Appraiser and the shredder: this is irreversible and a
+  // party list can slide under a click.
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+/** What he would hand back for this one, without handing it over. */
+export function cutPreview(world: World, state: GameState, index: number): string | null {
+  const creature = state.party[index];
+  if (!creature) return null;
+  return stoneFor(
+    rngFor(world.seed, "cut", state.tick, creature.uid),
+    speciesById(creature.speciesId).types,
+  );
+}
+
+function cut(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = cutRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const going = state.party[index];
+  // Named off the seed, the tick and the creature, so a dual type cannot be
+  // rerolled by walking out and back in — and so a replay hands back the same
+  // stone. The same discipline the printer's failure roll follows.
+  const stone = stoneFor(
+    rngFor(world.seed, "cut", state.tick, going.uid),
+    speciesById(going.speciesId).types,
+  );
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, slot) => slot !== index),
+    bag: addItem(state.bag, stone),
+    cutAt: state.tick,
+    // `found` is untouched, as it is everywhere one changes hands: the census
+    // remembers what you have caught, not what you still hold.
+    notice: {
+      t: "cut",
+      name: speciesById(going.speciesId).name,
+      item: stone,
+    },
+  };
+}
+
+/*
+ * ----------------------------------------------------------------- the smith
+ *
+ * A new nature, paid for with one IV point. See `engine/smith.ts` for why it is
+ * random, why it is always a *different* nature, and why — unlike everybody
+ * else in the game who changes a creature — he has no cooldown.
+ */
+
+/**
+ * Why he will not swing at this one, or null.
+ *
+ * The standing checks by hand rather than through `offerRefusal`, for the
+ * reason the shredder's and the lapidary's do: there is no plain yes to say to
+ * him, only a choice of which creature, and `offerRefusal` returns the sentence
+ * that says so.
+ */
+export function reforgeRefusal(
+  world: World,
+  state: GameState,
+  index: number,
+  confirm: number,
+): string | null {
+  if (state.phase !== "field") return "not right now";
+
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "forge") return "they are not holding a hammer";
+
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  // The uid, as everywhere a creature changes for good: the party list can
+  // slide under a click, and an IV point does not come back.
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (!hasIvsLeft(creature)) return "there is nothing left in it to take";
+  return null;
+}
+
+function reforge(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = reforgeRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const target = state.party[index];
+  // Named off the seed, the tick and the creature, so the swing cannot be
+  // taken back by reloading — the same log lands the same blow on the same
+  // stat every time, which is what stops a bad nature being rerolled for free.
+  const rng = rngFor(world.seed, "forge", state.tick, target.uid);
+  const natureId = nextNature(rng, target.natureId);
+  const stat = chippedStat(rng, target.ivs);
+  // `reforgeRefusal` has already said there is something to take, so this is
+  // a guard against the two disagreeing rather than a live case.
+  if (!stat) throw new IllegalInput("there is nothing left in it to take");
+
+  const ivs = { ...target.ivs, [stat]: target.ivs[stat] - REFORGE_COST };
+  // The health fraction is kept, the way an evolution keeps it. A nature can
+  // lower maximum HP by a point or two, and coming off the anvil on the same
+  // *number* would quietly lose a slice of the bar.
+  const before = maxHp(target);
+  const changed: Individual = { ...target, natureId, ivs };
+  const after = maxHp(changed);
+  const hp = before > 0 ? Math.max(target.hp > 0 ? 1 : 0, Math.round((target.hp * after) / before)) : 0;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.map((one, slot) => (slot === index ? { ...changed, hp } : one)),
+    notice: {
+      t: "reforged",
+      name: speciesById(target.speciesId).name,
+      from: target.natureId,
+      to: natureId,
+      stat,
+    },
+  };
 }
 
 function npcSell(
@@ -3049,6 +4020,110 @@ function learnMove(
  * in a long battle only if something went wrong, but being asked the same
  * question twice is a bug the player has to click through either way.
  */
+/**
+ * Everything standing at the edge of a change, and what it would become.
+ *
+ * The twin of `pendingOffers`, and it drops the same rows for the same
+ * reason: a creature that has been released, sold or traded away is not
+ * waiting on an answer, and asking about one that is not here is a prompt with
+ * nothing behind it.
+ */
+export function pendingChanges(
+  state: GameState,
+): { uid: number; to: string; creature: Individual }[] {
+  return state.pendingEvolutions.flatMap((offer) => {
+    const creature =
+      state.party.find((one) => one.uid === offer.uid) ??
+      state.box.find((one) => one.uid === offer.uid);
+    return creature ? [{ ...offer, creature }] : [];
+  });
+}
+
+/**
+ * Why this answer would be refused, or null if it would be taken.
+ *
+ * Saying no is always allowed — that is the entire point of being asked, and
+ * the reason this exists at all.
+ */
+export function evolveRefusal(state: GameState, uid: number, to: string): string | null {
+  if (state.phase !== "field" && state.phase !== "battleEnd") return "not right now";
+
+  const waiting = state.pendingEvolutions.some(
+    (offer) => offer.uid === uid && offer.to === to,
+  );
+  if (!waiting) return "nothing was offered";
+
+  const creature =
+    state.party.find((one) => one.uid === uid) ?? state.box.find((one) => one.uid === uid);
+  if (!creature) return "it is not here any more";
+  if (creature.speciesId === to) return "it is already that";
+  return null;
+}
+
+/**
+ * Taking the change, or turning it down.
+ *
+ * Either answer clears the offer, exactly as `learnMove` does: being asked
+ * twice about the same thing is how a prompt becomes something a player clicks
+ * through without reading, and this is the prompt it matters most for.
+ *
+ * Turning it down clears *this* offer and nothing more. The creature keeps
+ * growing, and the next level it gains offers again — which is exactly what
+ * these games do, and why an Everstone is a thing you can give something you
+ * never want to change. Refusing once is a decision about this moment; the
+ * item is the decision about all of them.
+ *
+ * Either way the answer has to be in the save. A replay that re-derived it
+ * would evolve what the player refused, which is the one thing a log that
+ * claims to reproduce a playthrough cannot be allowed to do.
+ */
+function answerEvolution(state: GameState, uid: number, to: string, accept: boolean): GameState {
+  const refusal = evolveRefusal(state, uid, to);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const pendingEvolutions = state.pendingEvolutions.filter(
+    (offer) => !(offer.uid === uid && offer.to === to),
+  );
+
+  if (!accept) {
+    return { ...state, tick: state.tick + 1, pendingEvolutions, notice: null };
+  }
+
+  const was =
+    state.party.find((one) => one.uid === uid) ?? state.box.find((one) => one.uid === uid)!;
+  const change = (one: Individual) => (one.uid === uid ? evolve(one, to) : one);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.map(change),
+    box: state.box.map(change),
+    pendingEvolutions,
+    notice: { t: "evolved", from: was.speciesId, to, uid },
+  };
+}
+
+/**
+ * Evolutions a turn produced, folded into what is already waiting.
+ *
+ * Deduplicated on the way in, like `withOffers`. One creature can only be at
+ * one threshold at a time, so a second row for the same uid is a bug either
+ * way — and being asked the same question twice is a bug the player has to
+ * click through regardless of which of us caused it.
+ */
+function withEvolutions(
+  state: GameState,
+  offers: readonly { uid: number; to: string }[],
+): { uid: number; to: string }[] {
+  if (!offers.length) return state.pendingEvolutions;
+
+  const next = [...state.pendingEvolutions];
+  for (const offer of offers) {
+    if (!next.some((held) => held.uid === offer.uid)) next.push(offer);
+  }
+  return next;
+}
+
 function withOffers(
   state: GameState,
   offers: readonly { uid: number; moveId: string }[],
@@ -3110,6 +4185,8 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
       heldItem: null,
       nickname: offer.nickname ?? null,
       traded: true,
+      prize: false,
+      cheat: false,
       parents: null,
       gender: offer.gender,
     }),
@@ -3235,6 +4312,16 @@ export function rematchIn(state: GameState, id: string): number {
 
 /** The tag a gym battle carries, so winning one can be recognised. */
 const GYM_TAG = "gym:";
+const ARENA_TAG = "arena:";
+
+/**
+ * What a round of a bracket pays.
+ *
+ * Per round rather than at the end, because losing the semi-final of a
+ * three-round knockout should not be worth exactly nothing — you beat two
+ * people to get there. Modest, because the prize is the prize.
+ */
+const ARENA_PURSE = 1200;
 
 /** Which gym a battle is against, or null. */
 export function gymIdOf(battle: BattleState | null): string | null {
@@ -3291,6 +4378,8 @@ export function gymTeam(world: World, state: GameState, id: string): Individual[
           heldItem: null,
           nickname: null,
           traded: false,
+          prize: false,
+          cheat: false,
           parents: null,
           gender: rollGender(rng),
         }),
@@ -3518,6 +4607,8 @@ export function cupTeam(world: World, state: GameState, id: string): Individual[
         moves,
         nickname: null,
         traded: false,
+        prize: false,
+        cheat: false,
         parents: null,
         gender: rollGender(rng),
       }),
@@ -3722,6 +4813,8 @@ function move(world: World, state: GameState, dir: Direction): GameState {
           heldItem: null,
           nickname: null,
           traded: false,
+          prize: false,
+          cheat: false,
           parents: null,
           gender: rollGender(rngFor(world.seed, "trainer-gender", trainer.id, slot)),
         });
@@ -3785,8 +4878,13 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     // was catchable as far as the engine was concerned — only the UI declined
     // to draw the button. A third kind of trainer battle would have walked
     // into the same hole, so the question is now the one that was meant.
-    const rules = isWildBattle(state.battle) ? WILD_RULES : TRAINER_RULES;
-    result = resolveTurn(state.battle, [action, aiAction(state.battle)], rules, ballAt(state, action));
+    const wild = isWildBattle(state.battle);
+    const rules = wild ? WILD_RULES : TRAINER_RULES;
+    // The grass picks at random; a person picks. Both are derived from the
+    // battle state alone, which is what keeps the other side's choices out of
+    // the input log — they are recomputed from it. See src/ai.
+    const theirs = wild ? aiAction(state.battle) : trainerAction(state.battle);
+    result = resolveTurn(state.battle, [action, theirs], rules, ballAt(state, action));
   } catch (error) {
     throw new IllegalInput(error instanceof Error ? error.message : "bad battle action");
   }
@@ -3798,12 +4896,20 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     event.t === "exp" ? event.offered.map((moveId) => ({ uid: event.uid, moveId })) : [],
   );
 
+  // And the evolutions grown into, for the same reason and collected the same
+  // way: the level was gained even if the battle is then fled or lost, so the
+  // offer has to survive the outcome.
+  const changes = result.battle.events.flatMap((event) =>
+    event.t === "exp" && event.evolved ? [{ uid: event.uid, to: event.evolved }] : [],
+  );
+
   const base: GameState = {
     ...state,
     tick: state.tick + 1,
     // The party fought inside the battle, so it comes back out of it.
     party: result.battle.sides[0].team,
     pendingMoves: withOffers(state, offers),
+    pendingEvolutions: withEvolutions(state, changes),
     bag: result.ballsUsed ? removeItem(state.bag, ballIdOf(action), result.ballsUsed) : state.bag,
     battle: result.battle,
     notice: null,
@@ -3859,6 +4965,24 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
 
       const trainerId = trainerIdOf(result.battle);
       const gymId = gymIdOf(base.battle);
+
+      // A round of a bracket, won. Advanced here rather than by a separate
+      // input because the win *is* the advance: an input to confirm it would
+      // be a button that can only be pressed one way.
+      const arenaRound = arenaRoundOf(base.battle);
+      if (arenaRound !== null && base.arena) {
+        const round = base.arena.round + 1;
+        return {
+          ...base,
+          phase: "battleEnd",
+          arena: { ...base.arena, round },
+          money: base.money + withAmuletCoin(base.battle, ARENA_PURSE),
+          notice:
+            round >= ARENA_ROUNDS
+              ? { t: "arenaWon", id: base.arena.id }
+              : { t: "arenaRound", id: base.arena.id, round },
+        };
+      }
       if (gymId) {
         // A badge is won once. Beating the same leader again — which you can,
         // there is nothing stopping you — pays nothing further, because what
@@ -3978,6 +5102,11 @@ function whiteout(world: World, state: GameState): GameState {
     // Beaten, carried in, and put right — uses included. Losing is the one
     // thing in this game that costs you nothing but the walk back.
     party: state.party.map(restored),
+    // And out of the bracket, which is the one thing losing *does* cost. A
+    // knockout you could wake up from and carry on in is not a knockout —
+    // re-entering is a fresh draw, because the tick it was entered on names
+    // every roll in it.
+    arena: null,
     // The town rather than the room, because "you woke up in the Poké Center"
     // is true of every one of them and says nothing.
     notice: { t: "whiteout", at: woke.parent ?? woke.id },
@@ -4101,6 +5230,16 @@ export function stateHash(state: GameState): string {
     state.beaten.join(","),
     counters(state.lures),
     state.pendingMoves.map((offer) => `${offer.uid}:${offer.moveId}`).join(","),
+    // An unanswered evolution is state: two peers that disagreed about one
+    // would agree about the whole game right up until somebody answered it.
+    state.pendingEvolutions.map((offer) => `${offer.uid}>${offer.to}`).join(","),
+    // What the printer has on file, and when it last ran. Both decide what a
+    // later input is allowed to do, so both are state.
+    state.lastWild ?? "-",
+    state.printedAt ?? "-",
+    state.shreddedAt ?? "-",
+    state.cutAt ?? "-",
+    state.arena ? `${state.arena.id}:${state.arena.entered}:${state.arena.round}` : "-",
     state.cheated ? "1" : "0",
   ].join(";");
 

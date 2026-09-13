@@ -214,6 +214,8 @@ export function breed(
     heldItem: null,
     nickname: null,
     traded: false,
+    prize: false,
+    cheat: false,
     parents: [first.uid, second.uid],
     gender,
   };

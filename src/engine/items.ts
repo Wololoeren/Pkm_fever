@@ -33,6 +33,15 @@ export type ItemKind =
   | "tonic"
   /** Used on the world rather than on a creature. */
   | "field"
+  /**
+   * Carried to a printer, which reads it and keeps printing.
+   *
+   * Not spent, which is the whole shape of it: an ink is a *key*, and the
+   * colour it opens stays open. A consumable would make the seven a currency
+   * to hoard and the printer a shop; a key makes finding one the event, which
+   * is what a thing hidden in a cabin at the far end of the world should be.
+   */
+  | "ink"
   /** Given to a creature to carry, and it does something while carried. */
   | "hold"
   /** The same, but eaten and gone the moment it does it. */
@@ -931,7 +940,40 @@ const TOWN_ITEMS: readonly ItemSpec[] = [
   },
 ];
 
+/**
+ * The printer's inks: one per colour, minus the one it already has.
+ *
+ * Generated from `CHROMA_IDS` rather than written out, so a ninth colour
+ * added to the ladder brings its ink with it and there is no second list to
+ * keep in step. Ivory is skipped because the printer never ran out of it —
+ * that is the joke, and it is also why the first thing it prints for anybody
+ * is white.
+ *
+ * Never for sale at any price. A cartridge you could buy is a shop with eight
+ * rows in it; one you have to find at the back of a cabin at the far end of
+ * the world is a reason to open every cabin.
+ */
+export const PRINTER_STOCK = "ivory";
+
+export const INKS: readonly ItemSpec[] = CHROMA_IDS.filter((id) => id !== PRINTER_STOCK).map(
+  (id): ItemSpec => ({
+    id: `ink-${id}`,
+    name: `${chroma(id).name} Ink`,
+    kind: "ink",
+    price: 0,
+    sell: 1200,
+    blurb: `A sealed cartridge of ${chroma(id).name.toLowerCase()}. Somebody somewhere is waiting for this.`,
+    stacks: false,
+  }),
+);
+
+/** The ink that opens one colour, or null for the one that needs none. */
+export function inkFor(chromaId: string): string | null {
+  return chromaId === PRINTER_STOCK ? null : `ink-${chromaId}`;
+}
+
 export const ITEMS: readonly ItemSpec[] = [
+  ...INKS,
   ...ITEM_LIST,
   ...TOOLS,
   ...KEYS,

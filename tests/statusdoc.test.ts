@@ -185,6 +185,25 @@ describe("the reference matches the engine", () => {
       afloat: "**Afloat**",
       types: "**Retyped**",
       seen: "**Seen**",
+      // What a damaging move leaves behind, which is its own section rather
+      // than more rows in the first table: the ones above arrived with the
+      // status moves and these came from the other direction entirely.
+      committed: "**Committed**",
+      // The three that spell out what `committed` is doing are described in
+      // that row rather than given rows of their own — a reader wants "it is
+      // locked into Outrage for two more turns", not three separate entries
+      // for the id, the kind and the counter.
+      commitment: "**Committed**",
+      commitTurns: "**Committed**",
+      rolled: "**Committed**",
+      hidden: "**Away**",
+      curled: "**Curled**",
+      recharging: "**Recharging**",
+      flinched: "**Flinched**",
+      bound: "**Bound**",
+      biding: "**Biding**",
+      bided: "**Biding**",
+      fresh: "**New**",
     };
     for (const field of fields) {
       expect(shown[field], `${field} has no row in docs/status.md`).toBeDefined();

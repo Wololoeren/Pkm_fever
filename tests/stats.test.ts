@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NATURE_MAGNITUDE, NATURES, natureVectorSum } from "@/engine/natures";
-import { baseAtLevel, computeStat, IV_MAX, termAtLevel, WILD_IV_MAX } from "@/engine/stats";
+import { baseAtLevel, computeStat, IV_MAX, statBreakdown, termAtLevel, WILD_IV_MAX } from "@/engine/stats";
 import { BATTLE_STAT_IDS, STAT_IDS } from "@/engine/types";
 import { APPEARANCE_COUNT, CENSUS_TOTAL, CHROMAS, variant } from "@/engine/variants";
 
@@ -176,5 +176,26 @@ describe("natures", () => {
       expect(NATURES.some((n) => n.plus === stat)).toBe(true);
       expect(NATURES.some((n) => n.minus === stat)).toBe(true);
     }
+  });
+});
+
+describe("statBreakdown", () => {
+  it("adds up to computeStat exactly, including rounding and negative natures", () => {
+    for (const stat of ["hp", "atk"] as const) {
+      for (const level of [1, 5, 13, 50, 100]) {
+        for (const [base, iv, ev, nat, mult] of [
+          [90, 9, 4, 0, 1280], [85, 27, 2, -24, 1031], [95, 31, 2, 0, 1085], [5, 0, 0, -24, 1000], [85, 16, 12, 24, 1085],
+        ]) {
+          const b = statBreakdown(base, stat, level, iv, ev, nat, mult);
+          expect(b.total).toBe(computeStat(base, stat, level, iv, ev, nat, mult));
+          expect(b.base + b.iv + b.nature + b.ev + b.flat + b.special).toBe(b.total);
+        }
+      }
+    }
+  });
+
+  it("credits the IV that tips the sum over a rounding step", () => {
+    const b = statBreakdown(95, "spa", 1, 31, 0, 0, 1000);
+    expect([b.base, b.iv, b.flat, b.total]).toEqual([1, 1, 5, 7]);
   });
 });

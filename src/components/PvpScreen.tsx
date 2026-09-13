@@ -12,6 +12,7 @@ import { joinRoom, normaliseRoomCode, randomRoomCode, type Room, type RoomStatus
 import { BattleView } from "./BattleView";
 import { GenderMark, VariantTag } from "./PartyStrip";
 import { Sprite } from "./Sprite";
+import { TourneyScreen } from "./TourneyScreen";
 
 /**
  * Playing against another person: a battle, or a trade.
@@ -23,7 +24,7 @@ import { Sprite } from "./Sprite";
  * without a browser.
  */
 
-type Mode = "battle" | "trade";
+type Mode = "battle" | "trade" | "tourney";
 
 function CreatureRow({
   creature,
@@ -54,6 +55,8 @@ function CreatureRow({
       </div>
       <VariantTag variantId={creature.variantId} />
       {creature.traded ? <span className="tag">TRADED</span> : null}
+      {creature.prize ? <span className="tag">PRIZE</span> : null}
+      {creature.cheat ? <span className="tag fall">CHEAT</span> : null}
     </>
   );
 
@@ -73,13 +76,19 @@ function CreatureRow({
 
 export function PvpScreen({
   roster,
+  seed,
   onExit,
   onTrade,
+  onPrize,
 }: {
   roster: Individual[];
+  /** This save's world seed, which seeds a bracket's prize when we host it. */
+  seed: string;
   onExit: () => void;
   /** Applies a completed trade to the save. */
   onTrade: (giveUid: number, received: Individual) => void;
+  /** Applies a won creature to the save. */
+  onPrize: (creature: Individual) => void;
 }) {
   const [mode, setMode] = useState<Mode>("battle");
   const [size, setSize] = useState<TeamSize>(3);
@@ -189,6 +198,14 @@ export function PvpScreen({
     setTrade(null);
   }, []);
 
+  // A bracket is its own screen. It shares the roster and the way out and
+  // nothing else: a different transport (many peers rather than two), a
+  // different protocol, and a shape — lobby, draw, watch, play — that has no
+  // counterpart in a duel.
+  if (mode === "tourney") {
+    return <TourneyScreen roster={roster} seed={seed} onExit={onExit} onPrize={onPrize} />;
+  }
+
   // ------------------------------------------------------------------ setup
 
   if (!status) {
@@ -217,6 +234,16 @@ export function PvpScreen({
             }}
           >
             Trade
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setMode("tourney");
+              setChosen([]);
+            }}
+          >
+            Tournament
           </button>
         </div>
 

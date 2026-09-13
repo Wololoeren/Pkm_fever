@@ -8,12 +8,12 @@ import { natureVector } from "@/engine/natures";
 import { displayPower } from "@/engine/moves";
 import { maxPp, ppLeft } from "@/engine/pp";
 import {
-  baseAtLevel,
-  computeStats,
   EV_MAX_PER_STAT,
   EV_MAX_TOTAL,
   IV_MAX,
   ivTotal,
+  statBreakdown,
+  type StatBreakdown,
 } from "@/engine/stats";
 import { effortSpent } from "@/engine/effort";
 import { expForLevel, levelFromExp } from "@/engine/progression";
@@ -57,6 +57,20 @@ function ModCell({ mod }: { mod?: StatMod }) {
   return (
     <td className={`num ${tone === "up" ? "good" : tone === "down" ? "error" : ""}`} title={title}>
       {text}
+    </td>
+  );
+}
+
+/**
+ * One term of the stat sum: the points it adds at this level, coloured by
+ * direction, then the raw number it came from in muted text. The coloured
+ * figures are the ones that add up to the total.
+ */
+function ShareCell({ now, from }: { now: number; from: string }) {
+  return (
+    <td className="num">
+      <span className={now > 0 ? "good" : now < 0 ? "error" : "muted"}>{now > 0 ? `+${now}` : now}</span>{" "}
+      <span className="muted">{from}</span>
     </td>
   );
 }
@@ -120,7 +134,6 @@ export function Inspect({
   onClose: () => void;
 }) {
   const entry = speciesById(creature.speciesId);
-  const stats = computeStats(entry, creature);
   const nature = natureVector(creature.natureId);
   const form = variant(creature.variantId);
 
@@ -137,12 +150,20 @@ export function Inspect({
     onInput({ t: "setMoves", index, moves: next });
   };
 
-  // What the shine and the colour are actually adding, in points rather than
-  // percentages. The multiplier is applied last, to the finished stat, so the
-  // honest way to show its worth is the same creature computed without it.
-  const plain = computeStats(entry, { ...creature, variantId: "normal" });
-  const special = {} as Record<StatId, number>;
-  for (const stat of STAT_IDS) special[stat] = stats[stat] - plain[stat];
+  // Every column, the shine and colour included, is taken from one breakdown
+  // in points rather than percentages, so a row adds up to its total.
+  const parts = {} as Record<StatId, StatBreakdown>;
+  for (const stat of STAT_IDS) {
+    parts[stat] = statBreakdown(
+      entry.base[stat],
+      stat,
+      creature.level,
+      creature.ivs[stat],
+      creature.evs[stat],
+      nature[stat],
+      form.mult[stat],
+    );
+  }
 
   // What the battle is doing to these numbers right now, or null — and the
   // column is not drawn at all when it is null. See lib/mods.ts for why a
@@ -188,6 +209,8 @@ export function Inspect({
                   </span>
                 ))}
                 {creature.traded ? <span className="tag">TRADED</span> : null}
+                {creature.prize ? <span className="tag">PRIZE</span> : null}
+                {creature.cheat ? <span className="tag fall">CHEAT</span> : null}
               </div>
               <p className="muted eggLine">
                 {entry.eggGroups.includes("Undiscovered")
@@ -209,10 +232,12 @@ export function Inspect({
               what it is worth is the same on every creature and shows in the column above.
             </p>
             <p className="muted">
-              Base is shown as what it is worth <em>now</em> over what it is worth at level 100 —
-              the whole sum is scaled by level, so a base of 45 is contributing four points at level
-              five and ninety at the cap. That scaling is applied once to the total, so the columns
-              are each term&rsquo;s own share and may not add up to the last point.
+              The coloured numbers add up to the total: each is the points that column gives{" "}
+              <em>now</em>, with the raw number it came from in brackets. Base (doubled), IV, nature
+              and a quarter of EV are summed and scaled by level, so a base of 45 gives four points at
+              level five and ninety at the cap. Each column is credited with what it added to that
+              running sum after rounding, in that order. Flat is +5, or level + 10 on HP. Hover a
+              total for the whole sum.
             </p>
             <p className="muted">
               IV total <strong>{ivTotal(creature.ivs)}</strong> of {IV_MAX * STAT_IDS.length}. A wild
@@ -246,6 +271,7 @@ export function Inspect({
                 <th className="num">IV</th>
                 <th className="num">Nature</th>
                 <th className="num">EV</th>
+                <th className="num">Flat</th>
                 <th className="num">Special</th>
                 <th className="num">Total</th>
                 {mods ? <th className="num">Mod</th> : null}
@@ -255,26 +281,37 @@ export function Inspect({
               {STAT_IDS.map((stat) => (
                 <tr key={stat}>
                   <td>{STAT_LABELS[stat]}</td>
-                  <td className="num">
-                    {baseAtLevel(entry.base[stat], creature.level).now}
-                    <span className="muted">/{baseAtLevel(entry.base[stat], creature.level).max}</span>
-                  </td>
-                  <td className="num">
-                    {creature.ivs[stat]}
-                    <span className="muted">/{IV_MAX}</span>
-                  </td>
-                  <td className={`num ${nature[stat] > 0 ? "good" : nature[stat] < 0 ? "error" : "muted"}`}>
-                    {stat === "hp" ? "—" : nature[stat] > 0 ? `+${nature[stat]}` : nature[stat] || "0"}
-                  </td>
-                  <td className="num muted">{creature.evs[stat]}</td>
+                  <ShareCell now={parts[stat].base} from={`(${2 * entry.base[stat]})`} />
+                  <ShareCell now={parts[stat].iv} from={`(${creature.ivs[stat]}/${IV_MAX})`} />
+                  {stat === "hp" ? (
+                    <td className="num muted">—</td>
+                  ) : (
+                    <ShareCell
+                      now={parts[stat].nature}
+                      from={`(${nature[stat] > 0 ? "+" : ""}${nature[stat]})`}
+                    />
+                  )}
+                  <ShareCell now={parts[stat].ev} from={`(${creature.evs[stat]})`} />
+                  <ShareCell now={parts[stat].flat} from={stat === "hp" ? "(Lv+10)" : ""} />
                   <td
                     className={`num ${
-                      special[stat] > 0 ? "good" : special[stat] < 0 ? "error" : "muted"
+                      parts[stat].special > 0 ? "good" : parts[stat].special < 0 ? "error" : "muted"
                     }`}
                   >
-                    {special[stat] === 0 ? "—" : special[stat] > 0 ? `+${special[stat]}` : special[stat]}
+                    {parts[stat].special === 0
+                      ? "—"
+                      : parts[stat].special > 0
+                        ? `+${parts[stat].special}`
+                        : parts[stat].special}
                   </td>
-                  <td className="num strong">{stats[stat]}</td>
+                  <td
+                    className="num strong"
+                    title={`(${parts[stat].raw} × ${creature.level} ÷ 100, rounded down) + ${parts[stat].flat}${
+                      form.mult[stat] === 1000 ? "" : `, × ${(form.mult[stat] / 1000).toFixed(3)} rounded down`
+                    } = ${parts[stat].total}`}
+                  >
+                    {parts[stat].total}
+                  </td>
                   {mods ? <ModCell mod={mods[stat]} /> : null}
                 </tr>
               ))}

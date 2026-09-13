@@ -11,6 +11,7 @@ import { isMuted, setMuted } from "@/lib/sound";
 import { MiniMap } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
+import { ArenaPanel } from "@/components/ArenaPanel";
 import { BagPanel } from "@/components/BagPanel";
 import { FieldMovePanel } from "@/components/FieldMovePanel";
 import { NotesPanel } from "@/components/NotesPanel";
@@ -27,7 +28,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -94,6 +95,18 @@ const INDOORS_NOTE: Partial<Record<InteriorRole, string>> = {
   gym: "A gym. The leader is in here somewhere, and they are not waiting for you to be ready.",
   cup: "The Cup. Five of them, and whoever keeps the door. Nothing in this house gives a spent move back, so what is in your bag is what you have.",
 };
+
+/**
+ * Whether the testing shortcuts exist at all.
+ *
+ * Only under `npm run dev`. Next inlines `NODE_ENV` at build time, so in a
+ * production build this is the literal `false` and the menu, its shortcut and
+ * everything only they import drop out of the bundle.
+ *
+ * The engine still accepts `cheat` inputs either way. A save made in dev has
+ * them in its log, and it has to load, replay and verify (as cheated) anywhere.
+ */
+const CHEATS_AVAILABLE = process.env.NODE_ENV === "development";
 
 export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
@@ -223,6 +236,27 @@ export default function Page() {
     state?.notice?.t === "evolved" && seenEvolution !== state.notice ? state.notice : null;
 
   /**
+   * An evolution waiting to be answered, and the creature it is about.
+   *
+   * The other half of the same screen, and the reason `EvolutionScene` grew a
+   * cancel. Growing into a change no longer applies it: the engine records an
+   * offer, this plays it, and whichever way the scene ends goes back as an
+   * input — so a save replays the answer the player actually gave rather than
+   * evolving what they refused.
+   *
+   * Only out of a battle. `evolveRefusal` allows the field and the aftermath
+   * of a fight and nothing else, which is where these games have always put
+   * it: mid-battle is no time to be asked, and twenty seconds of animation
+   * over a fight that is still going is worse than no scene at all.
+   */
+  const offered = (() => {
+    if (!state) return null;
+    if (state.phase !== "field" && state.phase !== "battleEnd") return null;
+    const [first] = pendingChanges(state);
+    return first ?? null;
+  })();
+
+  /**
    * Which directions are held, in the order they were pressed.
    *
    * A list rather than one direction, and the **last** one wins. Rolling a
@@ -300,7 +334,7 @@ export default function Page() {
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
       // Three modifiers and a letter, so nothing reaches it by accident.
-      if (event.ctrlKey && event.shiftKey && event.altKey && key === "z") {
+      if (CHEATS_AVAILABLE && event.ctrlKey && event.shiftKey && event.altKey && key === "z") {
         event.preventDefault();
         setCheats((open) => !open);
         return;
@@ -334,6 +368,12 @@ export default function Page() {
       // key. Side 0 is us; a replacement is chosen from the party strip, not
       // the keyboard.
       if (state.phase === "battle" && state.battle && !state.battle.awaitingSwitch[0]) {
+        // The same guard the field path has, for the same reason and one more.
+        // A key held down while walking is still held when the grass produces
+        // something, and the operating system's repeat arrives here as though
+        // it were a fresh press — so a battle could be a move deep before the
+        // player had seen what they had run into.
+        if (event.repeat) return;
         if (key >= "1" && key <= "4") {
           event.preventDefault();
           dispatch({ t: "fight", moveIndex: Number(key) - 1 });
@@ -401,7 +441,9 @@ export default function Page() {
       <main className="shell">
         <PvpScreen
           roster={[...state.party, ...state.box]}
+          seed={session.world.seed}
           onExit={() => setPvp(false)}
+          onPrize={(creature) => dispatch({ t: "prize", receive: creature })}
           onTrade={(giveUid, received) => {
             const give = state.party.findIndex((creature) => creature.uid === giveUid);
             if (give >= 0) dispatch({ t: "trade", give, receive: received });
@@ -690,6 +732,13 @@ export default function Page() {
         />
       ) : null}
 
+      {/* A bracket follows you: three fights with a walk between them, and
+          having to go back and ask the host for each one would be three walks
+          nobody wants. */}
+      {state.phase === "field" && state.arena ? (
+        <ArenaPanel world={session.world} state={state} onInput={dispatch} />
+      ) : null}
+
       {inMart ? (
         <section className="panel">
           <MartPanel world={session.world} state={state} onInput={dispatch} />
@@ -702,7 +751,22 @@ export default function Page() {
         </section>
       ) : null}
 
-      {evolved ? (
+      {/* The question comes first when there is one: the offer has to be
+          answered before a reveal for something else makes any sense. */}
+      {offered ? (
+        <EvolutionScene
+          key={`${offered.uid}:${offered.to}`}
+          from={offered.creature.speciesId}
+          to={offered.to}
+          variantId={offered.creature.variantId}
+          onDone={() =>
+            dispatch({ t: "evolve", uid: offered.uid, to: offered.to, accept: true })
+          }
+          onCancel={() =>
+            dispatch({ t: "evolve", uid: offered.uid, to: offered.to, accept: false })
+          }
+        />
+      ) : evolved ? (
         <EvolutionScene
           from={evolved.from}
           to={evolved.to}
@@ -715,7 +779,7 @@ export default function Page() {
         />
       ) : null}
 
-      {cheats ? (
+      {CHEATS_AVAILABLE && cheats ? (
         <CheatMenu world={session.world} state={state} onInput={dispatch} onClose={() => setCheats(false)} />
       ) : null}
 

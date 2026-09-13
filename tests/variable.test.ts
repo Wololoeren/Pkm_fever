@@ -65,10 +65,17 @@ describe("moves the manifest cannot price", () => {
       const missed = battle.events.some((event) => event.t === "miss");
       const immune = battle.events.some((event) => event.t === "immune");
 
+      // And a move whose first turn is spent starting something rather than
+      // hitting: Bide takes it for two turns before it gives anything back,
+      // and says so on the turn it begins. The rule is unchanged — the log
+      // has to account for the turn — and a `volatile` event accounts for it
+      // exactly as a `fizzled` does.
+      const began = battle.events.some((event) => event.t === "volatile");
+
       // Doing nothing is allowed — Counter with nothing to counter, a Fissure
       // that missed — as long as the log *says* so rather than reporting a
       // hit of zero.
-      if (dealt > 0 || fizzled || missed || immune) continue;
+      if (dealt > 0 || fizzled || missed || immune || began) continue;
       inert.push(move.id);
     }
 
@@ -91,7 +98,10 @@ describe("moves the manifest cannot price", () => {
     // that adds one is noticed.
     // Thirty, since Spit Up stopped being a flat hundred: its power is the
     // Stockpile count, which is a fact about the battle rather than a number.
-    expect(unnamed.length).toBeLessThan(31);
+    // Thirty-one since Bide stopped being a stand-in sixty and became two
+    // turns of taking it and a third of giving back twice the total — which
+    // is emphatically not a number the manifest could print.
+    expect(unnamed.length).toBeLessThan(32);
     for (const move of unnamed) expect(move.power).toBe(0);
   });
 

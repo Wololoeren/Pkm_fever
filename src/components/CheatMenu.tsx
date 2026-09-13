@@ -1,15 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ALL_SPECIES } from "@/engine/dex";
+import { ALL_SPECIES, species as speciesById } from "@/engine/dex";
+import { BRACKET_SIZES, type BracketSize } from "@/engine/bracket";
+import { cheatPrizeOffer, prizeIvFloor } from "@/engine/prize";
+import { STAT_IDS } from "@/engine/types";
+import { Sprite } from "./Sprite";
 import { GENDER_NAMES, GENDERS, type Gender } from "@/engine/gender";
-import type { Cheat, GameState, Input } from "@/engine/engine";
+import { atFullHealth, withMoves, type Cheat, type GameState, type Input } from "@/engine/engine";
+import type { Individual } from "@/engine/types";
+import { Inspect } from "./Inspect";
 import { ALL_APPEARANCES, variant } from "@/engine/variants";
 import type { World } from "@/engine/world";
 import { displayName } from "@/lib/narrate";
 
 /**
- * Testing shortcuts, behind Ctrl+Shift+Alt+Z.
+ * Testing shortcuts, behind Ctrl+Shift+Alt+Z, and only under `npm run dev`
+ * (see `CHEATS_AVAILABLE` in app/page.tsx).
  *
  * Everything here goes through the ordinary input path, so a save that used
  * any of it carries that fact in its log and reports `cheated`. That is
@@ -33,6 +40,18 @@ export function CheatMenu({
   const [variantId, setVariantId] = useState("normal");
   const [gender, setGender] = useState<Gender>("female");
   const [route, setRoute] = useState(state.route);
+  /**
+   * Which field the prize bench is previewing, and which roll of it.
+   *
+   * The roll is local until something is taken: rerolling is looking, and
+   * looking is not a decision the save has any business recording. What
+   * *is* recorded is the roll that was finally taken from, which is what lets
+   * the same log produce the same creature.
+   */
+  const [prizeSize, setPrizeSize] = useState<BracketSize>(4);
+  const [prizeRoll, setPrizeRoll] = useState(0);
+  /** The bench prize whose stat screen is open, or null. */
+  const [peeking, setPeeking] = useState<Individual | null>(null);
 
   const send = (cheat: Cheat) => onInput({ t: "cheat", cheat });
 
@@ -42,6 +61,25 @@ export function CheatMenu({
   // Routes carry their own label now, so ask them. Deriving one from the id
   // put every interior in the list as "Hub · ring 0 · indoors" — four
   // identical rows and no way to tell the daycare from a house.
+  /**
+   * The three this field and roll would offer.
+   *
+   * Computed here exactly as the engine will compute it when one is taken —
+   * same function, same arguments — so what is on screen is what arrives, and
+   * a bench that quietly showed something else would be worse than no bench.
+   *
+   * Finished the way the engine finishes one on arrival (moves, full health,
+   * the cheat mark), so the stat screen shows the creature that would arrive
+   * rather than a bare roll with no moves and no health.
+   */
+  const prizes = useMemo(
+    () =>
+      cheatPrizeOffer(world.seed, prizeRoll, prizeSize, state.nextUid).map((one) =>
+        atFullHealth(withMoves({ ...one, cheat: true })),
+      ),
+    [prizeRoll, prizeSize, state.nextUid, world.seed],
+  );
+
   const routes = useMemo(
     () =>
       [...world.routes.values()]
@@ -170,6 +208,70 @@ export function CheatMenu({
           </button>
         </div>
 
+        <h3>Bracket prize</h3>
+        <p className="muted">
+          What winning a field of this size offers. Four wins and three other people, without the
+          four wins or the three other people — the odds on shine, colour, abilities and breeding
+          all climb with the field, so the point of the bench is seeing that they do.
+        </p>
+        <div className="row">
+          {BRACKET_SIZES.map((one) => (
+            <button
+              key={one}
+              type="button"
+              className={prizeSize === one ? "primary" : "ghost"}
+              onClick={() => setPrizeSize(one)}
+            >
+              {one} players
+            </button>
+          ))}
+          <button type="button" className="ghost" onClick={() => setPrizeRoll((one) => one + 1)}>
+            Reroll
+          </button>
+          <span className="muted">
+            IVs from {prizeIvFloor(prizeSize)}/31 · roll {prizeRoll}
+          </span>
+        </div>
+        <div className="boxList">
+          {prizes.map((creature, index) => (
+            <div key={creature.speciesId} className="boxRow">
+              <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={24} />
+              <div
+                className="cardBody clickable"
+                role="button"
+                tabIndex={0}
+                title="Show stats"
+                onClick={() => setPeeking(creature)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setPeeking(creature);
+                  }
+                }}
+              >
+                <div className="cardTop">
+                  <strong>{speciesById(creature.speciesId).name}</strong>
+                  <span className="muted">Lv{creature.level}</span>
+                </div>
+                <span className="muted">
+                  {variant(creature.variantId).name} · IVs{" "}
+                  {STAT_IDS.reduce((total, stat) => total + creature.ivs[stat], 0)}/186
+                  {creature.abilities.length
+                    ? ` · ${creature.abilities.join(", ")}`
+                    : " · no ability"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => send({ op: "prize", size: prizeSize, roll: prizeRoll, index })}
+              >
+                Take
+              </button>
+            </div>
+          ))}
+        </div>
+
         <h3>Warp</h3>
         <div className="row">
           <select value={route} onChange={(event) => setRoute(event.target.value)}>
@@ -184,6 +286,20 @@ export function CheatMenu({
           </button>
         </div>
       </section>
+
+      {/* Read-only: index -1 is "not in the party", so it cannot edit moves.
+          Drawn after the menu so it sits over it, and closing it lands back on
+          the bench rather than out of the menu. */}
+      {peeking ? (
+        <Inspect
+          world={world}
+          creature={peeking}
+          index={-1}
+          state={state}
+          onInput={onInput}
+          onClose={() => setPeeking(null)}
+        />
+      ) : null}
     </div>
   );
 }

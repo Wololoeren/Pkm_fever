@@ -119,28 +119,38 @@ describe("the stones", () => {
     expect(() => applyInput(world, state, { t: "useItem", item: "stone-firestone", index: 0 })).toThrow();
   });
 
-  it("K2b: a candy that grows it into something says so, and the rest do not", () => {
-    // The other road to an evolution, and the one that said nothing about it.
-    // `awardExp` has always evolved on a Rare Candy — the level path is the
-    // same one a battle uses, deliberately — but the notice read "Used the
-    // Rare Candy on Metapod" and stopped, naming the creature it had already
-    // become. So the one evolution in this game you had gone to a shop and
-    // paid for was the one that got no reveal.
+  it("K2b: a candy that grows it to the edge of something offers it, and the rest do not", () => {
+    // The other road to an evolution, and the one that used to take it without
+    // asking: `awardExp` evolved on a Rare Candy, deliberately, because the
+    // level path is the same one a battle uses. Both roads now stop one step
+    // short and ask, and the offer is what drives the reveal — so a candy and
+    // a battle produce the same scene from the same state rather than two
+    // screens that have to be kept in step.
     const { world, state } = carrying("caterpie", { rarecandy: 2 }, { level: 6 });
     const grown = applyInput(world, state, { t: "useItem", item: "rarecandy", index: 0 });
 
-    expect(grown.party[0].speciesId).toBe("metapod");
-    expect(grown.notice).toEqual({
+    expect(grown.party[0].speciesId).toBe("caterpie");
+    expect(grown.pendingEvolutions).toEqual([{ uid: state.party[0].uid, to: "metapod" }]);
+    // The notice is the ordinary one: nothing has become anything yet.
+    expect(grown.notice).toEqual({ t: "used", item: "rarecandy", on: "Caterpie" });
+
+    const became = applyInput(world, grown, {
+      t: "evolve",
+      uid: state.party[0].uid,
+      to: "metapod",
+      accept: true,
+    });
+    expect(became.party[0].speciesId).toBe("metapod");
+    // `from` is what it was, not what it is — by the time anything reads this
+    // the creature has changed, which is why both names are carried.
+    expect(became.notice).toEqual({
       t: "evolved",
       from: "caterpie",
       to: "metapod",
       uid: state.party[0].uid,
     });
 
-    // `from` is what it was, not what it is. By the time anything reads this
-    // the creature has already changed, which is why both names are carried
-    // here exactly as they are on the battle's event and the stone's notice.
-    const again = applyInput(world, grown, { t: "useItem", item: "rarecandy", index: 0 });
+    const again = applyInput(world, became, { t: "useItem", item: "rarecandy", index: 0 });
     expect(again.party[0].level).toBe(8);
     // A level that changes nothing is still a level, and says so the old way.
     expect(again.notice).toEqual({ t: "used", item: "rarecandy", on: "Metapod" });
@@ -525,6 +535,10 @@ describe("the catalogue still holds together", () => {
       key: "only ever held",
       hm: "the crossing tools work by walking into the thing",
       rod: "cast by standing at the water, from the field controls",
+      // An ink is a key, not a consumable: the printer reads what is in the
+      // bag and the colour it opens stays open. Pressing one would be asking
+      // the cartridge to do something on its own.
+      ink: "read by the printer, and never spent",
     };
 
     const dead = ITEMS.filter((spec) => bagUse(spec) === null);

@@ -4,7 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   appraisal,
   appraiseRefusal,
+  arenaRefusal,
   offerRefusal,
+  cutRefusal,
+  printRefusal,
+  reforgeRefusal,
+  shredReady,
+  shredRefusal,
+  shredValue,
+  shredWait,
   speakingTo,
   stations,
   tradeRefusal,
@@ -14,6 +22,13 @@ import {
 } from "@/engine/engine";
 import { contender as cupSpec, CUP_SIZE } from "@/engine/cup";
 import { gym as gymSpec, gymBreakdown } from "@/engine/gyms";
+import { arena, arenaBreakdown, ARENA_ROUNDS, ARENA_SIZE } from "@/engine/arenas";
+import { missingInks, printable, PRINT_COOLDOWN } from "@/engine/printer";
+import { SHRED_COOLDOWN, SHRED_PER_CANDY } from "@/engine/engine";
+import { CUT_COOLDOWN, cutReady, cutWait } from "@/engine/lapidary";
+import { natureName } from "@/engine/smith";
+import { chroma } from "@/engine/variants";
+import { species as speciesById } from "@/engine/dex";
 import { item } from "@/engine/items";
 import { dialogueOf, givesText } from "@/engine/npc";
 import { goalText, quest as questSpec, rewardText } from "@/engine/quests";
@@ -163,6 +178,66 @@ export function TalkPanel({
       }));
     }
 
+    if (person.kind === "print") {
+      // One option per colour he can do: ivory always, and every other one
+      // whose cartridge is in the bag. The ones he is missing are named in
+      // the paragraph below rather than listed as dead buttons — a row you
+      // can never press is a row that teaches you to stop reading them.
+      return printable((id) => (state.bag[id] ?? 0) > 0).map((chromaId) => ({
+        label: `Print in ${chroma(chromaId).name}`,
+        why: printRefusal(world, state, chromaId),
+        run: () => onInput({ t: "print", chromaId }),
+      }));
+    }
+
+    if (person.kind === "shred") {
+      // One row per party member, each armed the way the Appraiser's are:
+      // this is irreversible and the list can slide, so the second press is
+      // the confirmation and the uid is the safety catch.
+      return state.party.map((creature, index) => ({
+        label: `Hand over ${displayName(creature)} · Lv${creature.level} for ${shredValue(
+          creature,
+        )} candy`,
+        why: shredRefusal(world, state, index, creature.uid),
+        arms: creature.uid,
+        run: () => onInput({ t: "shred", index, confirm: creature.uid }),
+      }));
+    }
+
+    if (person.kind === "cut") {
+      // Armed like the shredder's and the Appraiser's: irreversible, and the
+      // list can slide under a click.
+      return state.party.map((creature, index) => ({
+        label: `Put ${displayName(creature)} on the wheel · ${speciesById(creature.speciesId)
+          .types.join("/")}`,
+        why: cutRefusal(world, state, index, creature.uid),
+        arms: creature.uid,
+        run: () => onInput({ t: "cut", index, confirm: creature.uid }),
+      }));
+    }
+
+    if (person.kind === "forge") {
+      // Armed like every other row where a creature changes for good: the
+      // IV point does not come back, and the list can slide under a click.
+      return state.party.map((creature, index) => ({
+        label: `Put ${displayName(creature)} on the anvil · ${natureName(creature.natureId)} now`,
+        why: reforgeRefusal(world, state, index, creature.uid),
+        arms: creature.uid,
+        run: () => onInput({ t: "reforge", index, confirm: creature.uid }),
+      }));
+    }
+
+    if (person.kind === "arena" && person.arenaId) {
+      const spec = arena(person.arenaId);
+      return [
+        {
+          label: `Enter · ${spec.teamSize}v${spec.teamSize}, eight in the draw`,
+          why: arenaRefusal(state, person.arenaId),
+          run: () => onInput({ t: "arenaEnter", id: person.arenaId! }),
+        },
+      ];
+    }
+
     if (person.kind === "travel") {
       return network.reachable.map(({ id, route }) => ({
         label: `${route?.label ?? id}${route ? ` · ${hopText(route.depth)}` : ""}`,
@@ -259,6 +334,55 @@ export function TalkPanel({
 
       {person.kind === "cup" && person.cupId ? <CupTerms cupId={person.cupId} /> : null}
 
+      {person.kind === "print" ? (
+        <p className="muted">
+          {state.lastWild
+            ? `On file: ${speciesById(state.lastWild).name}. `
+            : "Nothing on file — the scanner has not picked anything up yet. "}
+          {missingInks((id) => (state.bag[id] ?? 0) > 0).length
+            ? `Still out of ${missingInks((id) => (state.bag[id] ?? 0) > 0)
+                .map((id) => chroma(id).name.toLowerCase())
+                .join(", ")}.`
+            : "Every colour loaded."}
+          {" "}
+          One in four comes out as sludge, and the machine needs {PRINT_COOLDOWN} moves between
+          goes.
+        </p>
+      ) : null}
+
+      {person.kind === "shred" ? (
+        <p className="muted">
+          One Rare Candy for every {SHRED_PER_CANDY} levels, rounded down — so a level 30 is ten,
+          and anything under {SHRED_PER_CANDY} is nothing at all. It does not come back.
+          {shredReady(state.tick, state.shreddedAt)
+            ? ` One at a time: the machine wants ${SHRED_COOLDOWN} moves between them.`
+            : ` The machine is still running — ${shredWait(state.tick, state.shreddedAt)} moves.`}
+        </p>
+      ) : null}
+
+      {person.kind === "cut" ? (
+        <p className="muted">
+          A stone of whatever the creature is — two types is a coin toss between them, and which
+          stone a type comes off as is read off the manifest&apos;s own evolutions rather than a
+          list anybody wrote. It does not come back.
+          {cutReady(state.tick, state.cutAt)
+            ? ` One at a time: the wheel wants ${CUT_COOLDOWN} moves to cool.`
+            : ` The wheel is still turning — ${cutWait(state.tick, state.cutAt)} moves.`}
+        </p>
+      ) : null}
+
+      {person.kind === "forge" ? (
+        <p className="muted">
+          A different nature — never the one it had, and not one you choose — for one IV point
+          taken from wherever the hammer lands. A Mint does the same thing exactly, for money; this
+          costs breeding instead. No waiting between goes: the IVs are the limit.
+        </p>
+      ) : null}
+
+      {person.kind === "arena" && person.arenaId ? (
+        <ArenaTerms state={state} arenaId={person.arenaId} />
+      ) : null}
+
       {person.kind === "buy" ? (
         <p className="muted">
           A thousand for every rung, or one Glitter for every rung — your choice, and it is the
@@ -333,6 +457,23 @@ function CupTerms({ cupId }: { cupId: string }) {
 }
 
 /** What a gym is fielding, and how it got there, before you commit to it. */
+/** What a bracket is fielding, and how it got there. The gym's paragraph,
+ * applied to the thing that borrowed the gym's scaling. */
+function ArenaTerms({ state, arenaId }: { state: GameState; arenaId: string }) {
+  const spec = arena(arenaId);
+  const sums = arenaBreakdown(spec, state.tick, state.badges.length);
+
+  return (
+    <p className="muted">
+      <strong>{spec.title}</strong> — {ARENA_SIZE} in the draw, {ARENA_ROUNDS} rounds,{" "}
+      {spec.teamSize}v{spec.teamSize} at level <strong>{sums.total}</strong>. That is {sums.base} to
+      start with, {sums.fromMoves} for the {state.tick.toLocaleString()} moves you have taken, and{" "}
+      {sums.fromBadges} for the {state.badges.length} badges you hold. Win all three and you pick
+      one of three at level 1. Lose one and you are out.
+    </p>
+  );
+}
+
 function GymTerms({ state, gymId }: { state: GameState; gymId: string }) {
   const spec = gymSpec(gymId);
   const sums = gymBreakdown(spec, state.tick, state.badges.length);

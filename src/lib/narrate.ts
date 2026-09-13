@@ -124,164 +124,238 @@ const STAT_NAMES: Record<string, string> = {
 
 function effectivenessText(quarters: number): string {
   if (quarters === 0) return "";
-  if (quarters > 4) return " It's super effective!";
-  if (quarters < 4) return " It's not very effective.";
+  if (quarters > 4) return "It's super effective!";
+  if (quarters < 4) return "It's not very effective.";
   return "";
 }
 
-export function narrate(
+/**
+ * One piece of a line, and what it is.
+ *
+ * The log used to be flat strings, which meant the only way to colour a move
+ * name was to go looking for it again in the finished sentence — and "used
+ * Tackle!" is not a pattern, it is a coincidence that holds until somebody
+ * translates the word "used".
+ *
+ * So the words come out already labelled. `move` carries the side that used
+ * it, because whose move it was is the whole basis of the colour and this
+ * module has no opinion about which side the reader is sitting on. `key` is
+ * the handful of phrases worth catching out of the corner of an eye — a
+ * critical hit, a type matchup, a miss — which is a judgement about *emphasis*
+ * rather than about who did what, and so belongs here rather than in a
+ * stylesheet matching on text.
+ */
+export type LogPart =
+  | { t: "text"; text: string }
+  | { t: "move"; text: string; side: SideIndex }
+  | { t: "key"; text: string };
+
+export type LogLine = readonly LogPart[];
+
+/**
+ * The log as structure: every line, in pieces, each piece labelled.
+ *
+ * `narrate` below is this joined back into strings, and is what anything that
+ * only wants words should use.
+ */
+export function narrateParts(
   events: readonly BattleEvent[],
   nameOf: (side: SideIndex) => string,
-): string[] {
-  const lines: string[] = [];
+): LogLine[] {
+  const lines: LogLine[] = [];
+
+  /** A line, from any mix of plain strings and labelled pieces. */
+  const say = (...parts: (string | LogPart)[]): void => {
+    lines.push(
+      parts
+        .filter((one) => one !== "")
+        .map((one): LogPart => (typeof one === "string" ? { t: "text", text: one } : one)),
+    );
+  };
+  const move = (moveId: string, side: SideIndex): LogPart => ({
+    t: "move",
+    text: moveById(moveId).name,
+    side,
+  });
+  const key = (text: string): LogPart => ({ t: "key", text });
 
   for (const event of events) {
     switch (event.t) {
       case "use":
-        lines.push(`${nameOf(event.side)} used ${moveById(event.moveId).name}!`);
+        // The move name is the one word in the line the eye should find
+        // first, and whose it was decides its colour.
+        say(`${nameOf(event.side)} used `, move(event.moveId, event.side), "!");
         break;
       case "miss":
-        lines.push(`${nameOf(event.side)}'s attack missed!`);
+        say(`${nameOf(event.side)}'s attack `, key("missed!"));
         break;
       case "immune":
-        lines.push(`It doesn't affect ${nameOf(event.side)}.`);
+        say(key("It doesn't affect "), key(`${nameOf(event.side)}.`));
         break;
       case "damage": {
-        const crit = event.crit ? " A critical hit!" : "";
-        lines.push(`${nameOf(event.side)} took ${event.amount}.${crit}${effectivenessText(event.quarters)}`);
+        // Three pieces, because the middle two are the ones worth catching
+        // sideways: a critical hit and a type matchup are the difference
+        // between a turn going well and going badly, and both scroll past.
+        const matchup = effectivenessText(event.quarters);
+        say(
+          `${nameOf(event.side)} took ${event.amount}.`,
+          event.crit ? " " : "",
+          event.crit ? key("A critical hit!") : "",
+          matchup ? " " : "",
+          matchup ? key(matchup) : "",
+        );
         break;
       }
       // After the blows rather than before them, which is the order they
       // happened in: five numbers and then the count that explains why there
       // were five. `side` is the attacker here, unlike `damage`.
       case "hits":
-        lines.push(event.count === 1 ? "It hit once." : `It hit ${event.count} times!`);
+        say(event.count === 1 ? "It hit once." : `It hit ${event.count} times!`);
         break;
       case "status":
-        lines.push(`${nameOf(event.side)} ${STATUS_TEXT[event.status] ?? "was afflicted"}!`);
+        say(`${nameOf(event.side)} ${STATUS_TEXT[event.status] ?? "was afflicted"}!`);
         break;
       case "boost": {
         const direction = event.delta > 0 ? "rose" : "fell";
         const sharply = Math.abs(event.delta) > 1 ? " sharply" : "";
-        lines.push(`${nameOf(event.side)}'s ${STAT_NAMES[event.stat]} ${direction}${sharply}!`);
+        say(`${nameOf(event.side)}'s ${STAT_NAMES[event.stat]} ${direction}${sharply}!`);
         break;
       }
       case "heal":
-        lines.push(`${nameOf(event.side)} recovered ${event.amount} HP.`);
+        say(`${nameOf(event.side)} recovered ${event.amount} HP.`);
         break;
       case "recoil":
-        lines.push(`${nameOf(event.side)} was hit by recoil for ${event.amount}.`);
+        say(`${nameOf(event.side)} was hit by recoil for ${event.amount}.`);
         break;
       case "blocked":
-        lines.push(`${nameOf(event.side)} ${BLOCKED_TEXT[event.reason] ?? "cannot move"}!`);
+        say(`${nameOf(event.side)} ${BLOCKED_TEXT[event.reason] ?? "cannot move"}!`);
         break;
       case "woke":
-        lines.push(`${nameOf(event.side)} woke up!`);
+        say(`${nameOf(event.side)} woke up!`);
         break;
       case "thawed":
-        lines.push(`${nameOf(event.side)} thawed out!`);
+        say(`${nameOf(event.side)} thawed out!`);
         break;
       case "residual":
-        lines.push(`${nameOf(event.side)} was hurt by its ${event.status === "brn" ? "burn" : "poison"} for ${event.amount}.`);
+        say(`${nameOf(event.side)} was hurt by its ${event.status === "brn" ? "burn" : "poison"} for ${event.amount}.`);
         break;
       case "faint":
-        lines.push(`${nameOf(event.side)} fainted!`);
+        say(`${nameOf(event.side)} fainted!`);
         break;
       case "switch":
-        lines.push("Come back! Go!");
+        say("Come back! Go!");
         break;
       case "effort": {
         // Named per stat, because effort is the one stat input a player
         // directs — "it got stronger" would hide the only decision here.
-        lines.push(`Effort: +${event.amount} ${event.stats.map((stat) => STAT_NAMES[stat]).join(" and ")}.`);
+        say(`Effort: +${event.amount} ${event.stats.map((stat) => STAT_NAMES[stat]).join(" and ")}.`);
         break;
       }
 
       case "exp": {
-        lines.push(`Gained ${event.amount} EXP.`);
-        if (event.levels > 0) lines.push(`Level up! (+${event.levels})`);
-        for (const learned of event.learned) lines.push(`Learned ${moveById(learned).name}!`);
-        if (event.evolved) lines.push(`It evolved into ${speciesById(event.evolved).name}!`);
+        say(`Gained ${event.amount} EXP.`);
+        if (event.levels > 0) say(`Level up! (+${event.levels})`);
+        for (const learned of event.learned) say(`Learned ${moveById(learned).name}!`);
+        if (event.evolved) say(`It evolved into ${speciesById(event.evolved).name}!`);
         break;
       }
       case "catchFailed":
-        lines.push("Argh! It broke free!");
+        say("Argh! It broke free!");
         break;
       case "caught":
-        lines.push("Gotcha! It was caught!");
+        say("Gotcha! It was caught!");
         break;
       case "fleeFailed":
-        lines.push("Couldn't get away!");
+        say("Couldn't get away!");
         break;
       case "fled":
-        lines.push("Got away safely.");
+        say("Got away safely.");
         break;
       case "noBalls":
-        lines.push("No balls left!");
+        say("No balls left!");
         break;
       case "timeout":
-        lines.push("The battle has gone on long enough — it is decided on health.");
+        say("The battle has gone on long enough — it is decided on health.");
         break;
       case "struggling":
-        lines.push(`${nameOf(event.side)} has nothing left, and struggles!`);
+        say(`${nameOf(event.side)} has nothing left, and struggles!`);
         break;
       case "ability":
-        lines.push(`${nameOf(event.side)}'s ${ability(event.abilityId).name}!`);
+        say(`${nameOf(event.side)}'s ${ability(event.abilityId).name}!`);
         break;
       case "fizzled":
         // Not a miss and not a hit of zero. Endeavor against something already
         // weaker, Counter with nothing to answer — the move happened and came
         // to nothing, and saying "it took 0" would be a different claim.
-        lines.push(`${moveById(event.moveId).name} came to nothing.`);
+        say(`${moveById(event.moveId).name} came to nothing.`);
         break;
       case "aim": {
         const direction = event.delta > 0 ? "rose" : "fell";
         const sharply = Math.abs(event.delta) > 1 ? " sharply" : "";
-        lines.push(`${nameOf(event.side)}'s ${AIM_NAMES[event.which]} ${direction}${sharply}!`);
+        say(`${nameOf(event.side)}'s ${AIM_NAMES[event.which]} ${direction}${sharply}!`);
         break;
       }
       case "volatile":
-        lines.push(`${nameOf(event.side)} ${VOLATILE_TEXT[event.which] ?? "was affected"}!`);
+        say(`${nameOf(event.side)} ${VOLATILE_TEXT[event.which] ?? "was affected"}!`);
         break;
       case "screen":
-        lines.push(`On ${nameOf(event.side)}'s side, ${SCREEN_TEXT[event.which] ?? "something went up"}!`);
+        say(`On ${nameOf(event.side)}'s side, ${SCREEN_TEXT[event.which] ?? "something went up"}!`);
         break;
       case "shielded":
-        lines.push(`${nameOf(event.side)} protected itself!`);
+        say(`${nameOf(event.side)} protected itself!`);
         break;
       case "perish":
         // Counted down out loud, because a number nobody can see is a creature
         // that faints for no reason three turns later.
-        lines.push(
+        say(
           event.turns > 0
             ? `${nameOf(event.side)}'s count fell to ${event.turns}.`
             : `${nameOf(event.side)}'s count reached zero!`,
         );
         break;
       case "transformed":
-        lines.push(`${nameOf(event.side)} transformed into ${speciesById(event.into).name}!`);
+        say(`${nameOf(event.side)} transformed into ${speciesById(event.into).name}!`);
         break;
       case "sketched":
-        lines.push(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
+        say(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
         break;
       case "field":
-        lines.push(FIELD_TEXT[event.id]?.[event.over ? 1 : 0] ?? (event.over ? "The field cleared." : "The field changed."));
+        say(FIELD_TEXT[event.id]?.[event.over ? 1 : 0] ?? (event.over ? "The field cleared." : "The field changed."));
         break;
       case "weathered":
-        lines.push(`${nameOf(event.side)} ${WEATHERED_TEXT[event.weather] ?? "is worn by the weather"} for ${event.amount}.`);
+        say(`${nameOf(event.side)} ${WEATHERED_TEXT[event.weather] ?? "is worn by the weather"} for ${event.amount}.`);
         break;
       case "spite":
-        lines.push(`${nameOf(event.side)}'s ${moveById(event.moveId).name} lost ${event.amount} uses!`);
+        say(`${nameOf(event.side)}'s ${moveById(event.moveId).name} lost ${event.amount} uses!`);
         break;
       case "revived":
         // Named by species rather than by side, because the side's name is
         // whoever is standing and the one revived is not.
-        lines.push(`${speciesById(event.speciesId).name} was revived!`);
+        say(`${speciesById(event.speciesId).name} was revived!`);
         break;
     }
   }
 
   return lines;
+}
+
+/**
+ * The log as sentences.
+ *
+ * `narrateParts` with the labels thrown away. Kept because most callers — and
+ * every test that checks what the game *said* — want a string, and because a
+ * line assembled two different ways would be two lines free to disagree.
+ */
+export function narrate(
+  events: readonly BattleEvent[],
+  nameOf: (side: SideIndex) => string,
+): string[] {
+  return narrateParts(events, nameOf).map(flatten);
+}
+
+/** One structured line, as a sentence. */
+export function flatten(line: LogLine): string {
+  return line.map((part) => part.text).join("");
 }
 
 export function displayName(individual: Individual): string {

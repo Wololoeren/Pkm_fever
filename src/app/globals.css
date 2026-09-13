@@ -45,6 +45,9 @@ kbd {
 .muted { color: var(--muted); font-size: 0.88rem; }
 .error { color: var(--danger); font-size: 0.9rem; }
 .good { color: var(--good); font-size: 0.9rem; }
+/* Neither wrong nor fine: a trade is a feature, and a traded creature is the
+   one thing on the verify page that replaying cannot prove. */
+.warn { color: var(--warn); font-size: 0.9rem; }
 .hint { color: var(--muted); font-size: 0.82rem; }
 
 /* ------------------------------------------------------------------ shell */
@@ -491,6 +494,10 @@ button.ghost { background: transparent; }
 .moveBtn.spent { opacity: 0.4; }
 .moveBtn.spent .movePp { color: var(--danger); }
 .moveBtn.spentAll { border-left-color: var(--danger); }
+/* A creature part-way through a Fly or an Outrage: every other button still
+   presses, and still does the committed move. Dimmed rather than disabled,
+   because disabling all four is how a menu ends up with nothing to press. */
+.moveBtn.overridden { opacity: 0.45; }
 
 .ppTotal {
   font-variant-numeric: tabular-nums;
@@ -557,13 +564,30 @@ button.ghost { background: transparent; }
   border-radius: 8px;
   padding: 12px 14px;
   min-height: 86px;
-  max-height: 150px;
+  /* Taller than it was: this used to hold one turn, and now it holds the
+     whole battle. Still bounded, because the log is beside the fight rather
+     than instead of it. */
+  max-height: 220px;
   overflow-y: auto;
   font-size: 0.92rem;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
+
+/* The log's three voices.
+
+   Whose move it was is the colour, which is the one question a scrolling log
+   has to answer without being read: green is yours, red is theirs. Yellow is
+   for the handful of phrases worth catching sideways — a critical hit, a type
+   matchup, a miss — the things that decide a turn and otherwise scroll past
+   in the same grey as everything else.
+
+   The parts arrive already labelled from `narrate.ts`; nothing here matches on
+   text, which would break the first time a word changed. */
+.logMine { color: var(--good); font-weight: 600; }
+.logTheirs { color: var(--danger); font-weight: 600; }
+.logKey { color: var(--warn); font-weight: 600; }
 
 .actions { display: flex; flex-direction: column; gap: 10px; }
 .prompt { font-weight: 600; }
@@ -1350,7 +1374,9 @@ kbd {
 }
 .evolveFill { height: 100%; background: rgba(255, 255, 255, 0.55); }
 
-.evolveSkip { position: absolute; right: 12px; bottom: 12px; }
+/* The two answers sit together bottom-right. One button when the scene is
+   only a picture, two when it is the question the player has to answer. */
+.evolveButtons { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; }
 
 /* --------------------------------------------------------------- inspect */
 
@@ -1380,8 +1406,8 @@ kbd {
 .statTable .num { text-align: right; font-family: var(--mono); }
 .statTable th.num { font-family: inherit; padding-right: 10px; }
 .statTable .strong { font-weight: 700; }
-.statTable td.good { color: var(--good); }
-.statTable td.error { color: var(--danger); }
+.statTable .good { color: var(--good); }
+.statTable .error { color: var(--danger); }
 
 .eggLine { margin-top: 4px; font-size: 0.8rem; }
 
@@ -1546,4 +1572,41 @@ button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
   color: var(--text);
   border-bottom: 2px solid transparent;
   padding-bottom: 1px;
+}
+
+/* ------------------------------------------------------------- the bracket
+
+   Rounds run left to right and the matches in each sit in a column, which is
+   the shape everybody already reads a bracket in. It scrolls sideways rather
+   than shrinking: a sixteen is four columns, and four columns squeezed onto a
+   laptop is four columns nobody can read. */
+.bracketBoard { display: flex; gap: 16px; align-items: flex-start; padding: 4px 0; }
+.bracketRound { display: flex; flex-direction: column; gap: 10px; min-width: 150px; }
+.bracketRound h4 { margin: 0 0 2px; font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.bracketMatch {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+/* The one being played, which is the one everybody is looking at. */
+.bracketMatch.live { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
+.bracketMatch.done { opacity: 0.75; }
+.bracketSeat { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.bracketSeat.won { font-weight: 600; }
+/* Struck through rather than hidden: who somebody beat to get here is half of
+   what a bracket is for. */
+.bracketSeat.out { opacity: 0.5; text-decoration: line-through; }
+
+/* A bench row whose body opens the stat screen. */
+.cardBody.clickable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.cardBody.clickable:hover,
+.cardBody.clickable:focus-visible {
+  background: rgba(127, 127, 127, 0.12);
 }

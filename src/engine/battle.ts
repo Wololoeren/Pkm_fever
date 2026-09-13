@@ -142,6 +142,102 @@ export interface Volatiles {
   types?: readonly string[];
   /** Foresight and Miracle Eye: the immunity that has been seen through. */
   seen?: "ghost" | "dark";
+
+  /*
+   * ------------------------------------------------------------------
+   * The seven below are what a *damaging* move can leave behind.
+   *
+   * Everything above this line arrived with the status moves, and the gate in
+   * `dex.ts` meant a status move whose shape was missing was never dealt at
+   * all. Damaging moves went through no such gate — `actsOnSomething` returns
+   * true for every one of them — so a move whose entire identity is a flag
+   * was handed out with its power and none of its cost. Hyper Beam was a
+   * hundred and fifty power with no recharge; Fly hit the turn it was used;
+   * Fake Out was a forty-power priority move that did nothing a Quick Attack
+   * does not do better.
+   * ------------------------------------------------------------------
+   */
+
+  /**
+   * The move it is part-way through, and cannot stop doing.
+   *
+   * One field for three mechanics that are the same shape — a move id the
+   * next turn is spent on, whether the creature likes it or not — because
+   * they cannot overlap and one field is one thing to clear on a switch:
+   *
+   * - **charging** (`charge`): Fly, Dig, Solar Beam. Turn one is spent going
+   *   up, down or gathering light; turn two is the blow.
+   * - **raging** (`lockedmove`): Outrage, Thrash. Two or three turns of the
+   *   same move, and confusion at the end of it.
+   * - **rolling**: Rollout and Ice Ball, whose power doubles every turn it
+   *   keeps landing.
+   *
+   * `commitment` says which of the three, because what happens when it ends
+   * differs: a charge releases, a rampage confuses, and a roll simply stops.
+   */
+  committed?: string;
+  commitment?: "charge" | "rage" | "roll";
+  /** Turns of `committed` still to run. A charge is always one. */
+  commitTurns?: number;
+  /**
+   * How many blows a Rollout has landed in a row, which is what doubles it.
+   *
+   * Separate from `commitTurns` because it counts *up* and survives what the
+   * lock does not: a Rollout that misses loses the lock and the streak
+   * together, but a Defence Curl before it starts is worth a doubling that no
+   * turn counter could hold.
+   */
+  rolled?: number;
+  /** Defence Curl, which Rollout is worth twice as much after. */
+  curled?: boolean;
+  /**
+   * Where it went while charging: up, under, below or out of the world.
+   *
+   * Nothing reaches it there, bar the handful of moves that specifically do —
+   * Earthquake finds a Dig, Gust and Thunder find a Fly, Surf finds a Dive,
+   * and nothing at all finds a Phantom Force. Without this a two-turn move is
+   * strictly worse than a one-turn one, which is not what it is meant to be:
+   * the turn spent is bought back by the turn spent untouchable.
+   */
+  hidden?: "sky" | "ground" | "water" | "shadow";
+  /** Hyper Beam and the nine other beams: the next turn is spent recovering. */
+  recharging?: boolean;
+  /**
+   * It flinched, and does not move this turn.
+   *
+   * Set by whoever moved first and read by whoever moves second, then cleared
+   * at the end of the turn whether or not it was ever read — which is the
+   * whole of the mechanic, and the reason a flinch from the slower side is
+   * worth nothing.
+   */
+  flinched?: boolean;
+  /** Wrap, Fire Spin, Whirlpool: turns left in the bind, and who is holding
+   * it there. It cannot leave, and it loses an eighth every turn. */
+  bound?: number;
+  /**
+   * Bide: turns of taking it, and what has been taken so far.
+   *
+   * Both, because unleashing needs the second and knowing when needs the
+   * first, and a Bide with nothing stored still has to end.
+   */
+  biding?: number;
+  bided?: number;
+  /**
+   * It has not had a turn yet, which is the whole of what Fake Out asks.
+   *
+   * Written on arrival and taken off again the moment the slot has had a turn
+   * — that direction round, rather than a `hasActed` set every turn forever,
+   * because a volatile written on every creature in every battle would throw
+   * away the absent-unless-something-is-happening property that `X41` exists
+   * to hold: a battle with none of this in it has to hash exactly as it did
+   * before any of it existed.
+   *
+   * Being swept on arrival is what makes the three cases agree with no turn
+   * counting anywhere: a lead can Fake Out on turn one, a creature switched
+   * in on turn five can Fake Out on turn six, and one dragged in by a Roar
+   * can do the same.
+   */
+  fresh?: boolean;
 }
 
 export type BattleOutcome =
@@ -209,7 +305,25 @@ export type VolatileKind =
   | "afloat"
   | "retyped"
   | "seen"
-  | "inverted";
+  | "inverted"
+  /** Gathering light, going up, going under: a charge turn spent. */
+  | "charging"
+  /** And the turn spent getting its breath back afterwards. */
+  | "recharging"
+  /** It flinched, and lost the turn. */
+  | "flinched"
+  /** Caught in a bind, and the bind squeezing — the same two-sentence split
+   * `seeded` and `sapped` have, for the same reason. */
+  | "bound"
+  | "squeezed"
+  /** The bind wearing off, which the player needs told or the freedom is
+   * invisible. */
+  | "freed"
+  /** Thrashing about, and the confusion that ends it. */
+  | "raging"
+  /** Taking it, and giving it back twice over. */
+  | "biding"
+  | "unleashed";
 
 export type BattleEvent =
   | { t: "use"; side: SideIndex; moveId: string }
@@ -296,11 +410,18 @@ export type BattleEvent =
       learned: string[];
       /** Grew into it, had no room for it. The player is asked later. */
       offered: string[];
-      /** What it became, if it became anything. */
+      /**
+       * What it is ready to become, if anything.
+       *
+       * An offer rather than a fact, the way `offered` above is. A battle no
+       * longer changes anybody's species: whoever owns the party turns this
+       * into a question and applies the answer, because saying no has to be a
+       * decision the save records or a replay would evolve what the player
+       * refused.
+       */
       evolved: string | null;
-      /** And what it was — carried because the creature has already changed by
-       * the time anything reads this, and a screen that wants to show the
-       * change needs both halves of it. */
+      /** And what it is now, carried so a screen showing the change has both
+       * halves of it without looking the creature up. */
       evolvedFrom: string | null;
     }
   | { t: "effort"; stats: StatId[]; amount: number }
@@ -355,6 +476,24 @@ export interface Combatant {
    * `volatiles`. Turn counts, decremented once per turn and deleted at nought.
    */
   screens?: Partial<Record<SideConditionId, number>>;
+  /**
+   * A blow already thrown that has not arrived yet: Future Sight, Doom Desire.
+   *
+   * On the side rather than in `volatiles` because that is precisely what
+   * makes the move worth using — it lands on whoever is standing there in two
+   * turns, which may well be somebody who was not there when it was thrown,
+   * and a volatile would be swept away by the very switch the move is aimed
+   * at punishing.
+   *
+   * `amount` is settled when the move is used rather than when it lands. That
+   * is a deviation and it is deliberate: the alternative is storing the
+   * attacker whole and running the damage formula against a slot it is no
+   * longer standing in, and a snapshot of a creature that has since evolved,
+   * fainted or been swapped for another is a worse lie than a fixed number.
+   * What the player is promised — "this much, in two turns, whoever is there"
+   * — is exactly what happens.
+   */
+  future?: { turns: number; moveId: string; amount: number; quarters: number };
 }
 
 export interface BattleState {
@@ -366,6 +505,21 @@ export interface BattleState {
   sides: [Combatant, Combatant];
   /** Sides that owe a replacement before anything else can happen. */
   awaitingSwitch: [boolean, boolean];
+  /**
+   * Which of our team have stood opposite whatever the other side has out.
+   *
+   * Indices into `sides[0].team`, and the whole of what "took part" means: the
+   * experience for beating something is split between everybody on this list
+   * rather than handed to whoever landed the last hit.
+   *
+   * Reset the moment the *other* side sends somebody new out, which is what
+   * keeps it honest — otherwise beating a team of six would pay the whole
+   * party six times over for work it did against the first one.
+   *
+   * On the battle rather than in `volatiles`, because volatiles are cleared by
+   * the very switch this exists to remember.
+   */
+  sharing: number[];
   /**
    * Weather, terrain and the sports. Absent when nothing is up, so a battle
    * with no weather in it hashes as it did before the field existed.
@@ -918,6 +1072,8 @@ export function startBattle(
       { team: theirs.map((creature) => ({ ...creature })), active: 0, stages: { ...NO_STAGES }, locked: null },
     ],
     awaitingSwitch: [false, false],
+    // Whoever we lead with has taken part in whatever is standing opposite.
+    sharing: [ourActive],
     outcome: null,
     events: [],
   };
@@ -1015,6 +1171,39 @@ interface Turn {
    * turn and forgotten after it.
    */
   taken: [{ physical: number; special: number }, { physical: number; special: number }];
+  /**
+   * Whether each side's move actually connected this turn.
+   *
+   * Indexed by *attacker*, and set by `landDamage` — so it is true for a blow
+   * that landed for one point and false for a miss, an immunity, a shield or
+   * a fizzle. `afterMove` is the only reader, and it needs the distinction for
+   * four separate things: a Rollout that misses loses its run, a U-turn that
+   * misses does not leave, a Dragon Tail that misses drives nobody out, and a
+   * Hyper Beam that misses still has to recharge.
+   */
+  connected: [boolean, boolean];
+  /**
+   * The move each side actually got off this turn, if any.
+   *
+   * Not the same question as `Combatant.lastMove`, which remembers across
+   * turns and is what Sketch copies. `afterMove` needs "what happened *this*
+   * turn", and reading `lastMove` for it was wrong in a way that took a test
+   * to find: a creature spending its turn recharging never sets `lastMove`,
+   * so the beam it used the turn before was still sitting there — and
+   * `afterMove` dutifully set the recharge again, every turn, forever.
+   *
+   * Written where the `use` event is, at whatever depth, so a Metronome that
+   * landed on Hyper Beam recharges: the creature used the beam, whatever it
+   * meant to use.
+   */
+  used: [string | null, string | null];
+  /**
+   * Which side is catching something on its way out with Pursuit.
+   *
+   * Set by `resolveTurn` before either move resolves, because it is the one
+   * fact a move needs that only the turn knows: what the *other* side chose.
+   */
+  pursuing?: SideIndex;
 }
 
 function active(turn: Turn, side: SideIndex): Individual {
@@ -1437,16 +1626,8 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       return true;
     }
 
-    case "confuse": {
-      if (screened(turn, foe, "safeguard")) {
-        turn.events.push({ t: "screen", side: foe, which: "safeguard" });
-        return false;
-      }
-      if ((volatiles(turn, foe).confusion ?? 0) > 0) return false;
-      mergeVolatiles(turn, foe, { confusion: CONFUSED_TURNS });
-      turn.events.push({ t: "volatile", side: foe, which: "confused" });
-      return true;
-    }
+    case "confuse":
+      return confuseSide(turn, foe);
 
     case "nightmare": {
       const target = active(turn, foe);
@@ -2216,6 +2397,29 @@ function unstock(turn: Turn, side: SideIndex): boolean {
  * happens. Perish counts last, because it is the one thing nothing prevents
  * and it should have the last word.
  */
+/**
+ * Confuse *this* side, whoever it is.
+ *
+ * Named by the side rather than by "the target", because two of the three
+ * callers confuse somebody other than the one a move was aimed at. Confuse Ray
+ * and a Dynamic Punch's secondary confuse the foe; **Outrage confuses its own
+ * user**, and that is the whole cost of the move.
+ *
+ * It was a `foe`-only case in `applyMoveEffect` first, and a rampage calling
+ * it put the confusion on the wrong creature — a bug worth the extra function,
+ * because a drawback applied to the opponent is not a drawback.
+ */
+function confuseSide(turn: Turn, side: SideIndex): boolean {
+  if (screened(turn, side, "safeguard")) {
+    turn.events.push({ t: "screen", side, which: "safeguard" });
+    return false;
+  }
+  if ((volatiles(turn, side).confusion ?? 0) > 0) return false;
+  mergeVolatiles(turn, side, { confusion: CONFUSED_TURNS });
+  turn.events.push({ t: "volatile", side, which: "confused" });
+  return true;
+}
+
 function tickVolatiles(turn: Turn, side: SideIndex): void {
   // Roots first, so a creature both rooted and seeded is mended before it is
   // drained — which is the order the games use, and the one that gives the
@@ -2240,6 +2444,31 @@ function tickVolatiles(turn: Turn, side: SideIndex): void {
         if (mended > 0) turn.events.push({ t: "heal", side: other(side), amount: mended });
       }
     }
+  }
+
+  /*
+   * The bind squeezing, and then letting go.
+   *
+   * Beside the seed rather than with the statuses because it is the same kind
+   * of thing — a share of maximum health, every turn, until it stops — and
+   * because the order matters: a creature both seeded and bound loses to both,
+   * and doing them in a fixed order is what makes two peers of a duel agree
+   * about which one finished it.
+   *
+   * The freeing is announced. Without it the trap simply stops working one
+   * turn and the player has no way to know they can leave.
+   */
+  const bind = volatiles(turn, side).bound ?? 0;
+  if (bind > 0) {
+    const creature = active(turn, side);
+    const squeezed = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(creature) / BIND_SHARE)));
+    if (squeezed > 0) {
+      turn.events.push({ t: "volatile", side, which: "squeezed" });
+      turn.events.push({ t: "damage", side, amount: squeezed, quarters: 4, crit: false });
+    }
+    const left = bind - 1;
+    mergeVolatiles(turn, side, { bound: left || undefined });
+    if (left === 0) turn.events.push({ t: "volatile", side, which: "freed" });
   }
 
   if (isFainted(active(turn, side))) return;
@@ -2518,8 +2747,129 @@ function damageFor(
 
 /** Can this side act at all? Handles the conditions that skip a turn, and the
  * rolls that end them. */
+/* ------------------------------------------------------------------------
+ * What a flag on a move row means, in one place.
+ *
+ * Everything below reads `move.flags`, which until the manifest carried it
+ * was the reason none of this existed. The tables are here rather than in the
+ * data for the same reason `moves.ts` names move ids: the manifest can say
+ * *that* Fly charges, and cannot say that a creature charging Fly is in the
+ * sky and that a Thunder finds it there. That is behaviour, and behaviour
+ * lives in the engine.
+ * ---------------------------------------------------------------------- */
+
+function hasFlag(move: MoveEntry, flag: string): boolean {
+  return move.flags?.includes(flag) ?? false;
+}
+
+/** Where a charge move goes while it charges. Absent means it charges in
+ * plain sight — Solar Beam gathers light standing still, and can be hit. */
+const HIDES_IN: Record<string, "sky" | "ground" | "water" | "shadow"> = {
+  fly: "sky",
+  bounce: "sky",
+  skydrop: "sky",
+  dig: "ground",
+  dive: "water",
+  phantomforce: "shadow",
+  shadowforce: "shadow",
+};
+
+/**
+ * The moves that find it anyway.
+ *
+ * Short lists on purpose: a hidden creature that nothing at all could reach
+ * would make every two-turn move a free turn of invulnerability, and these
+ * are the exceptions the games use to price that. Nothing reaches a Phantom
+ * Force, which is why it has no entry and why it costs more power than a Fly.
+ */
+const REACHES: Record<string, readonly string[]> = {
+  sky: ["gust", "twister", "thunder", "hurricane", "skyuppercut", "smackdown", "thousandarrows"],
+  ground: ["earthquake", "magnitude", "fissure"],
+  water: ["surf", "whirlpool"],
+};
+
+/**
+ * What a charge turn is worth, for the five moves whose charge does something.
+ *
+ * Not in the manifest and not derivable from it: Showdown keeps these in the
+ * move's charge condition rather than in `self.boosts`, so `selfBoosts` is
+ * null on all five. Named here, the way `moves.ts` names the damage formulas
+ * the data cannot hold.
+ */
+const CHARGE_BOOSTS: Record<string, Boosts> = {
+  skullbash: { def: 1 },
+  meteorbeam: { spa: 1 },
+  electroshot: { spa: 1 },
+};
+
+/**
+ * When the weather does the charging for you.
+ *
+ * Solar Beam and Solar Blade go off the turn they are used in sun; Electro
+ * Shot does the same in rain. This is the whole reason those moves are worth
+ * building a weather team around, and without it sun was worth nothing to the
+ * two moves most associated with it.
+ */
+function chargeSkipped(turn: Turn, moveId: string): boolean {
+  const weather = weatherNow(turn);
+  if ((moveId === "solarbeam" || moveId === "solarblade") && weather === "sun") return true;
+  return moveId === "electroshot" && weather === "rain";
+}
+
+/** Wrap and its nine friends: an eighth a turn, for four turns or five. */
+const BIND_SHARE = 8;
+const BIND_TURNS: [number, number] = [4, 5];
+/** Outrage and its three: two turns of it or three, and confusion after. */
+const RAGE_TURNS: [number, number] = [2, 3];
+/** Rollout keeps going for five, doubling as it goes. */
+const ROLL_TURNS = 5;
+/** Bide takes it for two turns and gives back twice what it took. */
+const BIDE_TURNS = 2;
+const BIDE_RETURN = 2;
+/** Future Sight, thrown now and landing at the end of the turn after next. */
+const FUTURE_TURNS = 3;
+
+/**
+ * The move this side is going to use whatever it picked, or null.
+ *
+ * Two callers, and they must not be able to disagree: `chosenMove` resolves
+ * the action into a move id, and `actionRefusal` greys the buttons the engine
+ * is about to ignore. One predicate, the way Struggle's is one predicate.
+ */
+function forcedMove(state: BattleState, side: SideIndex): string | null {
+  return state.sides[side].volatiles?.committed ?? null;
+}
+
+/**
+ * Whether a move can reach a creature that is not, at this moment, here.
+ *
+ * Only asked of a target that is charging *and* hidden — Solar Beam charges in
+ * the open, and is as hittable as anything else while it does.
+ */
+function reachesHidden(move: MoveEntry, hidden: NonNullable<Volatiles["hidden"]>): boolean {
+  return (REACHES[hidden] ?? []).includes(move.id);
+}
+
 function canAct(turn: Turn, side: SideIndex): boolean {
   const creature = active(turn, side);
+
+  // Before every condition below it, because a beam move's recharge is not
+  // something a creature is *under* — it is the second half of what it did
+  // last turn, and it is spent whether or not it would also have been asleep.
+  // Cleared as it is spent, so exactly one turn is lost.
+  if (volatiles(turn, side).recharging) {
+    mergeVolatiles(turn, side, { recharging: undefined });
+    turn.events.push({ t: "volatile", side, which: "recharging" });
+    return false;
+  }
+
+  // Set by whoever moved first this turn. Read here, and cleared at the end of
+  // the turn by `resolveTurn` whether or not anything read it — which is what
+  // makes a flinch from the slower side worth precisely nothing.
+  if (volatiles(turn, side).flinched) {
+    turn.events.push({ t: "volatile", side, which: "flinched" });
+    return false;
+  }
 
   if (creature.status === "slp") {
     if (creature.sleepTurns <= 1) {
@@ -2586,14 +2936,44 @@ function executeMove(
     if (!dozing) return;
   }
 
+  /**
+   * Whether this is a turn the creature already paid for.
+   *
+   * The second half of a Fly, the third turn of an Outrage, the fourth blow
+   * of a Rollout: the power point and the Choice lock were spent when the
+   * move was chosen, and charging a creature again for a turn it never got to
+   * choose would mean a five-turn Rollout costs five uses of a move with ten.
+   */
+  const continuing = depth === 0 && volatiles(turn, side).committed === moveId;
+
   // Weather Ball is the one move whose type is the weather's: twice the
   // power and the weather's type while anything is up, a plain Normal
   // fifty otherwise.
   const weatherUp = weatherNow(turn);
+  const base = moveById(moveId);
   const move =
     moveId === "weatherball" && weatherUp
-      ? { ...moveById(moveId), type: WEATHER_TYPE[weatherUp], power: 100 }
-      : moveById(moveId);
+      ? { ...base, type: WEATHER_TYPE[weatherUp], power: 100 }
+      : // Pursuit catches what is running. Doubled here, beside Weather Ball,
+        // because it is the same shape — a move whose numbers are a fact
+        // about the turn rather than about the move — and `turn.pursuing` is
+        // set by `resolveTurn`, which is the only thing that knows both
+        // sides' chosen actions before either resolves.
+        moveId === "pursuit" && turn.pursuing === side
+        ? { ...base, power: base.power * 2 }
+        : // Rollout and Ice Ball double for every blow already landed in the
+          // run, and again for a Defence Curl before it — thirty base power
+          // that reaches four hundred and eighty on the fifth, which is the
+          // whole gamble of the move.
+          moveId === "rollout" || moveId === "iceball"
+          ? {
+              ...base,
+              power:
+                base.power *
+                2 ** (volatiles(turn, side).rolled ?? 0) *
+                (volatiles(turn, side).curled ? 2 : 1),
+            }
+          : base;
   const struggling = moveId === STRUGGLE;
 
   // Spent here rather than when the move was chosen: a creature that is
@@ -2603,11 +2983,11 @@ function executeMove(
   // Committed, if it is holding something that commits it. Written when the
   // move actually goes off rather than when it was chosen, so a turn spent
   // asleep does not lock anything in.
-  if (depth === 0 && has(attacker, "locked") && !struggling) {
+  if (depth === 0 && !continuing && has(attacker, "locked") && !struggling) {
     turn.battle.sides[side].locked = moveId;
   }
 
-  if (depth === 0 && !struggling) {
+  if (depth === 0 && !continuing && !struggling) {
     const slot = attacker.moves.indexOf(moveId);
     if (slot >= 0) setActive(turn, side, spendPp(attacker, slot));
   }
@@ -2617,6 +2997,8 @@ function executeMove(
   // Remembered whatever else happens, because Sketch copies what was *used*
   // rather than what worked.
   turn.battle.sides[side].lastMove = moveId;
+  // And what this turn came to, which is a different question — see `Turn.used`.
+  turn.used[side] = moveId;
 
   // The two promises that last exactly until the next move. Taken off here,
   // before anything below can put them back, so Lock-On followed by Lock-On
@@ -2627,7 +3009,177 @@ function executeMove(
     mergeVolatiles(turn, side, { sure: undefined, bonded: undefined });
   }
 
+  /*
+   * The two moves whose whole identity is a condition on the turn itself.
+   *
+   * Focus Punch is a hundred and fifty power at minus three priority, which
+   * means it goes very nearly last — and any move damage taken before it
+   * breaks the concentration. Without this it was simply the strongest
+   * Fighting move in the game with a drawback that never fired.
+   *
+   * Fake Out is forty power at plus three, and only on the turn its user
+   * first has. Without that it was a Quick Attack with a worse type.
+   */
+  if (moveId === "focuspunch" && turn.taken[side].physical + turn.taken[side].special > 0) {
+    turn.events.push({ t: "fizzled", side, moveId });
+    return;
+  }
+  if (moveId === "fakeout" && !volatiles(turn, side).fresh) {
+    turn.events.push({ t: "fizzled", side, moveId });
+    return;
+  }
+
+  /*
+   * The turn a two-turn move spends being a two-turn move.
+   *
+   * Before the shield, before the type chart and before accuracy, because
+   * none of those are questions about this turn: nothing is being aimed at
+   * anybody yet. The creature goes up, goes under, or stands there gathering
+   * light, and `committed` is what brings it back here next turn.
+   *
+   * A charge move that is *continuing* falls straight through to the ordinary
+   * path below, which is the whole trick — the second turn of a Fly is a
+   * perfectly ordinary ninety-power Flying attack, and every rule that
+   * applies to one applies to it.
+   */
+  if (!continuing && hasFlag(move, "charge") && !chargeSkipped(turn, moveId)) {
+    const hidden = HIDES_IN[moveId];
+    mergeVolatiles(turn, side, {
+      committed: moveId,
+      commitment: "charge",
+      commitTurns: 1,
+      hidden,
+    });
+    turn.events.push({ t: "volatile", side, which: "charging" });
+    // Skull Bash's guard, Meteor Beam's and Electro Shot's Sp. Atk. Applied
+    // now rather than with the blow, because a charge that is worth something
+    // is worth something during the turn you are exposed for.
+    const gained = CHARGE_BOOSTS[moveId];
+    if (gained) applyBoosts(turn, side, gained);
+    return;
+  }
+
+  // Arrived. Cleared before anything below reads it, so the blow itself is
+  // thrown by a creature standing in the ordinary place.
+  if (continuing && volatiles(turn, side).commitment === "charge") {
+    mergeVolatiles(turn, side, {
+      committed: undefined,
+      commitment: undefined,
+      commitTurns: undefined,
+      hidden: undefined,
+    });
+  }
+
+  /*
+   * Bide, which is two moves in one and neither of them is an attack.
+   *
+   * Turns one and two are spent taking it — nothing is aimed, nothing lands,
+   * and `turn.taken` does the accumulating because it is already counting
+   * exactly the thing Bide wants counted. Turn three gives back twice the
+   * total, as damage that no type chart and no critical hit touch.
+   *
+   * Handled here rather than in `moves.ts` with the other thirty-nine
+   * computed damages because it is not a formula: it is a move that spends
+   * two turns doing nothing and then a third doing something, and `moves.ts`
+   * is asked once, at the moment of the blow.
+   */
+  if (move.volatile === "bide") {
+    const stored = volatiles(turn, side);
+    if (!continuing) {
+      mergeVolatiles(turn, side, {
+        committed: moveId,
+        commitment: "rage",
+        commitTurns: BIDE_TURNS,
+        biding: BIDE_TURNS,
+        bided: 0,
+      });
+      turn.events.push({ t: "volatile", side, which: "biding" });
+      return;
+    }
+    const left = (stored.biding ?? 0) - 1;
+    if (left > 0) {
+      mergeVolatiles(turn, side, { biding: left, commitTurns: left });
+      turn.events.push({ t: "volatile", side, which: "biding" });
+      return;
+    }
+
+    const owed = (stored.bided ?? 0) * BIDE_RETURN;
+    mergeVolatiles(turn, side, {
+      committed: undefined,
+      commitment: undefined,
+      commitTurns: undefined,
+      biding: undefined,
+      bided: undefined,
+    });
+    if (owed <= 0) {
+      // Nothing was ever thrown at it, so there is nothing to give back. Its
+      // own sentence rather than a hit for zero, for the same reason every
+      // other computed-damage move says `fizzled`.
+      turn.events.push({ t: "fizzled", side, moveId });
+      return;
+    }
+    turn.events.push({ t: "volatile", side, which: "unleashed" });
+    landDamage(turn, side, move, owed, 4, false);
+    return;
+  }
+
   const defender = active(turn, other(side));
+
+  /*
+   * Future Sight and Doom Desire: thrown now, arriving in two turns.
+   *
+   * Before the shield, because the whole point of a move that lands later is
+   * that nothing standing in the way now can stop it — a Protect put up this
+   * turn is long over by the time it comes down.
+   *
+   * The number is settled here rather than on arrival. `Combatant.future`
+   * says why at length: the alternative is keeping the attacker whole and
+   * running the formula against a slot it may no longer be standing in, and a
+   * snapshot of a creature that has since evolved or fainted is a worse lie
+   * than a fixed number. What the move promises is "this much, in two turns,
+   * to whoever is there", and that is exactly what it does.
+   */
+  if (hasFlag(move, "futuremove")) {
+    if (turn.battle.sides[other(side)].future) {
+      turn.events.push({ t: "fizzled", side, moveId });
+      return;
+    }
+    const shot = damageFor(turn, side, move, move.power);
+    // The immunity is the one thing the shield-bypass must not bypass. Asked
+    // here rather than left to the ordinary check below, because this branch
+    // sits in front of it — and a Psychic blow stored against a Dark type
+    // would otherwise arrive in two turns as a hit for nothing, which is the
+    // reading of the log the `fizzled` event exists to prevent.
+    if (shot.quarters === 0) {
+      turn.events.push({ t: "immune", side: other(side) });
+      return;
+    }
+    turn.battle.sides[other(side)].future = {
+      turns: FUTURE_TURNS,
+      moveId,
+      amount: shot.amount,
+      quarters: shot.quarters,
+    };
+    return;
+  }
+
+  /*
+   * It is not here.
+   *
+   * A creature part-way through a Fly is in the sky, a Dig is underground and
+   * a Phantom Force is out of the world entirely, and a move aimed at where
+   * it was standing finds nothing. Checked before the shield rather than
+   * after because being absent is not being defended: there is no Protect to
+   * break and no contact to punish.
+   *
+   * The handful of moves that reach anyway are the price of the mechanic —
+   * without them two turns of invulnerability would cost nothing at all.
+   */
+  const away = volatiles(turn, other(side)).hidden;
+  if (away && move.target !== "self" && !reachesHidden(move, away)) {
+    turn.events.push({ t: "miss", side });
+    return;
+  }
 
   // Protect and its family. Before the type chart and before accuracy, because
   // a shield is not a dodge: it stops the move outright, and a move that was
@@ -2761,11 +3313,6 @@ function executeMove(
       // no type multiplier — immunity already had its say above, and that is
       // the whole point of a move that states a number.
       dealt = landDamage(turn, side, move, variable.amount, 4, false);
-      if (variable.selfKo) {
-        const spent = active(turn, side);
-        applyDamage(turn, side, spent.hp);
-        turn.events.push({ t: "recoil", side, amount: spent.hp });
-      }
     } else if (variable.power > 0) {
       // Once for nearly everything, and two to five times for the
       // thirty-one moves the manifest says otherwise about.
@@ -2813,6 +3360,23 @@ function executeMove(
       if (move.multihit && landed > 0) turn.events.push({ t: "hits", side, count: landed });
     }
   }
+
+  /*
+   * The move connected.
+   *
+   * Here rather than in `landDamage`, which is where it started and which was
+   * subtly the wrong question: `landDamage` answers "did this deal damage",
+   * and what `afterMove` actually needs is "was this move stopped" — a
+   * difference that does not exist for an Explosion and is the whole of
+   * Memento, a status move that deals nothing and must still cost its user
+   * everything.
+   *
+   * Everything that stops a move has already returned by this line: the
+   * shield, the type chart's immunity, the accuracy roll, and a
+   * variable-damage move that found nothing to do. So reaching it *is* the
+   * answer, for a status move and an attack alike.
+   */
+  turn.connected[side] = true;
 
   if (move.heal) {
     const healed = applyHeal(turn, side, Math.floor((maxHp(attacker) * move.heal[0]) / move.heal[1]));
@@ -2945,6 +3509,278 @@ function executeMove(
     if (secondary.boosts) {
       applyBoosts(turn, secondary.self ? side : other(side), secondary.boosts, !secondary.self);
     }
+    /*
+     * The third thing a secondary can be, and the one that was being dropped.
+     *
+     * Twenty-eight moves flinch and eleven confuse, and until the manifest
+     * carried `secondary.volatile` every one of them was a plain attack: Iron
+     * Head was eighty power and nothing else, Rock Slide was seventy-five,
+     * and Dynamic Punch was a hundred that missed half the time in exchange
+     * for nothing whatsoever.
+     *
+     * A flinch is only worth something from the side that moved first, and
+     * nothing enforces that here — it does not need to. The flinch is written
+     * onto the target and read by `canAct`, which the target has already been
+     * through if it moved first. Slower flinches are cleared unread at the
+     * end of the turn, which is the mechanic rather than a hole in it.
+     */
+    if (secondary.volatile === "flinch" && !secondary.self) {
+      mergeVolatiles(turn, other(side), { flinched: true });
+    }
+    if (secondary.volatile === "confusion" && !secondary.self) {
+      confuseSide(turn, other(side));
+    }
+  }
+
+  /*
+   * Wrap, Fire Spin, Whirlpool and the seven others.
+   *
+   * After everything else, and gated on the blow having landed, because a
+   * bind is a consequence of the hit rather than of the move: a Wrap that
+   * missed has nothing to hold on to.
+   *
+   * The turn count is rolled here rather than fixed, because four turns and
+   * five are worth meaningfully different amounts and a bind that was always
+   * the longer one would be a different move. Named like every other roll in
+   * the file, so a battle stays a pure function of its seed.
+   */
+  if (move.volatile === "partiallytrapped" && dealt > 0 && !isFainted(active(turn, other(side)))) {
+    if (!volatiles(turn, other(side)).bound) {
+      const [least, most] = BIND_TURNS;
+      const turns = least + intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-bind`), most - least + 1);
+      mergeVolatiles(turn, other(side), { bound: turns });
+      turn.events.push({ t: "volatile", side: other(side), which: "bound" });
+    }
+  }
+
+  // Defence Curl, whose only lasting effect is that a Rollout after it is
+  // worth twice as much. The stage it also gives is in the manifest and
+  // already applied above; this is the half the data could not say.
+  if (moveId === "defensecurl") mergeVolatiles(turn, side, { curled: true });
+}
+
+/**
+ * This side has now had a turn, so it is no longer new here.
+ *
+ * One line, and its own function only so that the three places `resolveTurn`
+ * resolves a move slot cannot come to disagree about when it happens. Spent
+ * whatever the turn came to — asleep, flinched, missed — because "has had a
+ * turn" is what Fake Out asks, and a turn spent asleep is a turn had.
+ */
+function spendFreshness(turn: Turn, side: SideIndex): void {
+  if (volatiles(turn, side).fresh) mergeVolatiles(turn, side, { fresh: undefined });
+}
+
+/**
+ * The blow thrown two turns ago, arriving.
+ *
+ * On the side rather than on the creature, so it lands on whoever is standing
+ * there — which is the entire reason to throw one. Past the shield, past the
+ * type chart and past accuracy, all of which had their say when it was thrown.
+ */
+function ageFuture(turn: Turn, side: SideIndex): void {
+  const pending = turn.battle.sides[side].future;
+  if (!pending) return;
+
+  const left = pending.turns - 1;
+  if (left > 0) {
+    turn.battle.sides[side].future = { ...pending, turns: left };
+    return;
+  }
+
+  turn.battle.sides[side].future = undefined;
+  if (isFainted(active(turn, side))) return;
+
+  turn.events.push({ t: "use", side: other(side), moveId: pending.moveId });
+  const dealt = applyDamage(turn, side, pending.amount);
+  turn.events.push({ t: "damage", side, amount: dealt, quarters: pending.quarters, crit: false });
+}
+
+/**
+ * What a move leaves behind, asked once per side per turn.
+ *
+ * All of this could have gone at the bottom of `executeMove`, and none of it
+ * could have gone there *correctly*: that function returns early from a dozen
+ * places — a miss, an immunity, a shield, a fizzle — and every one of those is
+ * a case where some of the bookkeeping below still has to happen and the rest
+ * must not. A Hyper Beam that misses still spends the next turn recovering; a
+ * U-turn that misses does not leave. Putting it here, past every early
+ * return, is what makes the difference expressible.
+ *
+ * It reads `lastMove` rather than the move that was chosen, so a Metronome
+ * that landed on Hyper Beam recharges — the creature used the beam, whatever
+ * it meant to use.
+ *
+ * Called only for the chosen move, from `resolveTurn`, which is what keeps a
+ * called move from switching its user out twice.
+ */
+function afterMove(turn: Turn, side: SideIndex): void {
+  const moveId = turn.used[side];
+  if (!moveId || moveId === STRUGGLE) return;
+  const move = moveById(moveId);
+  const landed = turn.connected[side];
+  const held = volatiles(turn, side);
+
+  // Still up in the air, or still gathering light. Nothing below applies to a
+  // turn in which the move has not gone off yet.
+  if (held.commitment === "charge" && held.committed === moveId) return;
+  // Bide keeps its own counter and clears its own commitment.
+  if (held.biding) return;
+
+  /*
+   * The ten beam moves. Set whether or not the blow landed, which is the
+   * whole risk of them: a hundred and fifty power that misses costs a turn to
+   * throw and another to recover from.
+   *
+   * Not set when the user is already down — a fainted creature's next turn is
+   * a switch, and a recharge waiting on the one after it would be a turn
+   * stolen from whoever comes in.
+   */
+  if (hasFlag(move, "recharge") && !isFainted(active(turn, side))) {
+    mergeVolatiles(turn, side, { recharging: true });
+  }
+
+  /*
+   * Outrage, Thrash, Petal Dance, Raging Fury: two turns or three of the same
+   * move, and confusion when the rampage runs out.
+   *
+   * The confusion is the price and it is not optional — a rampage that ended
+   * quietly would be a hundred and twenty power with no drawback at all,
+   * which is exactly the state these four were in.
+   */
+  if (move.selfVolatile === "lockedmove") {
+    if (held.commitment === "rage" && held.committed === moveId) {
+      const left = (held.commitTurns ?? 1) - 1;
+      if (left > 0) {
+        mergeVolatiles(turn, side, { commitTurns: left });
+      } else {
+        mergeVolatiles(turn, side, {
+          committed: undefined,
+          commitment: undefined,
+          commitTurns: undefined,
+        });
+        turn.events.push({ t: "volatile", side, which: "raging" });
+        // On the user. That is the price of the rampage, and applying it to
+        // the other side — which is what the foe-only effect did — turns a
+        // drawback into a bonus.
+        confuseSide(turn, side);
+      }
+    } else if (landed) {
+      // Only a rampage that connected becomes a rampage. One that hit nothing
+      // — an immunity, a shield — has not started, which spares the user the
+      // confusion for a move that never happened.
+      const [least, most] = RAGE_TURNS;
+      const turns =
+        least +
+        intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-rage`), most - least + 1);
+      mergeVolatiles(turn, side, {
+        committed: moveId,
+        commitment: "rage",
+        commitTurns: turns - 1,
+      });
+    }
+  }
+
+  /*
+   * Rollout and Ice Ball: five turns, doubling, and the run ends the moment
+   * one of them misses.
+   *
+   * The streak is what the power reads, and the commitment is what forces the
+   * next turn; they end together because a run that kept its streak across a
+   * miss would let a player re-enter it at four hundred and eighty power.
+   */
+  if (moveId === "rollout" || moveId === "iceball") {
+    const run = (held.rolled ?? 0) + 1;
+    if (!landed || run >= ROLL_TURNS) {
+      mergeVolatiles(turn, side, {
+        committed: undefined,
+        commitment: undefined,
+        commitTurns: undefined,
+        rolled: undefined,
+      });
+    } else {
+      mergeVolatiles(turn, side, {
+        committed: moveId,
+        commitment: "roll",
+        commitTurns: ROLL_TURNS - run,
+        rolled: run,
+      });
+    }
+  }
+
+  /*
+   * Explosion, Self-Destruct, Memento: the user does not survive its own move.
+   *
+   * Here rather than at the bottom of `executeMove` for the reason everything
+   * else in this function is: `"always"` has to be paid past every early
+   * return in that function — an Explosion that met a Ghost, or broke on a
+   * Protect, still goes off — and only a hook past them all can say so.
+   *
+   * Healing Wish and Lunar Dance are `"ifHit"` upstream and already faint
+   * their user through `sacrifice`, which does more than faint it: it leaves
+   * the blessing that mends whoever comes next. Skipping anything with a
+   * `statusmoves.ts` entry is the same rule `selfSwitch` follows below, and it
+   * is what stops the two paths fainting the same creature twice.
+   */
+  if (move.selfdestruct && !extraEffects(moveId).length && !isFainted(active(turn, side))) {
+    const paid = move.selfdestruct === "always" || landed;
+    if (paid) {
+      const user = active(turn, side);
+      const spent = applyDamage(turn, side, user.hp);
+      // A `recoil`, not a `faint`: `settle` is what announces a fainting, at
+      // the bottom of the turn and for both sides at once, and a second one
+      // pushed from here would read as the creature going down twice.
+      if (spent > 0) turn.events.push({ t: "recoil", side, amount: spent });
+    }
+  }
+
+  if (turn.battle.outcome) return;
+
+  /*
+   * U-turn, Volt Switch, Flip Turn: hit, and go.
+   *
+   * `"true"` only. Baton Pass is `"copyvolatile"` and Shed Tail is
+   * `"shedtail"`, and both want stages carried across the switch — a mechanic
+   * this engine does not have and `docs/moves-deferred.md` files as its own
+   * heading. Honouring them here would turn Baton Pass into a strictly worse
+   * U-turn, which is the half-working kind of wrong this codebase spends a
+   * document arguing against.
+   *
+   * Moves with an entry in `statusmoves.ts` are skipped: Teleport, Chilly
+   * Reception and Revival Blessing all carry `selfSwitch` upstream and all
+   * three already do their own leaving through `retreat`. Two switches for
+   * one move would put somebody else out and then somebody else again.
+   */
+  if (move.selfSwitch === "true" && landed && !extraEffects(moveId).length) {
+    const combatant = turn.battle.sides[side];
+    const next = combatant.team.findIndex((one, at) => at !== combatant.active && !isFainted(one));
+    // Nothing to go to is not a failure — the move hit, and the user simply
+    // stays. That is what it does in the games, and it keeps a lone creature
+    // from being unable to use a move it legally knows.
+    if (next >= 0 && !isFainted(active(turn, side))) switchTo(turn, side, next);
+  }
+
+  /*
+   * Dragon Tail and Circle Throw: the blow lands, and whoever took it is out.
+   *
+   * The same shape as Roar's `forceOut`, reached the other way round —
+   * through a move row rather than through a status effect — because these
+   * two do damage first and the manifest is where "and then they leave" is
+   * recorded for them.
+   */
+  if (
+    move.forceSwitch &&
+    landed &&
+    // Roar and Whirlwind carry `forceSwitch` upstream *and* have a
+    // `statusmoves.ts` entry that already drives the target out. The same
+    // skip `selfSwitch` and `selfdestruct` use, and it earned its place here
+    // the hard way: without it Roar pulled the replacement out and then put
+    // the original straight back, which reads in the log as nothing having
+    // happened at all.
+    !extraEffects(moveId).length &&
+    !isFainted(active(turn, other(side)))
+  ) {
+    applyMoveEffect(turn, side, { t: "forceOut" });
   }
 }
 
@@ -3175,11 +4011,14 @@ export function resolveTurn(
       { physical: 0, special: 0 },
       { physical: 0, special: 0 },
     ],
+    connected: [false, false],
+    used: [null, null],
     battle: {
       ...state,
       turn: state.turn + 1,
       sides: [cloneSide(state.sides[0]), cloneSide(state.sides[1])],
       awaitingSwitch: [...state.awaitingSwitch],
+      sharing: [...state.sharing],
       field: state.field ? { ...state.field } : undefined,
       events: [],
     },
@@ -3258,14 +4097,47 @@ export function resolveTurn(
     for (const side of [0, 1] as SideIndex[]) onArriving(turn, side);
   }
 
+  /*
+   * Pursuit, which is the one move that has to happen *before* a switch.
+   *
+   * Catching something on its way out is the whole move, and a switch that
+   * resolved first would leave nothing to catch. Decided here, before the
+   * switch loop, because this is the only place that can see both sides'
+   * chosen actions at once — and recorded on the turn rather than acted on,
+   * so that `executeMove` stays a function of the move and the battle rather
+   * than of what the other side happened to pick.
+   */
+  for (const side of [0, 1] as SideIndex[]) {
+    const ours = actions[side];
+    const theirs = actions[other(side)];
+    if (theirs.t !== "switch" || ours.t !== "fight") continue;
+    // A creature part-way through a Fly or an Outrage is not choosing, so the
+    // slot it happens to have pressed is not what it is about to do. Asked
+    // through the same predicate `chosenMove` uses, so the two cannot come to
+    // disagree — and asked *before* `moveIdFor`, which throws on a slot with
+    // no uses left and would otherwise turn a forced move into an exception.
+    if (forcedMove(turn.battle, side)) continue;
+    if (moveIdFor(turn, side, ours.moveIndex) === "pursuit") turn.pursuing = side;
+  }
+  if (turn.pursuing !== undefined) {
+    executeMove(turn, turn.pursuing, "pursuit");
+    spendFreshness(turn, turn.pursuing);
+    afterMove(turn, turn.pursuing);
+    if (turn.battle.outcome) return finish(turn, caught, ballsUsed);
+  }
+
   // Switches happen before any move, on both sides.
   for (const side of [0, 1] as SideIndex[]) {
     const action = actions[side];
-    if (action.t === "switch") switchTo(turn, side, action.partyIndex);
+    // Something the Pursuit just knocked out owes a replacement rather than a
+    // switch, and `settle` at the bottom of the turn is what asks for one.
+    if (action.t === "switch" && !isFainted(activeOf(turn.battle, side))) {
+      switchTo(turn, side, action.partyIndex);
+    }
   }
 
-  const moveA = chosenMove(turn, 0, actions[0]);
-  const moveB = chosenMove(turn, 1, actions[1]);
+  const moveA = turn.pursuing === 0 ? null : chosenMove(turn, 0, actions[0]);
+  const moveB = turn.pursuing === 1 ? null : chosenMove(turn, 1, actions[1]);
 
   const first = firstMover(turn, moveA, moveB);
   const second = other(first);
@@ -3273,7 +4145,11 @@ export function resolveTurn(
   // Analytic asks, and it has to be answered before either move resolves.
   turn.movingLast = second;
 
-  if (moves[first]) executeMove(turn, first, moves[first]!);
+  if (moves[first]) {
+    executeMove(turn, first, moves[first]!);
+    spendFreshness(turn, first);
+    afterMove(turn, first);
+  }
   // Nothing happens after the battle has ended.
   //
   // A new possibility: until Roar and Teleport, no *move* could finish a
@@ -3288,7 +4164,11 @@ export function resolveTurn(
   // next move that ends a battle will not necessarily be.
   if (turn.battle.outcome) return finish(turn, caught, ballsUsed);
 
-  if (moves[second] && !isFainted(active(turn, second))) executeMove(turn, second, moves[second]!);
+  if (moves[second] && !isFainted(active(turn, second))) {
+    executeMove(turn, second, moves[second]!);
+    spendFreshness(turn, second);
+    afterMove(turn, second);
+  }
   if (turn.battle.outcome) return finish(turn, caught, ballsUsed);
 
   for (const side of [0, 1] as SideIndex[]) {
@@ -3301,6 +4181,24 @@ export function resolveTurn(
   // reads it again: a shield lasts exactly the turn it was raised.
   for (const side of [0, 1] as SideIndex[]) {
     const held = volatiles(turn, side);
+    /*
+     * A flinch lasts exactly the turn it was caused, and is swept whether or
+     * not it was ever read. That is not tidying-up: it is the mechanic. A
+     * flinch written on somebody who has already moved this turn does
+     * nothing, which is why an Iron Head is worth so much more from the
+     * faster side than from the slower one.
+     */
+    if (held.flinched) mergeVolatiles(turn, side, { flinched: undefined });
+    /*
+     * Bide adding up what it took. Read off `turn.taken`, which is already
+     * counting exactly this and counts only *move* damage — a Bide that spent
+     * its two turns being poisoned has nobody to give it back to.
+     */
+    if (held.biding) {
+      mergeVolatiles(turn, side, {
+        bided: (held.bided ?? 0) + turn.taken[side].physical + turn.taken[side].special,
+      });
+    }
     if (held.shield) mergeVolatiles(turn, side, { shield: undefined });
     // The streak only survives an unbroken run of them, so a turn spent doing
     // anything else resets the price back to nothing.
@@ -3314,6 +4212,7 @@ export function resolveTurn(
     if (!isFainted(active(turn, side))) tickVolatiles(turn, side);
   }
   for (const side of [0, 1] as SideIndex[]) ageScreens(turn, side);
+  for (const side of [0, 1] as SideIndex[]) ageFuture(turn, side);
   ageField(turn);
 
   // What a held item does at the end of a turn, in a fixed order so two of
@@ -3341,6 +4240,21 @@ export function resolveTurn(
  * what was left in the tank.
  */
 function chosenMove(turn: Turn, side: SideIndex, action: BattleAction): string | null {
+  /*
+   * A creature part-way through a Fly, a Rollout or an Outrage uses that,
+   * whatever was picked.
+   *
+   * Deliberately *any* fight action rather than the matching one, and
+   * `actionRefusal` agrees: refusing every index but one would mean a menu
+   * with a single legal button, and a forced move whose power points had run
+   * out — which a rampage's do, since only its first turn pays — would leave
+   * a menu with none at all. A battle with no legal action is the one failure
+   * the deadlock probe exists to catch, and the cheap way not to have it is
+   * to accept whatever was picked and ignore it.
+   */
+  const forced = forcedMove(turn.battle, side);
+  if (forced && action.t === "fight") return forced;
+
   if (action.t === "fight") return moveIdFor(turn, side, action.moveIndex);
   if (action.t !== "struggle") return null;
   // Asked the same way the refusal asks it, so the menu and the engine cannot
@@ -3374,6 +4288,7 @@ function cloneSide(side: Combatant): Combatant {
     aim: side.aim ? { ...side.aim } : undefined,
     volatiles: side.volatiles ? { ...side.volatiles } : undefined,
     screens: side.screens ? { ...side.screens } : undefined,
+    future: side.future ? { ...side.future } : undefined,
   };
 }
 
@@ -3416,8 +4331,33 @@ export function actionRefusal(state: BattleState, side: SideIndex, action: Battl
   ) {
     return action.t === "flee" ? "there is no getting away" : "it cannot be called back";
   }
+  // A bind holds it exactly as a Mean Look does, and for the same two actions.
+  // Separate from `trapped` because the two end differently — a bind runs out
+  // on its own, and Mean Look does not — and because one of them can be
+  // escaped by a Shed Shell one day and the other cannot.
+  if (
+    (action.t === "switch" || action.t === "flee") &&
+    !state.awaitingSwitch[side] &&
+    state.sides[side].volatiles?.bound
+  ) {
+    return action.t === "flee" ? "it is held fast" : "it is held fast";
+  }
+  // And a move part-way through holds it too: there is no calling back
+  // something that is halfway up in the air or three turns into a rampage.
+  if (
+    (action.t === "switch" || action.t === "flee") &&
+    !state.awaitingSwitch[side] &&
+    forcedMove(state, side)
+  ) {
+    return action.t === "flee" ? "there is no stopping now" : "it is not finished";
+  }
   if (state.outcome) return "the battle is over";
   const creature = activeOf(state, side);
+
+  // Whatever is picked, the forced move is what happens — so nothing is
+  // refused. See `chosenMove` for why this is deliberately permissive rather
+  // than pinned to the one matching index.
+  if (action.t === "fight" && forcedMove(state, side)) return null;
 
   if (action.t === "fight") {
     if (action.moveIndex < 0 || action.moveIndex >= creature.moves.length) return "no such move";
@@ -3478,6 +4418,11 @@ function clearLock(turn: Turn, side: SideIndex): void {
 
 function onArriving(turn: Turn, side: SideIndex): void {
   clearLock(turn, side);
+  // Nothing has had a turn here yet, which is the one thing Fake Out asks and
+  // the only thing that distinguishes this slot from any other. Spent by
+  // `spendFreshness` the moment the slot resolves a move, so it is gone again
+  // within the turn and a battle nobody used it in carries no trace of it.
+  mergeVolatiles(turn, side, { fresh: true });
   const arriving = active(turn, side);
   // Drought, Drizzle, Sand Stream, Snow Warning and the four Surges.
   for (const effect of effects(arriving, "summon")) {
@@ -3522,6 +4467,21 @@ function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
   combatant.volatiles = undefined;
   turn.events.push({ t: "switch", side, partyIndex });
 
+  /*
+   * Who has taken part against what is standing opposite.
+   *
+   * Ours joins the list; theirs clears it and starts again with whoever we
+   * have out, because the list is about *one* opposing creature. Both halves
+   * are here rather than at the call sites so that every road to a switch —
+   * chosen, forced by a Roar, owed after a faint, or a U-turn — keeps the
+   * same books.
+   */
+  if (side === 0) {
+    if (!turn.battle.sharing.includes(partyIndex)) turn.battle.sharing.push(partyIndex);
+  } else {
+    turn.battle.sharing = [turn.battle.sides[0].active];
+  }
+
   if (blessed) {
     const arriving = active(turn, side);
     const mended = maxHp(arriving) - arriving.hp;
@@ -3548,51 +4508,101 @@ function settle(turn: Turn, rules: BattleRules): void {
   // Experience is for beating creatures and trainers, never people.
   if (rules.awardsExp && down.includes(1) && !down.includes(0)) {
     const loser = active(turn, 1);
-    const victor = active(turn, 0);
 
-    // A Lucky Egg. Applied to the yield rather than to the total, so the
-    // number in the log is the number that was awarded.
-    let amount = expYield(loser);
-    for (const effect of effects(victor, "study")) amount = scaled(amount, effect.mille);
+    /*
+     * Everybody who was out against this one, not just whoever landed the
+     * last hit.
+     *
+     * Switching out was a pure loss before this: send something in to take a
+     * hit, bring it back, and it had done all the work and earned none of the
+     * experience. That taught exactly one lesson — never switch — which is
+     * the opposite of what the switch is for, and it is why the classic rule
+     * exists in the first place.
+     *
+     * `turn.battle.sharing` is who has stood opposite *this* creature; it is
+     * reset the moment the other side sends out somebody new, so beating a
+     * team of six does not quietly pay the whole party six times over for
+     * work it did against the first one.
+     *
+     * A participant that has fainted since is *not* paid, and is not counted
+     * when the prize is divided: the ones still standing split it between
+     * them. Experience goes to creatures that can use it, and a fainted one
+     * levelling up in the middle of a battle it is out of would be a stranger
+     * sight than a smaller party share. It is also what the games do.
+     *
+     * A double knockout never reaches here (see the condition above), so the
+     * lead is standing; the check on it is a guard, not a live case.
+     */
+    const team = turn.battle.sides[0].team;
+    const standing = (at: number) => at >= 0 && at < team.length && team[at].hp > 0;
+    const sharers = [...new Set(turn.battle.sharing)].filter(standing).sort((a, b) => a - b);
+    const lead = turn.battle.sides[0].active;
+    const helped = sharers.length ? sharers : standing(lead) ? [lead] : [];
 
-    const growth = awardExp(victor, amount);
+    // Split, and never to nothing: a party of six that all took a turn
+    // against a Caterpie should each come away with something rather than
+    // with a rounding error.
+    const whole = expYield(loser);
+    const each = Math.max(1, Math.floor(whole / Math.max(1, helped.length)));
 
-    // Effort before the event is pushed, so the numbers a log replays are the
-    // numbers the screen showed. Same award as experience: whatever was
-    // standing when the other one fell.
-    //
-    // A Macho Brace multiplies what is earned and can steer it: `stat` names
-    // one, and without it the brace simply doubles whatever the loser was
-    // going to teach. Through `gainEffort` either way, so the caps hold.
     const base = effortYield(loser.speciesId);
-    let yielded = base;
-    for (const effect of effects(victor, "regimen")) {
-      yielded = {
-        stats: effect.stat ? [effect.stat] : yielded.stats,
-        amount: scaled(yielded.amount, effect.mille),
-      };
-    }
 
-    const before = growth.individual.evs;
-    const evs = gainEffort(before, yielded);
-    setActive(turn, 0, { ...growth.individual, evs });
+    for (const at of helped) {
+      const earner = turn.battle.sides[0].team[at];
+      if (!earner) continue;
 
-    turn.events.push({
-      t: "exp",
-      amount,
-      levels: growth.levelsGained,
-      uid: victor.uid,
-      learned: growth.movesLearned,
-      offered: growth.movesOffered,
-      evolvedFrom: growth.evolvedTo ? victor.speciesId : null,
-      evolved: growth.evolvedTo,
-    });
+      // A Lucky Egg is the *holder's*, so it is read per recipient rather
+      // than off whoever happened to be standing at the end.
+      let amount = each;
+      for (const effect of effects(earner, "study")) amount = scaled(amount, effect.mille);
 
-    // Only reported when something was actually earned — a creature at the
-    // cap should not be told about effort it did not gain.
-    const gained = STAT_IDS.filter((stat) => evs[stat] > before[stat]);
-    if (gained.length) {
-      turn.events.push({ t: "effort", stats: gained, amount: yielded.amount });
+      const growth = awardExp(earner, amount);
+
+      /*
+       * Effort is *not* split.
+       *
+       * Experience is a share of one prize and effort is a lesson: two
+       * creatures that both fought a Machop have both been hit by a Machop,
+       * and halving what they learned from it would be a strange thing to
+       * say. This is also what the games do.
+       *
+       * A Macho Brace multiplies what is earned and can steer it: `stat`
+       * names one, and without it the brace doubles whatever the loser was
+       * going to teach. Read per recipient, for the same reason as the Egg.
+       */
+      let yielded = base;
+      for (const effect of effects(earner, "regimen")) {
+        yielded = {
+          stats: effect.stat ? [effect.stat] : yielded.stats,
+          amount: scaled(yielded.amount, effect.mille),
+        };
+      }
+
+      const before = growth.individual.evs;
+      const evs = gainEffort(before, yielded);
+      turn.battle.sides[0].team[at] = { ...growth.individual, evs };
+
+      turn.events.push({
+        t: "exp",
+        amount,
+        levels: growth.levelsGained,
+        uid: earner.uid,
+        learned: growth.movesLearned,
+        offered: growth.movesOffered,
+        // What it is ready to become, which is no longer what it became. The
+        // creature on the field is unchanged; whoever owns the party turns
+        // this into a question and applies the answer. See
+        // `GrowthResult.evolveTo`.
+        evolvedFrom: growth.evolveTo ? earner.speciesId : null,
+        evolved: growth.evolveTo,
+      });
+
+      // Only reported when something was actually earned — a creature at the
+      // cap should not be told about effort it did not gain.
+      const gained = STAT_IDS.filter((stat) => evs[stat] > before[stat]);
+      if (gained.length) {
+        turn.events.push({ t: "effort", stats: gained, amount: yielded.amount });
+      }
     }
   }
 
@@ -3706,6 +4716,14 @@ export function battleHash(state: BattleState): string {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([key, value]) => `${key}=${String(value)}`)
         .join("+"),
+      // A blow already thrown that has not arrived. Two peers that disagreed
+      // about a pending Future Sight would agree about the battle right up
+      // until the turn it lands, which is the worst moment to find out.
+      // Empty for the overwhelming majority of battles, which therefore hash
+      // exactly as they did before it existed.
+      combatant.future
+        ? `${combatant.future.moveId}:${combatant.future.turns}:${combatant.future.amount}:${combatant.future.quarters}`
+        : "",
     ].join("/");
   };
 
@@ -3715,6 +4733,10 @@ export function battleHash(state: BattleState): string {
     side(0),
     side(1),
     state.awaitingSwitch.join(","),
+    // Who is owed a share of the next thing to go down. Two peers that
+    // disagreed about this would agree about the whole battle right up until
+    // something fainted, which is the worst moment to find out.
+    state.sharing.join(","),
     JSON.stringify(state.outcome ?? null),
     // Empty for no field, so a battle without weather hashes as it did.
     fieldKey(state.field),
