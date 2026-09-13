@@ -170,7 +170,7 @@ describe("saying it", () => {
  *
  * Spelled out rather than in digits because these are people talking. That is
  * why the row carries the phrase instead of deriving it: there is no honest
- * way to compute "a hundred and twenty steps" from `120` that is shorter than
+ * way to compute "three hundred steps" from `300` that is shorter than
  * writing it down.
  */
 describe("the numbers are the engine's", () => {
@@ -181,7 +181,7 @@ describe("the numbers are the engine's", () => {
     actual: number;
     written: number;
   }[] = [
-    { id: "egg-steps", phrase: "a hundred and twenty steps", constant: "STEPS_PER_EGG", actual: STEPS_PER_EGG, written: 120 },
+    { id: "egg-steps", phrase: "three hundred steps", constant: "STEPS_PER_EGG", actual: STEPS_PER_EGG, written: 300 },
     { id: "wild-ivs-cap", phrase: "Nought to six", constant: "WILD_IV_MAX", actual: WILD_IV_MAX, written: 6 },
     { id: "natures-add", phrase: "Twenty-four points", constant: "NATURE_MAGNITUDE", actual: NATURE_MAGNITUDE, written: 24 },
     { id: "effort-from-fighting", phrase: "two hundred and fifty-two", constant: "EV_MAX_PER_STAT", actual: EV_MAX_PER_STAT, written: 252 },

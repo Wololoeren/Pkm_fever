@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { chroma, TOP_TIER, variant, variantSummary } from "@/engine/variants";
 import { creatureSprite } from "@/render/creature";
 import { swatchFor } from "@/render/palette";
-import { cachedSprite, loadSprite, SPRITE_SIZE } from "@/render/sprites";
+import { cachedEgg, cachedSprite, loadEgg, loadSprite, SPRITE_SIZE } from "@/render/sprites";
 
 /**
  * The marks that say a creature is not ordinary.
@@ -155,6 +155,53 @@ export function Sprite({
     <span className="spriteWrap" style={{ width: drawn, height: drawn }} title={variantSummary(variantId)}>
       <canvas ref={ref} width={drawn} height={drawn} style={{ width: drawn, height: drawn }} />
       {marks ? <VariantMark variantId={variantId} size={drawn} /> : null}
+    </span>
+  );
+}
+
+/**
+ * An egg, wearing the colour of whatever is going to come out of it.
+ *
+ * Its own component rather than a species id handed to `Sprite`, because an
+ * egg is not a species: it has no shadow shape to fall back to, no shine, and
+ * no marks — the colour on the shell is the whole of what it tells you.
+ */
+export function EggSprite({ variantId, size = 96 }: { variantId: string; size?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [, setLoaded] = useState(0);
+  const drawn = crispSize(size);
+
+  useEffect(() => {
+    let live = true;
+    if (!cachedEgg(variantId)) {
+      void loadEgg(variantId).then(() => {
+        if (live) setLoaded((n) => n + 1);
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [variantId]);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const egg = cachedEgg(variantId);
+    if (!egg) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(egg, 0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, 0, canvas.width, canvas.height);
+  });
+
+  const form = variant(variantId);
+  return (
+    <span
+      className="spriteWrap"
+      style={{ width: drawn, height: drawn }}
+      title={form.chromaId ? `An egg with ${chroma(form.chromaId).name.toLowerCase()} spots` : "An egg"}
+    >
+      <canvas ref={ref} width={drawn} height={drawn} style={{ width: drawn, height: drawn }} />
     </span>
   );
 }

@@ -17,7 +17,7 @@ import type { Individual } from "@/engine/types";
 import { displayName, narrateParts, type LogLine } from "@/lib/narrate";
 import { badgesFor } from "@/lib/tags";
 import { typeColor } from "@/render/palette";
-import { GenderMark, HpBar, TeamBalls, VariantTag } from "./PartyStrip";
+import { GenderMark, HpBar, TeamBalls, teamPanel, VariantTag } from "./PartyStrip";
 import { beatsFor, catchFor } from "@/lib/beats";
 import { useBeat, useCatch, useEntrance } from "./useBeat";
 import { useCues } from "./useCues";
@@ -195,14 +195,17 @@ export function BattleView({
   busy = false,
   busyLabel,
   footer,
-  aside,
+  aside = teamPanel(battle.sides[role].team, battle.sides[role].active),
 }: {
   battle: BattleState;
   /** The side we are driving. */
   role: SideIndex;
   onAction: (action: BattleAction) => void;
-  /** Omitted in a duel: there is nothing to catch and nowhere to run. */
-  balls?: number;
+  /**
+   * Every kind of ball and how many of each are in the bag. Omitted in a duel:
+   * there is nothing to catch and nowhere to run.
+   */
+  balls?: { id: string; name: string; count: number }[];
   opponentLabel?: string;
   /**
    * What the opponent says before anything is thrown.
@@ -514,11 +517,21 @@ export function BattleView({
               </button>
             ) : null}
             <div className="row">
-              {wildBattle ? (
-                <button type="button" onClick={() => onAction({ t: "ball" })} disabled={balls <= 0}>
-                  Throw ball ({balls})
-                </button>
-              ) : null}
+              {/* One button per kind carried, so a Great or an Ultra Ball is
+                  something you can actually choose. The Poké Ball's button
+                  stays even at nought, because it is what B throws. */}
+              {balls
+                ?.filter((ball) => ball.id === "pokeball" || ball.count > 0)
+                .map((ball) => (
+                  <button
+                    key={ball.id}
+                    type="button"
+                    onClick={() => onAction(ball.id === "pokeball" ? { t: "ball" } : { t: "ball", item: ball.id })}
+                    disabled={ball.count <= 0}
+                  >
+                    {ball.name} ({ball.count})
+                  </button>
+                ))}
               <button type="button" onClick={() => setSwitching(true)} disabled={ourTeam.length < 2}>
                 Switch
               </button>
@@ -539,7 +552,7 @@ export function BattleView({
               {wildBattle ? (
                 <>
                   {" · "}
-                  <kbd>B</kbd> ball · <kbd>R</kbd> run
+                  <kbd>B</kbd> Poké Ball · <kbd>R</kbd> run
                 </>
               ) : null}
             </p>
@@ -554,18 +567,20 @@ export function BattleView({
         {/* Who you have, up the left. It used to sit a long way below the
             battle, under the bag, which meant checking what was left on the
             bench was a scroll rather than a glance. */}
-        {aside ? (
-          <div className="stageParty">
-            {aside(
-              mustSwitch || switching
-                ? (index) => {
-                    setSwitching(false);
-                    onAction({ t: "switch", partyIndex: index });
-                  }
-                : null,
-            )}
-          </div>
-        ) : null}
+        {/* Always a panel. A duel has no page party to hand in, so it gets the
+            battle's own team by default; leaving the column empty put the field
+            in the party's narrow slot and the log in the middle, and left a
+            switch prompt pointing at a party that was not on screen. */}
+        <div className="stageParty">
+          {aside(
+            mustSwitch || switching
+              ? (index) => {
+                  setSwitching(false);
+                  onAction({ t: "switch", partyIndex: index });
+                }
+              : null,
+          )}
+        </div>
 
         <div className="stageField">
           <FieldLine field={battle.field} />

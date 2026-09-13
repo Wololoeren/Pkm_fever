@@ -6,6 +6,10 @@ import {
   chromaOdds,
   climbChance,
   generationsToMax,
+  HATCH_MAX,
+  HATCH_MIN,
+  hatchRarity,
+  hatchSteps,
   inheritChroma,
   inheritTier,
   STEPS_PER_EGG,
@@ -14,7 +18,7 @@ import {
   type DaycareState,
 } from "@/engine/breeding";
 import { ALL_SPECIES } from "@/engine/dex";
-import { applyInput, depositRefusal, initialState, inTown } from "@/engine/engine";
+import { applyInput, depositRefusal, hatchRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
 import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
@@ -252,13 +256,102 @@ describe("the daycare", () => {
     const walked = applyInput(world, pair, { t: "move", dir: "n" });
     expect(walked.daycare.eggReady).toBe(true);
 
-    // Collecting means going back to the daycare itself.
-    const collected = applyInput(world, standInside(world, walked, "daycare"), { t: "collectEgg" });
-    const hatchling = [...collected.party, ...collected.box].at(-1)!;
-    expect(hatchling.level).toBe(1);
-    expect(hatchling.speciesId).toBe("bulbasaur");
+    // Collecting means going back to the daycare itself, and what you collect
+    // is an egg in the bag — nobody joins the party yet.
+    const inside = standInside(world, walked, "daycare");
+    const collected = applyInput(world, inside, { t: "collectEgg" });
+    expect(collected.party).toHaveLength(inside.party.length);
+    expect(collected.eggs).toHaveLength(1);
     expect(collected.daycare.eggReady).toBe(false);
     expect(collected.daycare.eggIndex).toBe(1);
+
+    const [egg] = collected.eggs;
+    expect(egg.creature.speciesId).toBe("bulbasaur");
+    expect(egg.creature.level).toBe(1);
+    expect(egg.steps).toBe(egg.total);
+    expect(egg.steps).toBeGreaterThanOrEqual(HATCH_MIN);
+    expect(egg.steps).toBeLessThanOrEqual(HATCH_MAX);
+    expect(collected.notice).toEqual({ t: "eggTaken", steps: egg.steps });
+  });
+
+  it("BR14b: an egg walks down one per step, cannot be opened early, and hatches what it promised", () => {
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const promised = { ...creature("oddish", { uid: 0, level: 1 }), variantId: "normal" };
+    const state = { ...base, eggs: [{ creature: promised, steps: 2, total: 800 }] };
+
+    expect(hatchRefusal(state, 0)).toBe("it is not ready to hatch");
+    expect(() => applyInput(world, state, { t: "hatch", index: 0 })).toThrow();
+    expect(readyEgg(state)).toBeNull();
+
+    let walked = state;
+    for (let n = 0; n < 2; n++) {
+      for (const dir of ["n", "s", "e", "w"] as const) {
+        try {
+          walked = applyInput(world, walked, { t: "move", dir });
+          break;
+        } catch {
+          /* walled */
+        }
+      }
+    }
+    expect(walked.eggs[0].steps).toBe(0);
+    expect(readyEgg(walked)?.index).toBe(0);
+
+    const hatched = applyInput(world, walked, { t: "hatch", index: 0 });
+    expect(hatched.eggs).toHaveLength(0);
+    const child = hatched.party.at(-1)!;
+    expect(child.speciesId).toBe("oddish");
+    expect(child.uid).toBe(walked.nextUid);
+    expect(hatched.notice).toMatchObject({ t: "hatched", speciesId: "oddish" });
+    // And the egg is part of the save's state, so two logs that differ only in
+    // how far an egg has walked do not hash the same.
+    expect(stateHash(walked)).not.toBe(stateHash(state));
+  });
+
+  it("BR14d: an egg takes a party slot, and a full party cannot take one", () => {
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const egg = { creature: creature("oddish", { uid: 0, level: 1 }), steps: 0, total: 300 };
+    const five = Array.from({ length: 5 }, (_, at) => creature("machop", { uid: 100 + at }));
+
+    const ready = standInside(world, {
+      ...base,
+      party: five,
+      eggs: [egg],
+      daycare: { ...pairing(creature("bulbasaur", { uid: 92, gender: "female" }), creature("oddish", { uid: 93, gender: "male" }), 0), eggReady: true },
+    }, "daycare");
+    // Five creatures and an egg is six: no room for a second egg.
+    expect(() => applyInput(world, ready, { t: "collectEgg" })).toThrow(/party is full/);
+
+    // And a creature that joins with the egg taking the sixth slot goes to the box.
+    const room = standInside(world, { ...base, party: five.slice(0, 4), eggs: [egg, egg] }, "daycare");
+    expect(() => applyInput(world, room, { t: "retrieve", index: 0 })).toThrow();
+
+    // Hatching fills the slot the egg was in, so it is never boxed.
+    const out = { ...base, party: five, eggs: [egg] };
+    const hatched = applyInput(world, out, { t: "hatch", index: 0 });
+    expect(hatched.party).toHaveLength(6);
+    expect(hatched.box).toHaveLength(out.box.length);
+  });
+
+  it("BR14c: the rarer what is inside, the longer the walk", () => {
+    const common = creature("rattata", { uid: 1, level: 1 });
+    const rare = creature("dratini", { uid: 2, level: 1 });
+    expect(hatchRarity(rare)).toBeGreaterThan(hatchRarity(common));
+
+    const parents = [creature("rattata", { uid: 10 }), creature("rattata", { uid: 11 })] as const;
+    for (let egg = 0; egg < 40; egg++) {
+      const quick = hatchSteps(SEED, parents[0], parents[1], egg, common);
+      const slow = hatchSteps(SEED, parents[0], parents[1], egg, rare);
+      for (const steps of [quick, slow]) {
+        expect(steps).toBeGreaterThanOrEqual(HATCH_MIN);
+        expect(steps).toBeLessThanOrEqual(HATCH_MAX);
+      }
+      expect(slow).toBeGreaterThan(quick);
+      // The same egg always takes the same walk.
+      expect(hatchSteps(SEED, parents[0], parents[1], egg, rare)).toBe(slow);
+    }
   });
 
   it("BR16: you can deposit from the box, which is the only route with one creature left", () => {

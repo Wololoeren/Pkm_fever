@@ -80,6 +80,8 @@ describe("packing a log", () => {
       { t: "deposit", from: "box", index: 2 },
       { t: "withdraw", slot: 1 },
       { t: "collectEgg" },
+      { t: "hatch", index: 0 },
+      { t: "rename", uid: 1, name: "Sprout" },
       { t: "toggleItem", item: "prism" },
       { t: "store", index: 0 },
       { t: "retrieve", index: 0 },

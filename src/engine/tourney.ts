@@ -95,7 +95,7 @@ export type TourneyPhase =
 export type TourneyMessage =
   /** Broadcast on arrival, and again whenever somebody new turns up: this is
    * who I am. Sent by everybody including the host. */
-  | { t: "hello"; name: string }
+  | { t: "hello"; name: string; seed?: string; moves?: number }
   /**
    * The host, locking the field.
    *
@@ -105,7 +105,7 @@ export type TourneyMessage =
    *
    * And the host's world seed, which the prize is drawn from. See `cupPrizeKey`.
    */
-  | { t: "lock"; size: BracketSize; teamSize: number; players: { id: string; name: string }[]; seed: string }
+  | { t: "lock"; size: BracketSize; teamSize: number; players: Entrant[]; seed: string }
   /**
    * A player's team for the live match, in the open.
    *
@@ -182,6 +182,30 @@ export function matchSeed(code: string, a: string, b: string): string {
  * fed whatever arrives, so a whole sixteen-player bracket can be wired up in
  * memory and played out by a test with no network and no timing.
  */
+/** Somebody in the room, as they introduced themselves. */
+export interface Entrant {
+  id: string;
+  name: string;
+  /** Their world seed and move count. See `Player`. */
+  seed?: string;
+  moves?: number;
+}
+
+/**
+ * What a peer claims about itself, kept only if it is the right shape.
+ *
+ * Another person's client wrote this, so a seed that is not a short string or
+ * a count that is not a whole number is dropped rather than shown.
+ */
+function introduced(message: { seed?: unknown; moves?: unknown }): Pick<Entrant, "seed" | "moves"> {
+  const seed = typeof message.seed === "string" && message.seed.length <= 32 ? message.seed : undefined;
+  const moves =
+    typeof message.moves === "number" && Number.isSafeInteger(message.moves) && message.moves >= 0
+      ? message.moves
+      : undefined;
+  return { seed, moves };
+}
+
 export class TourneySession {
   private readonly send: (message: TourneyMessage) => void;
   private readonly code: string;
@@ -195,7 +219,9 @@ export class TourneySession {
   readonly host: boolean;
 
   private phase: TourneyPhase = "lobby";
-  private lobby = new Map<string, string>();
+  private lobby = new Map<string, Omit<Entrant, "id">>();
+  /** How many moves into its save this client is, for the hello. */
+  private readonly moves: number | undefined;
   private bracket: Bracket | null = null;
   private live: BracketMatch | null = null;
   private battle: BattleState | null = null;
@@ -212,6 +238,8 @@ export class TourneySession {
     host: boolean;
     /** The world this client is playing. The host's seeds the prize. */
     seed: string;
+    /** How many moves into its save this client is. Shown to the room. */
+    moves?: number;
     team: readonly Individual[];
     send: (message: TourneyMessage) => void;
   }) {
@@ -222,7 +250,8 @@ export class TourneySession {
     this.seed = options.seed;
     this.team = options.team.map(rested);
     this.send = options.send;
-    this.lobby.set(this.self, this.name);
+    this.moves = options.moves;
+    this.lobby.set(this.self, { name: this.name, seed: this.seed, moves: this.moves });
   }
 
   view(): TourneyView {
@@ -240,14 +269,14 @@ export class TourneySession {
   }
 
   /** Everybody the lobby knows about, in join order. */
-  roster(): { id: string; name: string }[] {
-    return [...this.lobby].map(([id, name]) => ({ id, name }));
+  roster(): Entrant[] {
+    return [...this.lobby].map(([id, entry]) => ({ id, ...entry }));
   }
 
   /** Says who we are. Called on joining, and again when somebody arrives —
    * the newcomer has not heard the earlier ones. */
   announce(): void {
-    this.send({ t: "hello", name: this.name });
+    this.send({ t: "hello", name: this.name, seed: this.seed, moves: this.moves });
   }
 
   /** Somebody arrived: tell them who we are, so a late joiner learns the room
@@ -312,13 +341,13 @@ export class TourneySession {
     this.applyLock(size, teamSize, players, this.seed);
   }
 
-  private applyLock(size: BracketSize, teamSize: number, players: { id: string; name: string }[], seed: string): void {
+  private applyLock(size: BracketSize, teamSize: number, players: Entrant[], seed: string): void {
     this.hostSeed = seed;
     this.bracket = buildBracket(
       this.code,
       size,
       teamSize,
-      players.map((one) => ({ ...one, gone: false })),
+      players.map((one) => ({ id: one.id, name: one.name, ...introduced(one), gone: false })),
     );
     this.phase = "drawn";
     this.step();
@@ -575,7 +604,7 @@ export class TourneySession {
 
     switch (message.t) {
       case "hello":
-        if (!this.bracket) this.lobby.set(from, message.name);
+        if (!this.bracket) this.lobby.set(from, { name: message.name, ...introduced(message) });
         return;
 
       case "lock":

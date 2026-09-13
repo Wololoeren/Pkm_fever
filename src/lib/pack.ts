@@ -96,6 +96,8 @@ const OPS: Record<Exclude<Input["t"], "move">, number> = {
   shred: 40,
   cut: 41,
   reforge: 42,
+  hatch: 43,
+  rename: 44,
 };
 
 /** The same table read backwards, built once. */

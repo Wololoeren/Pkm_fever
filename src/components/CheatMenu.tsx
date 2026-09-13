@@ -150,6 +150,14 @@ export function CheatMenu({
           >
             Give
           </button>
+          <button
+            type="button"
+            className="ghost"
+            title="The same creature, as an egg three steps from hatching"
+            onClick={() => send({ op: "egg", speciesId, variantId, steps: 3 })}
+          >
+            Give as egg
+          </button>
         </div>
 
         <h3>Party</h3>

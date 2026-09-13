@@ -48,7 +48,13 @@ import { appearanceId, CHROMA_IDS, TOP_TIER } from "./variants";
  * the first.
  */
 
-/** How often he turns up, in ticks. Roughly every couple of hours of walking. */
+/**
+ * When he first turns up, in ticks. Late enough that a new game has a starter
+ * with a few levels on it and maybe a second creature before he asks for them.
+ */
+export const RIVAL_FIRST = 500;
+
+/** How often he turns up after that, in ticks. Roughly every couple of hours of walking. */
 export const RIVAL_EVERY = 2500;
 
 /**
@@ -235,14 +241,11 @@ export function rivalTeam(
  * clock, so the gap between appearances is genuinely `RIVAL_EVERY` however long
  * the last encounter took to resolve.
  *
- * And `null` means never, which is how "at the beginning" falls out without
- * being a special case: the first field tick of a new game is the first tick he
- * has not already come on. A modulo *looked* like it did this and did not —
- * tick nought is the state before any input, when you are still choosing a
- * starter, so the game began at tick one and he was never due until 2500.
+ * And `null` means never: the first time is at `RIVAL_FIRST` on the clock, and
+ * every visit after that is `RIVAL_EVERY` from the one before.
  */
 export function rivalDue(tick: number, last: number | null): boolean {
-  return last === null || tick - last >= RIVAL_EVERY;
+  return last === null ? tick >= RIVAL_FIRST : tick - last >= RIVAL_EVERY;
 }
 
 /** Whether he has finished following and is about to catch you. */

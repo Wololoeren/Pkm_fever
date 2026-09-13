@@ -1,6 +1,6 @@
 # Items
 
-**533 of them**, of which 288 are machines. The other 245 are below.
+**541 of them**, of which 288 are machines. The other 253 are below.
 
 Seven of those are the printer's inks — one per colour but ivory, which is the
 one it never ran out of. They are not on any shelf at any price: an ink is
@@ -31,7 +31,7 @@ something you give to a creature to keep, something you use on the world.
 | Field | 5 | Used on the world rather than on a creature |
 | Tools | 10 | The HMs. Won from gyms |
 | Rods | 3 | Reaches further out the water |
-| Balls | 3 | |
+| Balls | 11 | Poké, Great and Ultra by rate; Quick, Timer, Net, Nest, Level, Fast and Dive by condition; Master always |
 | Valuables | 2 | For selling. That is the whole of it |
 | Keys | 1 | The World Cup Invitation |
 
@@ -135,7 +135,7 @@ ignores its own Flame Orb and a Fire type cannot be burned by one.
 | **Power Band** | Into Sp. Def |
 | **Power Anklet** | Into Speed |
 | **Destiny Knot** | Five inherited stat slots instead of three, at the daycare |
-| **Smoke Ball** | Running from anything wild always works |
+| **Smoke Ball** | Running from anything wild always works, whatever its level |
 
 The Everstone answers in `progression.ts` rather than at its two call sites,
 because there are two roads to an evolution and an item that blocked one would

@@ -12,6 +12,7 @@ import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
 import { abilitiesOf, effectApplies, type AbilityEffect } from "./abilities";
 import { heldEffects, isConsumedOnUse } from "./carry";
+import { item as itemSpec } from "./items";
 import { canStillEvolve } from "./progression";
 import { hasVariableDamage, powerOfBlow, variableDamage, type DamageContext } from "./moves";
 import {
@@ -1217,6 +1218,57 @@ function setActive(turn: Turn, side: SideIndex, individual: Individual): void {
 
 function roll(turn: Turn, tag: string): number {
   return rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, tag)();
+}
+
+/**
+ * What a ball multiplies the catch rate by, in per-mille — or null for a ball
+ * that simply catches.
+ *
+ * Every condition is read off the battle as it stood before this throw, so a
+ * replay decides it the same way: which turn it is, what is standing in front
+ * of you and what you have out, and whether it came up on a rod.
+ */
+export function ballMultiplier(
+  ballId: string,
+  state: BattleState,
+  ours: Individual,
+  wild: Individual,
+): number | null {
+  const spec = itemSpec(ballId);
+  const base = spec.ballMult ?? 1000;
+  const kind = speciesById(wild.speciesId);
+
+  switch (spec.ballRule) {
+    case "master":
+      return null;
+    case "quick":
+      return state.turn === 0 ? 5000 : base;
+    case "timer":
+      return Math.min(4000, base + 300 * state.turn);
+    case "net":
+      return kind.types.includes("water") || kind.types.includes("bug") ? 3500 : base;
+    case "nest":
+      return wild.level < 30 ? Math.max(base, (41 - wild.level) * 100) : base;
+    case "level":
+      return ours.level >= wild.level * 4 ? 8000 : ours.level >= wild.level * 2 ? 4000 : ours.level > wild.level ? 2000 : base;
+    case "fast":
+      return kind.base.spe >= 100 ? 4000 : base;
+    case "dive":
+      return state.tag.includes(":rod:") ? 3500 : base;
+    default:
+      return base;
+  }
+}
+
+/**
+ * The chance, in percent, that running from a wild creature fails.
+ *
+ * Ten points for every level it stands above yours, and never below ten — so
+ * nothing is a guaranteed escape, and something ten levels up cannot be run
+ * from at all. Speed plays no part.
+ */
+export function fleeFailPercent(ownLevel: number, wildLevel: number): number {
+  return Math.min(100, Math.max(10, (wildLevel - ownLevel) * 10));
 }
 
 function chance(turn: Turn, tag: string, percent: number): boolean {
@@ -4062,7 +4114,8 @@ export function resolveTurn(
       }
       ballsUsed = 1;
       const wild = active(turn, 1);
-      const odds = catchOdds(wild, 1000);
+      const mult = ballMultiplier(ours.item ?? "pokeball", state, active(turn, 0), wild);
+      const odds = mult === null ? 256 : catchOdds(wild, mult);
       if (intBelow(rngFor(state.seed, state.tag, turn.battle.turn, "ball"), 256) < odds) {
         caught = { ...wild };
         turn.events.push({ t: "caught" });
@@ -4071,10 +4124,7 @@ export function resolveTurn(
       }
       turn.events.push({ t: "catchFailed" });
     } else {
-      const own = speedOf(turn, 0);
-      const theirs = speedOf(turn, 1);
-      const odds = own >= theirs ? 100 : Math.max(35, Math.floor((own * 100) / theirs));
-      if (chance(turn, "flee", odds)) {
+      if (chance(turn, "flee", 100 - fleeFailPercent(active(turn, 0).level, active(turn, 1).level))) {
         turn.events.push({ t: "fled" });
         turn.battle.outcome = { t: "fled" };
         return finish(turn, null, 0);

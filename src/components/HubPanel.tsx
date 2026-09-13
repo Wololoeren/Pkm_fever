@@ -280,7 +280,9 @@ export function HubPanel({
       <div className="hubCol">
         <h3>Daycare</h3>
         <p className="muted">
-          Leave two here and walk. Every {STEPS_PER_EGG} steps produces an egg, and each egg
+          Leave two here and walk. Every {STEPS_PER_EGG} steps produces an egg, which goes in
+          your bag and hatches once you have walked with it a while.
+          Each egg
           inherits every stat from one parent or the other — with a few of them mutating
           upward. That mutation is the only way anything climbs past the 0–6 a wild catch
           rolls; expect about {generationsToMax(state.daycare.applied)} generations to perfect
@@ -320,7 +322,12 @@ export function HubPanel({
           <button
             type="button"
             className="primary"
-            disabled={!state.daycare.eggReady}
+            disabled={!state.daycare.eggReady || state.party.length + state.eggs.length >= 6}
+            title={
+              state.daycare.eggReady && state.party.length + state.eggs.length >= 6
+                ? "Your party is full — an egg needs a slot"
+                : undefined
+            }
             onClick={() => onInput({ t: "collectEgg" })}
           >
             Take the egg
@@ -438,7 +445,7 @@ export function HubPanel({
                 onInspect={onInspect}
                 action="Take out"
                 label="Into your party"
-                disabled={state.party.length >= 6}
+                disabled={state.party.length + state.eggs.length >= 6}
                 onAct={() => onInput({ t: "retrieve", index })}
                 extra={
                   <>

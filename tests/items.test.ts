@@ -47,11 +47,17 @@ describe("the catalogue", () => {
     }
   });
 
-  it("I3: better balls cost more and hold better, in the same order", () => {
-    for (let i = 1; i < BALLS.length; i++) {
-      expect(BALLS[i].ballMult!).toBeGreaterThan(BALLS[i - 1].ballMult!);
-      expect(BALLS[i].price).toBeGreaterThan(BALLS[i - 1].price);
+  it("I3: the plain balls cost more and hold better, in the same order", () => {
+    // The ones with a condition are priced for the condition, not the base
+    // rate, so the ladder is the three that are only a rate.
+    const plain = BALLS.filter((ball) => !ball.ballRule);
+    expect(plain.map((ball) => ball.id)).toEqual(["pokeball", "greatball", "ultraball"]);
+    for (let i = 1; i < plain.length; i++) {
+      expect(plain[i].ballMult!).toBeGreaterThan(plain[i - 1].ballMult!);
+      expect(plain[i].price).toBeGreaterThan(plain[i - 1].price);
     }
+    // And the Master Ball is the last thing a battle offers.
+    expect(BALLS.at(-1)!.id).toBe("masterball");
   });
 
   it("I4: equipment never stacks past one", () => {

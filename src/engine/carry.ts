@@ -119,7 +119,7 @@ function typeItems(): HeldItemSeed[] {
   return TYPE_ITEM_TYPES.map((type) => ({
     id: `hold-${type}`,
     name: TYPE_ITEM_NAMES[type],
-    blurb: `Its ${type} moves hit a fifth harder.`,
+    blurb: `Its ${type} moves do 20% more damage.`,
     price: 2400,
     hold: { effects: [{ t: "power", when: "typed", type, mille: TYPE_ITEM_MILLE }] },
   }));
@@ -228,7 +228,7 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-lifeorb",
     name: "Life Orb",
-    blurb: "Three tenths harder, and a tenth of its own health every time it swings.",
+    blurb: "Its moves do 30% more damage, but it loses 10% of its max HP each time it attacks.",
     price: 6500,
     hold: {
       effects: [
@@ -240,21 +240,21 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-expertbelt",
     name: "Expert Belt",
-    blurb: "A fifth harder, but only when the hit was already super effective.",
+    blurb: "Super-effective hits do 20% more damage.",
     price: 5000,
     hold: { effects: [{ t: "sharp", mille: 1200 }] },
   },
   {
     id: "hold-muscleband",
     name: "Muscle Band",
-    blurb: "Its physical moves hit a tenth harder.",
+    blurb: "Its physical moves do 10% more damage.",
     price: 3600,
     hold: { effects: [{ t: "power", when: "physical", mille: 1100 }] },
   },
   {
     id: "hold-wiseglasses",
     name: "Wise Glasses",
-    blurb: "Its special moves hit a tenth harder.",
+    blurb: "Its special moves do 10% more damage.",
     price: 3600,
     hold: { effects: [{ t: "power", when: "special", mille: 1100 }] },
   },
@@ -310,7 +310,7 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-leftovers",
     name: "Leftovers",
-    blurb: "A sixteenth of its health back at the end of every turn.",
+    blurb: "Restores 1/16 of its max HP at the end of every turn.",
     price: 5000,
     hold: { effects: [{ t: "tick", share: 16 }] },
   },
@@ -324,7 +324,7 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-shellbell",
     name: "Shell Bell",
-    blurb: "An eighth of the damage it deals comes back as health.",
+    blurb: "It heals 1/8 of the damage it deals.",
     price: 4000,
     hold: { effects: [{ t: "siphon", share: 8 }] },
   },
@@ -340,14 +340,14 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-widelens",
     name: "Wide Lens",
-    blurb: "A tenth more accurate.",
+    blurb: "Its moves are 10% more accurate.",
     price: 3000,
     hold: { effects: [{ t: "aim", mille: 1100 }] },
   },
   {
     id: "hold-quickclaw",
     name: "Quick Claw",
-    blurb: "One time in five it moves first, however slow it is.",
+    blurb: "20% chance each turn to move first, whatever its Speed.",
     price: 3500,
     hold: { effects: [{ t: "gamble", mille: 200 }] },
   },
@@ -372,14 +372,14 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-luckyegg",
     name: "Lucky Egg",
-    blurb: "Half again the experience from everything it beats.",
+    blurb: "It gains 1.5× experience from battles.",
     price: 8000,
     hold: { effects: [{ t: "study", mille: 1500 }] },
   },
   {
     id: "hold-amuletcoin",
     name: "Amulet Coin",
-    blurb: "Twice the purse from any trainer it is out against.",
+    blurb: "2× prize money from any trainer battle it takes part in.",
     price: 6000,
     hold: { effects: [{ t: "purse", mille: 2000 }] },
   },
@@ -405,7 +405,7 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-destinyknot",
     name: "Destiny Knot",
-    blurb: "Five of the parents' stat slots pass down instead of three, if it is at the daycare.",
+    blurb: "At the daycare: 5 of each egg's 6 IVs mutate upward instead of 3.",
     price: 4800,
     hold: { effects: [{ t: "lineage", slots: 5 }] },
   },
@@ -760,7 +760,7 @@ const SECOND_NAMES: HeldItemSeed[] = [
   {
     id: "hold-luckincense",
     name: "Luck Incense",
-    blurb: "Twice the purse from any trainer it is out against.",
+    blurb: "2× prize money from any trainer battle it takes part in.",
     price: 6000,
     hold: { effects: [{ t: "purse", mille: 2000 }] },
   },
@@ -806,7 +806,7 @@ const LATE: HeldItemSeed[] = [
   {
     id: "hold-smokeball",
     name: "Smoke Ball",
-    blurb: "Running from anything wild always works, however fast it is.",
+    blurb: "Running from a wild creature always works, whatever its level.",
     price: 2000,
     hold: { effects: [{ t: "bolt" }] },
   },

@@ -101,8 +101,17 @@ import { BIOME_IDS } from "./biomes";
  * everyone else was placed on — and 33 had not reached anybody's saves yet.
  *
  * Also folded in: the testing bench's prize draw now reads the world seed, so
- * a recorded `prize` cheat takes a different creature than it did. */
-export const ENGINE_VERSION = 33;
+ * a recorded `prize` cheat takes a different creature than it did.
+ *
+ * 34 changes what several recorded inputs do. An egg takes three hundred steps
+ * rather than a hundred and twenty, and taking one puts it in the bag to walk
+ * for 250–2500 steps and be opened with the new `hatch` input, rather than
+ * putting the creature straight into the party. The rival first comes at move
+ * 500 rather than on the first step. Running from a wild creature is rolled on
+ * the level gap rather than on speed. And a thrown Great or Ultra Ball uses its
+ * own catch rate instead of a Poké Ball's. Any one of these replays a 33 log
+ * into a different game. */
+export const ENGINE_VERSION = 34;
 
 // ------------------------------------------------------------------ stats
 

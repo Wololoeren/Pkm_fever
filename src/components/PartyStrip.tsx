@@ -12,7 +12,8 @@ import type { Gender, Individual } from "@/engine/types";
 import { chroma, isSpecial, TOP_TIER, variant } from "@/engine/variants";
 import { swatchFor } from "@/render/palette";
 import { displayName } from "@/lib/narrate";
-import { Sprite } from "./Sprite";
+import type { Egg } from "@/engine/breeding";
+import { EggSprite, Sprite } from "./Sprite";
 
 export function hpClass(current: number, max: number): string {
   const share = max > 0 ? current / max : 0;
@@ -192,6 +193,58 @@ export function GenderMark({ gender }: { gender: Gender }) {
       {GENDER_SYMBOLS[gender]}
     </span>
   );
+}
+
+/**
+ * The eggs being carried, each in the party slot it is taking up.
+ *
+ * Shown with the party and in the bag: the party is where the slot goes, the
+ * bag is where you would look for something you picked up. Nothing to press —
+ * you walk, and an egg opens when it is ready.
+ *
+ * How long is a surprise. No count and no bar: only a line that changes as it
+ * gets closer, the way the handhelds let you hold an egg up to your ear.
+ */
+function eggMood(egg: Egg): string {
+  if (egg.steps === 0) return "It's hatching!";
+  const left = egg.steps / egg.total;
+  if (left > 0.66) return "What will hatch from this? It will take some time.";
+  if (left > 0.33) return "It moves around inside sometimes.";
+  if (left > 0.1) return "It's making sounds inside.";
+  return "It's close to hatching!";
+}
+
+export function EggSlots({ eggs }: { eggs: readonly Egg[] }) {
+  if (!eggs.length) return null;
+  return (
+    <div className="eggs">
+      {eggs.map((egg, index) => (
+        <div key={index} className="eggCard">
+          <EggSprite variantId={egg.creature.variantId} size={48} />
+          <div className="eggInfo">
+            <span className="itemName">Egg</span>
+            <span className="muted itemBlurb">{eggMood(egg)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The battle's own team as the panel beside the field, for a battle whose page
+ * has no party to hand in — a duel or a bracket match, where what you brought
+ * is the team, at the health it has in the battle.
+ */
+export function teamPanel(team: Individual[], activeIndex: number) {
+  return function TeamPanel(choosing: ((index: number) => void) | null) {
+    return (
+      <section className={`panel${choosing ? " choosing" : ""}`}>
+        <h3>{choosing ? "Send out who?" : "Team"}</h3>
+        <PartyStrip party={team} activeIndex={activeIndex} onSelect={choosing ?? undefined} />
+      </section>
+    );
+  };
 }
 
 export function PartyStrip({

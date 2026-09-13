@@ -55,6 +55,13 @@ export interface Player {
   /** What they typed. Display only — two people may pick the same one. */
   name: string;
   /**
+   * Their world's seed and how many moves their save is in, as they said on
+   * arrival. Display only, and optional: a client too old to send them still
+   * plays, it just shows a name.
+   */
+  seed?: string;
+  moves?: number;
+  /**
    * Whether the AI is playing their chair.
    *
    * Set when their peer drops, and never cleared: somebody who reconnects

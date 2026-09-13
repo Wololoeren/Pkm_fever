@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BattleView } from "@/components/BattleView";
 import { CheatMenu } from "@/components/CheatMenu";
-import { EvolutionScene } from "@/components/EvolutionScene";
+import { EGG, EvolutionScene } from "@/components/EvolutionScene";
 import { Inspect } from "@/components/Inspect";
 import { DexPanel } from "@/components/DexPanel";
 import { JournalPanel } from "@/components/JournalPanel";
@@ -21,14 +21,14 @@ import { TalkPanel } from "@/components/TalkPanel";
 import { HubPanel } from "@/components/HubPanel";
 import { MartPanel } from "@/components/MartPanel";
 import { MainMenu } from "@/components/MainMenu";
-import { PartyStrip } from "@/components/PartyStrip";
+import { EggSlots, PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
 import { BALLS, countOf, item } from "@/engine/items";
 import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -249,6 +249,9 @@ export default function Page() {
    * it: mid-battle is no time to be asked, and twenty seconds of animation
    * over a fight that is still going is worse than no scene at all.
    */
+  /** An egg ready to open, out in the field and nowhere else. */
+  const hatching = state?.phase === "field" ? readyEgg(state) : null;
+
   const offered = (() => {
     if (!state) return null;
     if (state.phase !== "field" && state.phase !== "battleEnd") return null;
@@ -274,9 +277,12 @@ export default function Page() {
    * `state`.
    */
   const canWalk = useRef(false);
+  // Not while a hatching or an evolution is on screen: a key still held from
+  // the last step would otherwise walk on underneath the scene.
+  const sceneUp = Boolean(hatching || offered);
   useEffect(() => {
-    canWalk.current = state?.phase === "field";
-  }, [state?.phase]);
+    canWalk.current = state?.phase === "field" && !sceneUp;
+  }, [state?.phase, sceneUp]);
 
   const stopWalking = useCallback(() => {
     if (walkTimer.current === null) return;
@@ -442,6 +448,7 @@ export default function Page() {
         <PvpScreen
           roster={[...state.party, ...state.box]}
           seed={session.world.seed}
+          moves={session.inputs.length}
           onExit={() => setPvp(false)}
           onPrize={(creature) => dispatch({ t: "prize", receive: creature })}
           onTrade={(giveUid, received) => {
@@ -485,6 +492,7 @@ export default function Page() {
         onInspect={choosing ? undefined : setInspecting}
         onReorder={choosing ? undefined : (from, to) => dispatch({ t: "reorderParty", from, to })}
       />
+      <EggSlots eggs={state.eggs} />
     </section>
   );
 
@@ -528,7 +536,11 @@ export default function Page() {
           role={0}
           // Only a wild battle gets a ball count, because that is what
           // BattleView reads as "balls and running are legal here".
-          balls={isWildBattle(state.battle) ? countOf(state.bag, "pokeball") : undefined}
+          balls={
+            isWildBattle(state.battle)
+              ? BALLS.map((ball) => ({ id: ball.id, name: ball.name, count: countOf(state.bag, ball.id) }))
+              : undefined
+          }
           // Whose it is, worked out from the battle's own tag. Left to its
           // default, every trainer and gym leader in the game fielded "Wild"
           // creatures.
@@ -703,8 +715,16 @@ export default function Page() {
               {state.notice.until.toLocaleString()}.
             </p>
           ) : null}
+          {state.notice?.t === "eggTaken" ? (
+            <p className="good">
+              You took the egg. Keep walking with it and see what hatches.
+            </p>
+          ) : null}
           {state.notice?.t === "hatched" ? (
-            <p className="good">The egg hatched!{state.notice.boxed ? " Party was full, so it went to the box." : ""}</p>
+            <p className="good">
+              {speciesById(state.notice.speciesId).name} hatched from the egg!
+              {state.notice.boxed ? " Party was full, so it went to the box." : ""}
+            </p>
           ) : null}
         </section>
       )}
@@ -765,6 +785,16 @@ export default function Page() {
           onCancel={() =>
             dispatch({ t: "evolve", uid: offered.uid, to: offered.to, accept: false })
           }
+        />
+      ) : hatching ? (
+        // An egg that has walked its steps. The creature is already decided;
+        // the scene ending, however it ends, is what opens it.
+        <EvolutionScene
+          key={`egg:${hatching.index}:${hatching.egg.total}`}
+          from={EGG}
+          to={hatching.egg.creature.speciesId}
+          variantId={hatching.egg.creature.variantId}
+          onDone={() => dispatch({ t: "hatch", index: hatching.index })}
         />
       ) : evolved ? (
         <EvolutionScene

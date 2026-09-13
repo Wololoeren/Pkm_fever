@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
-import { MAX_MOVES, movesRefusal, type GameState, type Input } from "@/engine/engine";
+import { MAX_MOVES, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
 import { abilitiesOf } from "@/engine/abilities";
 import { natureVector } from "@/engine/natures";
 import { displayPower } from "@/engine/moves";
@@ -117,6 +117,83 @@ function MoveRow({
   );
 }
 
+/**
+ * The name at the top of the sheet, and the way to change it.
+ *
+ * A button until it is pressed, so the heading reads as a heading. Enter keeps
+ * the name and Escape leaves it as it was; saving an empty box takes the
+ * nickname off and the species name comes back.
+ */
+function NameEditor({
+  creature,
+  state,
+  onInput,
+}: {
+  creature: Individual;
+  state: GameState;
+  onInput: (input: Input) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const refusal = renameRefusal(state, creature.uid);
+  const species = speciesById(creature.speciesId).name;
+
+  if (draft === null) {
+    return (
+      <>
+        {displayName(creature)}
+        {creature.nickname ? <span className="muted nickSpecies"> ({species})</span> : null}{" "}
+        <button
+          type="button"
+          className="ghost small"
+          disabled={Boolean(refusal)}
+          title={refusal ?? "Give it a nickname"}
+          onClick={() => setDraft(creature.nickname ?? "")}
+        >
+          Rename
+        </button>
+      </>
+    );
+  }
+
+  const save = () => {
+    onInput({ t: "rename", uid: creature.uid, name: draft });
+    setDraft(null);
+  };
+
+  return (
+    <form
+      className="row nickForm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save();
+      }}
+    >
+      <input
+        autoFocus
+        value={draft}
+        maxLength={NICKNAME_MAX}
+        placeholder={species}
+        aria-label="Nickname"
+        spellCheck={false}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setDraft(null);
+          }
+        }}
+      />
+      <button type="submit" className="primary small">
+        Save
+      </button>
+      <button type="button" className="ghost small" onClick={() => setDraft(null)}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
 export function Inspect({
   world,
   creature,
@@ -199,8 +276,8 @@ export function Inspect({
             <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={96} />
             <div>
               <h2>
-                {displayName(creature)} <GenderMark gender={creature.gender} />{" "}
-                <span className="muted">Lv{creature.level}</span>
+                <NameEditor key={creature.uid} creature={creature} state={state} onInput={onInput} />{" "}
+                <GenderMark gender={creature.gender} /> <span className="muted">Lv{creature.level}</span>
               </h2>
               <div className="types">
                 {entry.types.map((type) => (

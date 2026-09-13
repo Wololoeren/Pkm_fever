@@ -1,4 +1,4 @@
-import { baseFormOf, movesAtLevel, species as speciesById } from "./dex";
+import { ALL_SPECIES, baseFormOf, movesAtLevel, species as speciesById } from "./dex";
 import { gendersPair, rollGender } from "./gender";
 import { isItem, item as itemSpec } from "./items";
 import { NATURE_IDS } from "./natures";
@@ -43,7 +43,7 @@ const INHERITED_SLOTS = 3;
 const INHERITED_SLOTS_WITH_HEIRLOOM = 5;
 
 /** Steps walked before the pair has an egg waiting. */
-export const STEPS_PER_EGG = 120;
+export const STEPS_PER_EGG = 300;
 
 /**
  * The things that make breeding better. They are equipment rather than
@@ -108,6 +108,67 @@ export interface DaycareState {
   eggReady: boolean;
   /** Which found items are applied to this pairing. */
   applied: BreedingItem[];
+}
+
+/**
+ * An egg in the bag.
+ *
+ * What hatches is decided when the egg is taken, not when it opens: the child
+ * is rolled from the parents at the daycare like it always was, and the egg is
+ * that child carried about for a while. So an egg cannot be rerolled by walking
+ * it differently, and the colour on its shell is a promise rather than a hint.
+ *
+ * The creature has no uid yet. Uids are handed out as things join you, and an
+ * egg has not joined anybody.
+ */
+export interface Egg {
+  creature: Individual;
+  /** Steps still to walk. Nought means it is ready to hatch. */
+  steps: number;
+  /** What it started at, for a progress bar. */
+  total: number;
+}
+
+/** The shortest and longest an egg takes, in steps. */
+export const HATCH_MIN = 250;
+export const HATCH_MAX = 2500;
+/** How wide the window is that a given rarity rolls inside. */
+const HATCH_SPREAD = 450;
+
+/** The easiest and hardest catch rates in the data, which bound "how rare". */
+const CATCH_RATES = ALL_SPECIES.map((entry) => entry.catchRate);
+const RATE_COMMON = Math.max(...CATCH_RATES);
+const RATE_RARE = Math.min(...CATCH_RATES);
+
+/**
+ * How rare a child is, from nought to one.
+ *
+ * Mostly the species: how hard it is to catch in the wild, which is the
+ * number the data already carries for "how common is this". Then the looks on
+ * top — shine up the ladder and a colour — because a true shiny is the rarest
+ * thing an egg can hold whatever is inside it.
+ */
+export function hatchRarity(child: Individual): number {
+  const rate = speciesById(child.speciesId).catchRate;
+  const form = variant(child.variantId);
+  // Scaled across the rates the data actually has, which run 18 to 247 rather
+  // than the handhelds' 3 to 255 — so the commonest egg really is 250 steps.
+  const species = Math.max(0, Math.min(1, (RATE_COMMON - rate) / (RATE_COMMON - RATE_RARE)));
+  const looks = (form.tier / TOP_TIER) * 0.5 + (form.chromaId ? 0.25 : 0);
+  return Math.min(1, species + looks);
+}
+
+/**
+ * How many steps an egg takes to hatch: somewhere in a 450-step window that
+ * slides from 250 for the commonest creature up to 2500 for the rarest.
+ *
+ * Rolled off the same names as the child itself, so the same egg always takes
+ * the same walk.
+ */
+export function hatchSteps(seed: string, first: Individual, second: Individual, eggIndex: number, child: Individual): number {
+  const low = HATCH_MIN + Math.round((HATCH_MAX - HATCH_SPREAD - HATCH_MIN) * hatchRarity(child));
+  const rng = rngFor(seed, "hatch", first.uid, second.uid, eggIndex);
+  return Math.min(HATCH_MAX, low + intBelow(rng, HATCH_SPREAD + 1));
 }
 
 export function emptyDaycare(): DaycareState {

@@ -77,6 +77,7 @@ function CreatureRow({
 export function PvpScreen({
   roster,
   seed,
+  moves,
   onExit,
   onTrade,
   onPrize,
@@ -84,6 +85,8 @@ export function PvpScreen({
   roster: Individual[];
   /** This save's world seed, which seeds a bracket's prize when we host it. */
   seed: string;
+  /** How many moves into this save, which a bracket shows under our name. */
+  moves: number;
   onExit: () => void;
   /** Applies a completed trade to the save. */
   onTrade: (giveUid: number, received: Individual) => void;
@@ -203,7 +206,7 @@ export function PvpScreen({
   // different protocol, and a shape — lobby, draw, watch, play — that has no
   // counterpart in a duel.
   if (mode === "tourney") {
-    return <TourneyScreen roster={roster} seed={seed} onExit={onExit} onPrize={onPrize} />;
+    return <TourneyScreen roster={roster} seed={seed} moves={moves} onExit={onExit} onPrize={onPrize} />;
   }
 
   // ------------------------------------------------------------------ setup

@@ -2,7 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { species as speciesById } from "@/engine/dex";
-import { Sprite } from "./Sprite";
+import { EggSprite, Sprite } from "./Sprite";
+
+/**
+ * What `from` is when the scene is a hatching.
+ *
+ * An egg is the one thing that turns into a creature without being one, so it
+ * gets the same twenty seconds by standing in for the "before" shape. It holds
+ * still in its own colours while the glow gathers, so the chroma on the shell
+ * is the last thing you look at before it goes dark.
+ */
+export const EGG = "egg";
 
 /**
  * The one moment in this game worth stopping for.
@@ -63,6 +73,7 @@ export function EvolutionScene({
   onDone,
   onCancel,
 }: {
+  /** A species id, or `EGG` for a hatching. */
   from: string;
   to: string;
   /**
@@ -130,7 +141,8 @@ export function EvolutionScene({
     return () => window.removeEventListener("keydown", onKey);
   }, [onDone, onCancel]);
 
-  const before = speciesById(from);
+  const hatching = from === EGG;
+  const before = hatching ? null : speciesById(from);
   const after = speciesById(to);
 
   // Which shape is on screen. The flicker accelerates: the gap between swaps
@@ -164,11 +176,14 @@ export function EvolutionScene({
           ? "peak"
           : "reveal";
 
-  const shown = showing === "after" ? after : before;
-  const silhouette = stage !== "reveal";
+  const silhouette = stage !== "reveal" && !(hatching && stage === "gather");
 
   return (
-    <div className={`evolve evolve-${stage}`} role="dialog" aria-label={`${before.name} is evolving`}>
+    <div
+      className={`evolve evolve-${stage}`}
+      role="dialog"
+      aria-label={before ? `${before.name} is evolving` : "An egg is hatching"}
+    >
       <div className="evolveRays" aria-hidden />
 
       <div className="evolveStage">
@@ -191,12 +206,29 @@ export function EvolutionScene({
               list, and a star in the corner of the one moment the game asks
               you to just look at something is an interface element standing in
               front of it. The colours already say which one it is. */}
-          <Sprite speciesId={shown.id} variantId={variantId} size={96} marks={false} />
+          {showing === "before" && !before ? (
+            <EggSprite variantId={variantId} size={96} />
+          ) : (
+            <Sprite
+              speciesId={showing === "after" || !before ? after.id : before.id}
+              variantId={variantId}
+              size={96}
+              marks={false}
+            />
+          )}
         </div>
       </div>
 
       <p className="evolveWord">
-        {stage === "reveal" ? (
+        {!before ? (
+          stage === "reveal" ? (
+            <>
+              <strong>{after.name}</strong> hatched from the egg!
+            </>
+          ) : (
+            <>Oh? The egg is hatching!</>
+          )
+        ) : stage === "reveal" ? (
           <>
             <strong>{before.name}</strong> became <strong>{after.name}</strong>!
           </>

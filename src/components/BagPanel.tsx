@@ -16,6 +16,7 @@ import type { World } from "@/engine/world";
 import { holdOf } from "@/engine/carry";
 import { bagEntries, bagUse, item, type ItemKind } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
+import { EggSlots } from "./PartyStrip";
 
 /**
  * The bag, and using what is in it.
@@ -85,7 +86,7 @@ export function BagPanel({
   // last potion should not leave a target picker for a potion you do not have.
   const selected = chosen && state.bag[chosen] ? chosen : null;
 
-  if (!bagEntries(state.bag).length) return <p className="muted">Your bag is empty.</p>;
+  if (!bagEntries(state.bag).length && !state.eggs.length) return <p className="muted">Your bag is empty.</p>;
 
   const burning = activeLures(state);
   const quiet = activeRepel(state);
@@ -100,6 +101,11 @@ export function BagPanel({
           ].join(" · ")}
         </p>
       ) : null}
+
+      {/* Eggs sit above the tabs rather than in one. There is nothing to
+          press on an egg — you walk, and it opens — so it is something to see
+          every time the bag is open rather than something to go looking for. */}
+      <EggSlots eggs={state.eggs} />
 
       <div className="tabs" role="tablist">
         {TABS.map((entry) => {

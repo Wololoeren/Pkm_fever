@@ -279,7 +279,7 @@ export const HINTS: readonly Hint[] = [
   },
   {
     id: "egg-steps",
-    text: "Leave two at the daycare and walk a hundred and twenty steps. Not a hundred and twenty seconds — steps. Standing still achieves nothing. I have stood still. It achieved nothing.",
+    text: "Leave two at the daycare and walk three hundred steps. Not three hundred seconds — steps. Standing still achieves nothing. I have stood still. It achieved nothing.",
   },
   {
     id: "daycare-is-a-place",

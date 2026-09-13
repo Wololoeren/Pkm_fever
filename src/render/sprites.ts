@@ -1,6 +1,6 @@
 import { species as speciesById } from "@/engine/dex";
 import { variant } from "@/engine/variants";
-import { applyColourShift, mixImages } from "./palette";
+import { applyColourShift, mixImages, oklabToRgb, rgbToOklab, rotateHue } from "./palette";
 
 /**
  * Real sprites, and the variant pipeline running on them.
@@ -133,6 +133,105 @@ async function build(speciesId: string, variantId: string): Promise<HTMLCanvasEl
   // Cropping happens last so that the two source images stay pixel-aligned
   // through the interpolation above.
   return fitToFrame(canvas);
+}
+
+/**
+ * The egg, in the colour of what is inside it.
+ *
+ * The same egg the handhelds drew — cream, with green spots — from the same
+ * repository as every creature, so it sits in the set rather than beside it.
+ * Only the colour of the child is applied, not its shine: the spots take the
+ * chroma's hue and the cream shell, having almost no colour of its own, stays
+ * cream. Shine is a mix toward a second drawing, and nobody drew a shiny egg.
+ */
+const EGG_URL = `${BASE}/egg.png`;
+
+function eggKey(variantId: string): string {
+  return `egg:${variant(variantId).chromaId ?? "plain"}`;
+}
+
+export function cachedEgg(variantId: string): HTMLCanvasElement | null {
+  return sprites.get(eggKey(variantId)) ?? null;
+}
+
+export function loadEgg(variantId: string): Promise<HTMLCanvasElement | null> {
+  const id = eggKey(variantId);
+  const started = building.get(id);
+  if (started) return started;
+
+  const pending = buildEgg(variantId).then((canvas) => {
+    sprites.set(id, canvas);
+    return canvas;
+  });
+  building.set(id, pending);
+  return pending;
+}
+
+async function buildEgg(variantId: string): Promise<HTMLCanvasElement | null> {
+  if (typeof document === "undefined") return null;
+  const image = await loadImage(EGG_URL);
+  if (!image) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = SPRITE_SIZE;
+  canvas.height = SPRITE_SIZE;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
+
+  const form = variant(variantId);
+  if (form.chromaId) {
+    const data = ctx.getImageData(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+    tintEgg(data, form);
+    ctx.putImageData(data, 0, 0);
+  }
+  return fitToFrame(canvas);
+}
+
+/** The swatch's reference colour, which every chroma's dot is a transform of. */
+const SWATCH_HUE = hueOf(rgbToOklab(214, 122, 74));
+/** The egg's green spots. */
+const SPOT_HUE = hueOf(rgbToOklab(156, 205, 131));
+
+function hueOf(lab: { a: number; b: number }): number {
+  return (Math.atan2(lab.b, lab.a) * 180) / Math.PI;
+}
+
+/**
+ * Colours the egg so its spots are the chroma's swatch colour.
+ *
+ * A chroma is a transform, not a colour: on a creature it rotates whatever
+ * the art already has. Rotated straight, the egg's green spots would land on
+ * a different colour from the dot the same chroma paints beside a creature —
+ * an Ember egg came out teal. So the spots are first turned to the swatch's
+ * reference orange, and the chroma applied to that, which is exactly how the
+ * dot is made.
+ *
+ * Only the spots, for the colours that are a hue: the shell stays an egg. The
+ * two that are a lightness — Onyx and Ivory — take the whole shell with them,
+ * because pale spots on a cream egg are no spots at all.
+ */
+function tintEgg(image: ImageData, form: ReturnType<typeof variant>): void {
+  const whole = form.lightShift !== 0;
+  const spots = new ImageData(image.width, image.height);
+  const pixels = image.data;
+
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] === 0) continue;
+    const lab = rgbToOklab(pixels[i], pixels[i + 1], pixels[i + 2]);
+    const colourful = Math.hypot(lab.a, lab.b) > 0.06;
+    const green = colourful && Math.abs(hueOf(lab) - SPOT_HUE) < 30;
+    if (!green && !whole) continue;
+
+    const [r, g, b] = oklabToRgb(green ? rotateHue(lab, SWATCH_HUE - SPOT_HUE) : lab);
+    spots.data.set([r, g, b, 255], i);
+  }
+
+  applyColourShift(spots, form);
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (spots.data[i + 3] === 0) continue;
+    pixels.set(spots.data.subarray(i, i + 3), i);
+  }
 }
 
 /**

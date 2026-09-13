@@ -56,6 +56,7 @@ class Room {
           code,
           host: at === 0,
           seed: `WORLD${at}`,
+          moves: 1000 + at,
           team: team(at + 1),
           send: (message) => {
             this.queue.push({ from: self, message });
@@ -131,6 +132,28 @@ function playOut(room: Room, limit = 4000): void {
 }
 
 describe("a bracket in a room", () => {
+  it("U0: everybody's seed and move count reach every client's lobby and bracket", () => {
+    const room = new Room(4);
+    room.announce();
+    // A peer that lies about the shape of what it sent is shown a name only.
+    room.at("peer-1").receive({ t: "hello", name: "Odd", seed: 42 as unknown as string, moves: -3 }, "peer-9");
+    expect(room.at("peer-1").roster().find((one) => one.id === "peer-9")).toEqual({
+      id: "peer-9",
+      name: "Odd",
+      seed: undefined,
+      moves: undefined,
+    });
+    room.at("peer-1").onLeave("peer-9");
+
+    room.at("peer-0").lock(4, 3);
+    for (const session of room.sessions) {
+      const players = session.view().bracket!.players;
+      for (let at = 0; at < 4; at++) {
+        expect(players.find((one) => one.id === `peer-${at}`)).toMatchObject({ seed: `WORLD${at}`, moves: 1000 + at });
+      }
+    }
+  });
+
   it("U1: everybody derives the same draw from the same locked field", () => {
     // The host announces who is in; it does not announce a bracket. Every
     // client computes the draw from the roster, so a host who fancied an easy

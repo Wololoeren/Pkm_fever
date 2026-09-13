@@ -1,6 +1,6 @@
 import { ALL_SPECIES, MACHINE_MOVES, move as moveById } from "./dex";
 import { HELD_ITEMS, holdOf } from "./carry";
-import { NATURES } from "./natures";
+import { NATURE_MAGNITUDE, NATURES } from "./natures";
 import type { StatId } from "./types";
 import { chroma, CHROMA_IDS } from "./variants";
 
@@ -63,6 +63,8 @@ export interface ItemSpec {
   stacks: boolean;
   /** Balls: catch multiplier in per-mille, against `catchOdds`. */
   ballMult?: number;
+  /** Balls: a condition that changes the multiplier. See `ballMultiplier`. */
+  ballRule?: "master" | "quick" | "timer" | "net" | "nest" | "level" | "fast" | "dive";
   /** Medicine: how much health it returns. `Infinity` is a full heal. */
   heals?: number;
   /** Medicine: whether it clears a status condition. */
@@ -156,7 +158,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "ball",
     price: 200,
     sell: 100,
-    blurb: "The ordinary one.",
+    blurb: "Throw at a wild creature to try to catch it. Normal catch rate (×1). B throws one.",
     stacks: true,
     ballMult: 1000,
   },
@@ -166,7 +168,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "ball",
     price: 600,
     sell: 300,
-    blurb: "Half again as likely to hold.",
+    blurb: "Throw at a wild creature to try to catch it. 1.5× the catch rate of a Poké Ball.",
     stacks: true,
     ballMult: 1500,
   },
@@ -176,9 +178,97 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "ball",
     price: 1200,
     sell: 600,
-    blurb: "Twice as likely to hold.",
+    blurb: "Throw at a wild creature to try to catch it. 2× the catch rate of a Poké Ball.",
     stacks: true,
     ballMult: 2000,
+  },
+  {
+    id: "quickball",
+    name: "Quick Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "5× the catch rate of a Poké Ball if thrown on the first turn of a battle; 1× after that.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "quick",
+  },
+  {
+    id: "timerball",
+    name: "Timer Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "1× on the first turn, +0.3× for every turn the battle has gone on, up to 4×.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "timer",
+  },
+  {
+    id: "netball",
+    name: "Net Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "3.5× the catch rate of a Poké Ball against Water and Bug types; 1× against anything else.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "net",
+  },
+  {
+    id: "nestball",
+    name: "Nest Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "Better the lower the wild creature's level: 4× at level 1, falling to 1.2× at level 29, 1× from level 30.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "nest",
+  },
+  {
+    id: "levelball",
+    name: "Level Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "2× if your creature out is a higher level than the wild one, 4× if double its level, 8× if four times.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "level",
+  },
+  {
+    id: "fastball",
+    name: "Fast Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "4× the catch rate of a Poké Ball against a species with base Speed 100 or more; 1× otherwise.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "fast",
+  },
+  {
+    id: "diveball",
+    name: "Dive Ball",
+    kind: "ball",
+    price: 1000,
+    sell: 500,
+    blurb: "3.5× the catch rate of a Poké Ball against something you hooked with a rod; 1× otherwise.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "dive",
+  },
+  {
+    id: "masterball",
+    name: "Master Ball",
+    kind: "ball",
+    price: 50000,
+    sell: 25000,
+    blurb: "Catches any wild creature without fail.",
+    stacks: true,
+    ballMult: 1000,
+    ballRule: "master",
   },
 
   // ------------------------------------------------------------ medicine
@@ -188,7 +278,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 300,
     sell: 150,
-    blurb: "Returns 20 health.",
+    blurb: "Restores 20 HP to one creature.",
     stacks: true,
     heals: 20,
   },
@@ -198,7 +288,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 700,
     sell: 350,
-    blurb: "Returns 60 health.",
+    blurb: "Restores 60 HP to one creature.",
     stacks: true,
     heals: 60,
   },
@@ -208,7 +298,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 1500,
     sell: 750,
-    blurb: "Returns 150 health.",
+    blurb: "Restores 150 HP to one creature.",
     stacks: true,
     heals: 150,
   },
@@ -218,7 +308,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 3000,
     sell: 1500,
-    blurb: "Full health, and clears what ails it.",
+    blurb: "Restores all HP and cures burn, poison, paralysis, sleep or freeze.",
     stacks: true,
     heals: Number.POSITIVE_INFINITY,
     cures: true,
@@ -229,7 +319,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 600,
     sell: 300,
-    blurb: "Clears a status condition.",
+    blurb: "Cures burn, poison, paralysis, sleep or freeze. Restores no HP.",
     stacks: true,
     cures: true,
   },
@@ -239,7 +329,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 2000,
     sell: 1000,
-    blurb: "Brings a fainted creature back at half health.",
+    blurb: "Revives a fainted creature with half its max HP.",
     stacks: true,
     revives: 2,
   },
@@ -249,7 +339,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "medicine",
     price: 6000,
     sell: 2400,
-    blurb: "One level, instantly. Priced so that fighting stays the cheaper road.",
+    blurb: "Raises a creature one level. It learns moves and evolves as if it had levelled by fighting.",
     stacks: true,
     levels: 1,
   },
@@ -261,7 +351,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "rod",
     price: 500,
     sell: 250,
-    blurb: "Fishes the shallows. Whatever bites, bites close in.",
+    blurb: "Fish from beside water. Reaches only the shallow-water table (reach 1 of 3). Never used up.",
     stacks: false,
     reach: 1,
   },
@@ -271,7 +361,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "rod",
     price: 3000,
     sell: 1500,
-    blurb: "Reaches deeper water, and what lives in it.",
+    blurb: "Fish from beside water. Reaches the shallow and middle tables (reach 2 of 3). Never used up.",
     stacks: false,
     reach: 2,
   },
@@ -281,7 +371,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "rod",
     price: 9000,
     sell: 4500,
-    blurb: "Reaches the bottom. Nothing in the water is out of range.",
+    blurb: "Fish from beside water. Reaches every water table (reach 3 of 3). Never used up.",
     stacks: false,
     reach: 3,
   },
@@ -305,7 +395,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "lure",
     price: 12000,
     sell: 4000,
-    blurb: `Draws anything with shine on it, for ${LURE_MOVES} moves.`,
+    blurb: `For ${LURE_MOVES} moves, a shiny creature up to ${LURE_PULL} encounters ahead on this route comes to you sooner. It does not create shinies.`,
     stacks: true,
     lure: { shine: true, pull: LURE_PULL },
   },
@@ -315,7 +405,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "lure" as const,
     price: 6000,
     sell: 2000,
-    blurb: `Draws anything wearing ${chroma(id).name.toLowerCase()}, for ${LURE_MOVES} moves.`,
+    blurb: `For ${LURE_MOVES} moves, a ${chroma(id).name.toLowerCase()} creature up to ${LURE_PULL} encounters ahead on this route comes to you sooner. It does not create colours.`,
     stacks: true,
     lure: { chromaId: id, pull: LURE_PULL },
   })),
@@ -327,7 +417,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "treasure",
     price: 0,
     sell: 5000,
-    blurb: "Worth nothing to you and a great deal to a Mart. Sell it.",
+    blurb: "No use. Sells to a Mart for 5,000.",
     stacks: true,
   },
   {
@@ -336,7 +426,7 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "treasure",
     price: 0,
     sell: 1400,
-    blurb: "Pretty, and worth carrying to a counter.",
+    blurb: "No use. Sells to a Mart for 1,400.",
     stacks: true,
   },
 ];
@@ -363,7 +453,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Takes down a bush. It stays down.",
+    blurb: "Use from the bag beside a bush to remove it for good. Never used up.",
     stacks: false,
     field: "clear",
   },
@@ -373,7 +463,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Shoulders a boulder out of the way, permanently.",
+    blurb: "Use from the bag beside a boulder to remove it for good. Never used up.",
     stacks: false,
     field: "clear",
   },
@@ -383,7 +473,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Breaks cracked rock apart. It does not come back.",
+    blurb: "Use from the bag beside cracked rock to remove it for good. Never used up.",
     stacks: false,
     field: "clear",
   },
@@ -393,7 +483,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Crosses open water while you carry it.",
+    blurb: "While it is in your bag, you can walk across open water.",
     stacks: false,
     field: "cross",
   },
@@ -403,7 +493,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Climbs falling water. Bring Surf as well, or you cannot reach one.",
+    blurb: "While it is in your bag, you can climb waterfalls. You need Surf as well to reach one.",
     stacks: false,
     field: "cross",
   },
@@ -413,7 +503,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Rides through a whirlpool instead of round it.",
+    blurb: "While it is in your bag, you can pass through whirlpools.",
     stacks: false,
     field: "cross",
   },
@@ -423,7 +513,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Goes under deep water rather than over it.",
+    blurb: "While it is in your bag, you can cross deep water by diving under it.",
     stacks: false,
     field: "cross",
   },
@@ -433,7 +523,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Goes up a cliff face.",
+    blurb: "While it is in your bag, you can climb cliff faces.",
     stacks: false,
     field: "cross",
   },
@@ -443,7 +533,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Lights the outer rings. Without it you see three paces and no more.",
+    blurb: "While it is in your bag, the dark outer rings are lit. Without it you see three tiles around you.",
     stacks: false,
     field: "light",
   },
@@ -453,7 +543,7 @@ const TOOLS: ItemSpec[] = [
     kind: "hm",
     price: 0,
     sell: 0,
-    blurb: "Goes straight to anywhere you have already walked to.",
+    blurb: "Use from the bag to travel instantly to any place you have already visited. Never used up.",
     stacks: false,
     field: "travel",
   },
@@ -486,7 +576,7 @@ const MACHINES: ItemSpec[] = MACHINE_MOVES.map((moveId) => {
     sell: 1200,
     blurb: `Teaches ${move.name} — ${move.type}, ${
       move.category === "status" ? "status" : `${move.power} power`
-    }. Keeps, so it can be used again.`,
+    }. Never used up: teach it to as many creatures as you like.`,
     stacks: false,
     teaches: moveId,
   };
@@ -500,7 +590,7 @@ const KEYS: ItemSpec[] = [
     kind: "key",
     price: 0,
     sell: 0,
-    blurb: "Eight badges, and somebody finally wants to see you play.",
+    blurb: "Key item. Given for eight badges; it lets you enter the World Cup.",
     stacks: false,
   },
 ];
@@ -520,17 +610,17 @@ const CLIMB_ITEMS: { id: string; name: string; blurb: string; climbBonus: number
     id: "thecup",
     name: "The Cup",
     blurb:
-      "Fifteen percent onto the climb, permanently. There is one, it is not found, and nobody has ever sold one.",
+      "Daycare: +15 percentage points on each egg's chance to gain a shine rung while it is applied. Never used up. There is only one, won at the Cup.",
     climbBonus: 1500,
   },
-  { id: "glint", name: "Glint", blurb: "One percent onto the climb, permanently.", climbBonus: 100 },
-  { id: "gleam", name: "Gleam", blurb: "Two percent onto the climb, permanently.", climbBonus: 200 },
-  { id: "lustre", name: "Lustre", blurb: "Three percent onto the climb, permanently.", climbBonus: 300 },
-  { id: "radiance", name: "Radiance", blurb: "Five percent onto the climb. Kept at the far end of the world.", climbBonus: 500 },
+  { id: "glint", name: "Glint", blurb: "Daycare: +1 percentage point on each egg's chance to gain a shine rung while it is applied. Never used up.", climbBonus: 100 },
+  { id: "gleam", name: "Gleam", blurb: "Daycare: +2 percentage points on each egg's chance to gain a shine rung while it is applied. Never used up.", climbBonus: 200 },
+  { id: "lustre", name: "Lustre", blurb: "Daycare: +3 percentage points on each egg's chance to gain a shine rung while it is applied. Never used up.", climbBonus: 300 },
+  { id: "radiance", name: "Radiance", blurb: "Daycare: +5 percentage points on each egg's chance to gain a shine rung while it is applied. Never used up.", climbBonus: 500 },
   {
     id: "brilliance",
     name: "Brilliance",
-    blurb: "Ten percent onto the climb. There is one, and it is as far out as anything gets.",
+    blurb: "Daycare: +10 percentage points on each egg's chance to gain a shine rung while it is applied. Never used up.",
     climbBonus: 1000,
   },
 ];
@@ -543,14 +633,14 @@ const CLIMB_ITEMS: { id: string; name: string; blurb: string; climbBonus: number
  * rather than sold, so their price is zero and a Mart will not stock them.
  */
 const BREEDING_ITEMS: ItemSpec[] = [
-  { id: "heirloom", name: "Heirloom", blurb: "Passes down five of the parents' stat slots instead of three." },
-  { id: "talisman", name: "Talisman", blurb: "The child always inherits the first parent's nature." },
-  { id: "catalyst", name: "Catalyst", blurb: "Strengthens the mutation on every inherited stat." },
-  { id: "prism", name: "Prism", blurb: "Five times the chance a child climbs the shine ladder." },
+  { id: "heirloom", name: "Heirloom", blurb: "Daycare: 5 of each egg's 6 IVs mutate upward instead of 3. Never used up." },
+  { id: "talisman", name: "Talisman", blurb: "Daycare: each egg always gets the first parent's nature. Never used up." },
+  { id: "catalyst", name: "Catalyst", blurb: "Daycare: IVs that mutate go up by 2–5 points instead of 1–3. Never used up." },
+  { id: "prism", name: "Prism", blurb: "Daycare: each egg's base chance to gain a shine rung goes from 1% to 5%. Never used up." },
   ...CHROMA_IDS.map((id) => ({
     id: `lens-${id}`,
     name: `${id.charAt(0).toUpperCase()}${id.slice(1)} Lens`,
-    blurb: `One chance in five that the child takes the ${id} colour, whatever its parents wore.`,
+    blurb: `Daycare: each egg has a 20% chance to be ${id}, whatever colour its parents are. Never used up.`,
   })),
   // The light family: five flat additions to the climb, sitting further and
   // further out. They add to each other and to everything else, which is the
@@ -581,7 +671,7 @@ const GLITTER: ItemSpec = {
   kind: "breeding",
   price: 0,
   sell: 800,
-  blurb: "Ten percent onto the climb, spent the moment the egg appears.",
+  blurb: "Daycare: +10 percentage points on the next egg's chance to gain a shine rung. Used up when that egg appears.",
   stacks: true,
   climbBonus: 1000,
   consumed: true,
@@ -636,8 +726,8 @@ function stoneItems(): ItemSpec[] {
         sell: Math.floor(price / 2),
         blurb:
           who.length > 3
-            ? `Changes ${who.slice(0, 3).join(", ")} and ${who.length - 3} more. Spent when it works.`
-            : `Changes ${who.join(" and ")}. Spent when it works.`,
+            ? `Evolves ${who.slice(0, 3).join(", ")} and ${who.length - 3} more. Used up when it works.`
+            : `Evolves ${who.join(" and ")}. Used up when it works.`,
         stacks: true,
         evolves: true as const,
       };
@@ -687,7 +777,7 @@ const TONICS: ItemSpec[] = [
     kind: "tonic" as const,
     price: 1400,
     sell: 700,
-    blurb: `Ten points of ${entry.what} effort. Stops at the cap, like everything else.`,
+    blurb: `+10 ${entry.what} EVs. Stops at 252 in one stat and 510 in total.`,
     stacks: true,
     effort: { stat: entry.stat, delta: EFFORT_STEP },
   })),
@@ -697,7 +787,7 @@ const TONICS: ItemSpec[] = [
     kind: "tonic" as const,
     price: 600,
     sell: 300,
-    blurb: `Takes ten points of ${entry.what} effort back out, to spend somewhere else.`,
+    blurb: `−10 ${entry.what} EVs, so they can be spent on another stat.`,
     stacks: true,
     effort: { stat: entry.stat, delta: -EFFORT_STEP },
   })),
@@ -716,6 +806,16 @@ const TONICS: ItemSpec[] = [
  * Priced above a vitamin. A nature is the one thing breeding cannot reliably
  * aim at without a Talisman, so a mint is the shortcut and shortcuts cost.
  */
+/** Stat names as the stat screen prints them, for the mint labels. */
+const STAT_WORDS: Record<StatId, string> = {
+  hp: "HP",
+  atk: "Attack",
+  def: "Defence",
+  spa: "Sp. Atk",
+  spd: "Sp. Def",
+  spe: "Speed",
+};
+
 const MINTS: ItemSpec[] = NATURES.map((entry) => ({
   id: `mint-${entry.id}`,
   name: `${entry.name} Mint`,
@@ -724,8 +824,8 @@ const MINTS: ItemSpec[] = NATURES.map((entry) => ({
   sell: 2400,
   blurb:
     entry.plus && entry.minus
-      ? `Settles a nature on ${entry.plus} over ${entry.minus}, whatever it was born with.`
-      : "Settles a flat nature, favouring nothing and giving nothing up.",
+      ? `Changes a creature's nature to ${entry.name}: +${NATURE_MAGNITUDE} ${STAT_WORDS[entry.plus]}, −${NATURE_MAGNITUDE} ${STAT_WORDS[entry.minus]}.`
+      : `Changes a creature's nature to ${entry.name}, which raises and lowers nothing.`,
   stacks: true,
   natureId: entry.id,
 }));
@@ -747,7 +847,7 @@ const FIELD_ITEMS: ItemSpec[] = [
     price: 400,
     sell: 200,
     blurb:
-      "Two hundred moves of quiet grass. The census is untouched: whatever is waiting out there is still waiting, in the same order.",
+      "No wild encounters in grass for 200 moves. Whatever you skipped is still there, in the same order, when it wears off.",
     stacks: true,
     repel: 200,
   },
@@ -757,7 +857,7 @@ const FIELD_ITEMS: ItemSpec[] = [
     kind: "field",
     price: 700,
     sell: 350,
-    blurb: "Five hundred moves of quiet grass.",
+    blurb: "No wild encounters in grass for 500 moves.",
     stacks: true,
     repel: 500,
   },
@@ -767,7 +867,7 @@ const FIELD_ITEMS: ItemSpec[] = [
     kind: "field",
     price: 900,
     sell: 450,
-    blurb: "A thousand moves of quiet grass.",
+    blurb: "No wild encounters in grass for 1,000 moves.",
     stacks: true,
     repel: 1000,
   },
@@ -777,7 +877,7 @@ const FIELD_ITEMS: ItemSpec[] = [
     kind: "field",
     price: 550,
     sell: 275,
-    blurb: "Back to Hearth from wherever you are standing, without the walk.",
+    blurb: "Teleports you back to Hearth from anywhere. Used up.",
     stacks: true,
     escape: true,
   },
@@ -788,7 +888,7 @@ const FIELD_ITEMS: ItemSpec[] = [
     price: 0,
     sell: 900,
     blurb:
-      "Offers back one move a creature grew past. Everything a level-up ever taught it is still in there somewhere.",
+      "Gives a creature back one level-up move it has forgotten. Used up.",
     stacks: true,
     relearn: true,
   },
@@ -1047,9 +1147,10 @@ export const MART_STOCK: readonly ItemSpec[] = ITEMS.filter((entry) => entry.pri
   (a, b) => a.price - b.price || a.id.localeCompare(b.id),
 );
 
-/** Every ball, weakest first — the order a battle menu should offer them in. */
+/** Every ball, cheapest first — the order a battle menu should offer them in, so
+ * the Master Ball is always the last button and never the one pressed by habit. */
 export const BALLS: readonly ItemSpec[] = ITEMS.filter((entry) => entry.kind === "ball").sort(
-  (a, b) => (a.ballMult ?? 0) - (b.ballMult ?? 0),
+  (a, b) => a.price - b.price || a.id.localeCompare(b.id),
 );
 
 /** Every tool, in the order they are usually found. */

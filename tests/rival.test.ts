@@ -16,6 +16,7 @@ import {
 import {
   RIVAL_BEHIND,
   RIVAL_EVERY,
+  RIVAL_FIRST,
   RIVAL_STALK,
   rivalDue,
   rivalTeam,
@@ -44,6 +45,8 @@ import { creature, testWorld } from "./helpers";
  *
  * On a route rather than in the square, because he does not follow you into a
  * town — which is the whole reason a Center is somewhere to run to.
+ *
+ * One tick short of his first appearance, so the next step brings him out.
  */
 function walking(world: ReturnType<typeof testWorld>, party = 1): GameState {
   const start = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
@@ -51,6 +54,7 @@ function walking(world: ReturnType<typeof testWorld>, party = 1): GameState {
 
   return {
     ...start,
+    tick: RIVAL_FIRST - 1,
     route: route.id,
     x: route.entry.x,
     y: route.entry.y,
@@ -82,9 +86,7 @@ function step(world: ReturnType<typeof testWorld>, state: GameState): GameState 
 }
 
 describe("the rival", () => {
-  it("V1: he is there from the first move, and he is behind you", () => {
-    // Tick nought counts: the first thing that happens to you is that
-    // somebody starts following you.
+  it("V1: he turns up on his first tick, and he is behind you", () => {
     const world = testWorld("A1");
     const state = arrived(world, walking(world));
 
@@ -281,9 +283,7 @@ describe("the rival", () => {
   });
 
   it("V6: he comes back, on the clock, and the clock is in the save", () => {
-    // Once beaten he is gone until the next multiple. `rivalDue` is a modulo
-    // on the tick rather than a countdown, so a save cannot drift out of step
-    // with it.
+    // Once beaten he is gone until the next visit, measured from the last.
     const world = testWorld("A1");
     const state = arrived(world, walking(world));
 
@@ -291,13 +291,15 @@ describe("the rival", () => {
     const cleared: GameState = { ...state, rivalSince: null, tick: 5 };
     expect(rivalCountdown(cleared)).toBeNull();
 
-    // Never before is always due, which is what makes his first appearance the
-    // first move of a new game rather than the two-thousand-five-hundredth.
-    expect(rivalDue(1, null)).toBe(true);
+    // The first time is on the clock: not before move 500, and then due.
+    expect(rivalDue(1, null)).toBe(false);
+    expect(rivalDue(RIVAL_FIRST - 1, null)).toBe(false);
+    expect(rivalDue(RIVAL_FIRST, null)).toBe(true);
+    expect(RIVAL_FIRST).toBe(500);
 
     // And afterwards the gap is measured from when he last came, so a long
     // encounter does not eat into the next one.
-    expect(rivalDue(500, 0)).toBe(false);
+    expect(rivalDue(RIVAL_FIRST, 0)).toBe(false);
     expect(rivalDue(RIVAL_EVERY - 1, 0)).toBe(false);
     expect(rivalDue(RIVAL_EVERY, 0)).toBe(true);
     expect(rivalDue(RIVAL_EVERY + 400, 400)).toBe(true);

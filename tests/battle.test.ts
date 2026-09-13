@@ -5,7 +5,9 @@ import {
   catchOdds,
   isFainted,
   maxHp,
+  ballMultiplier,
   conditionOf,
+  fleeFailPercent,
   resolveTurn,
   startBattle,
   aiAction,
@@ -299,6 +301,58 @@ describe("catching", () => {
     );
   });
 
+  it("B16b: a Great Ball and an Ultra Ball really do catch more often than a Poké Ball", () => {
+    // They were bought, carried and never used: the throw ignored which ball
+    // it was and always rolled at the Poké Ball's rate.
+    const catches = (ball?: string) => {
+      let caught = 0;
+      for (let n = 0; n < 400; n++) {
+        const battle = startBattle(SEED, `wild:balls:${n}`, [creature("machop")], [creature("dragonite", { level: 30, uid: 2 })]);
+        const action: BattleAction = ball ? { t: "ball", item: ball } : { t: "ball" };
+        if (resolveTurn(battle, [action, { t: "pass" }], WILD_RULES, 1).caught) caught++;
+      }
+      return caught;
+    };
+    const poke = catches();
+    const great = catches("greatball");
+    const ultra = catches("ultraball");
+    expect(great).toBeGreaterThan(poke);
+    expect(ultra).toBeGreaterThan(great);
+  });
+
+  it("B16c: each special ball pays out only under its own condition", () => {
+    const ours = creature("machop", { level: 40 });
+    const fresh = startBattle(SEED, TAG, [ours], [creature("magikarp", { level: 10, uid: 2 })]);
+    const later = { ...fresh, turn: 5 };
+    const wild = fresh.sides[1].team[0];
+    const at = (ball: string, state = fresh, mine = ours, them = wild) => ballMultiplier(ball, state, mine, them);
+
+    expect(at("masterball")).toBeNull();
+    expect(at("quickball")).toBe(5000);
+    expect(at("quickball", later)).toBe(1000);
+    expect(at("timerball")).toBe(1000);
+    expect(at("timerball", later)).toBe(2500);
+    expect(at("timerball", { ...fresh, turn: 40 })).toBe(4000);
+    expect(at("netball")).toBe(3500); // Magikarp is Water
+    expect(at("netball", fresh, ours, creature("geodude", { level: 10 }))).toBe(1000);
+    expect(at("nestball")).toBe(3100);
+    expect(at("nestball", fresh, ours, creature("magikarp", { level: 30 }))).toBe(1000);
+    expect(at("levelball")).toBe(8000); // 40 is four times 10
+    expect(at("levelball", fresh, creature("machop", { level: 25 }))).toBe(4000);
+    expect(at("levelball", fresh, creature("machop", { level: 11 }))).toBe(2000);
+    expect(at("levelball", fresh, creature("machop", { level: 10 }))).toBe(1000);
+    expect(at("fastball", fresh, ours, creature("electrode", { level: 10 }))).toBe(4000);
+    expect(at("fastball")).toBe(1000);
+    expect(at("diveball")).toBe(1000);
+    expect(at("diveball", { ...fresh, tag: "wild:lake-1:rod:3" })).toBe(3500);
+
+    // And a Master Ball really does not miss, even on the hardest catch.
+    for (let n = 0; n < 50; n++) {
+      const battle = startBattle(SEED, `wild:master:${n}`, [ours], [creature("mewtwo", { level: 70, uid: 2 })]);
+      expect(resolveTurn(battle, [{ t: "ball", item: "masterball" }, { t: "pass" }], WILD_RULES, 1).caught).not.toBeNull();
+    }
+  });
+
   it("B17: throwing with no balls left spends nothing and ends nothing", () => {
     const battle = startBattle(SEED, TAG, [creature("machop")], [creature("rattata", { level: 10 })]);
     const result = resolveTurn(battle, [{ t: "ball" }, { t: "pass" }], WILD_RULES, 0);
@@ -315,6 +369,28 @@ describe("catching", () => {
     const battle = startBattle(SEED, "duel", [creature("machop")], [creature("machop", { uid: 2 })]);
     expect(() => resolveTurn(battle, [{ t: "ball" }, { t: "pass" }], DUEL_RULES, 10)).toThrow();
     expect(() => resolveTurn(battle, [{ t: "flee" }, { t: "pass" }], DUEL_RULES, 10)).toThrow();
+  });
+
+  it("B18b: running fails ten percent a level the wild one is above you, never under ten", () => {
+    expect(fleeFailPercent(30, 10)).toBe(10);
+    expect(fleeFailPercent(10, 10)).toBe(10);
+    expect(fleeFailPercent(10, 11)).toBe(10);
+    expect(fleeFailPercent(10, 13)).toBe(30);
+    expect(fleeFailPercent(10, 20)).toBe(100);
+    expect(fleeFailPercent(10, 35)).toBe(100);
+
+    // And the engine uses it: ten levels up, there is no getting away however
+    // fast you are, and a slow creature well above the wild one mostly does.
+    let escaped = 0;
+    for (let n = 0; n < 200; n++) {
+      const tag = `wild:flee:${n}`;
+      const trapped = startBattle(SEED, tag, [creature("electrode", { level: 10 })], [creature("slowpoke", { level: 20, uid: 2 })]);
+      expect(resolveTurn(trapped, [{ t: "flee" }, { t: "pass" }], WILD_RULES, 0).battle.outcome).toBeNull();
+      const easy = startBattle(SEED, tag, [creature("slowpoke", { level: 30 })], [creature("electrode", { level: 10, uid: 2 })]);
+      if (resolveTurn(easy, [{ t: "flee" }, { t: "pass" }], WILD_RULES, 0).battle.outcome?.t === "fled") escaped++;
+    }
+    expect(escaped).toBeGreaterThan(150);
+    expect(escaped).toBeLessThan(200);
   });
 
   it("B19: nobody gains experience from beating a person", () => {

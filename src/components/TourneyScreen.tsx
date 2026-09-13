@@ -5,7 +5,7 @@ import type { BattleAction } from "@/engine/battle";
 import { BRACKET_SIZES, roundName, type BracketSize } from "@/engine/bracket";
 import { species as speciesById } from "@/engine/dex";
 import { cupPrizeKey, prizeOffer, PRIZE_CHOICES } from "@/engine/prize";
-import { TourneySession, type TourneyMessage, type TourneyView } from "@/engine/tourney";
+import { TourneySession, type Entrant, type TourneyMessage, type TourneyView } from "@/engine/tourney";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import { withMoves, atFullHealth } from "@/engine/engine";
 import { joinParty, type PartyRoom, type PartyStatus } from "@/lib/party";
@@ -35,12 +35,37 @@ const SIZE_LABEL: Record<BracketSize, string> = { 4: "4 players", 8: "8 players"
 /** How many creatures a side. The same ladder a duel offers. */
 const TEAM_SIZES = [1, 2, 3, 4, 5, 6] as const;
 
-function PlayerChip({ name, gone, you }: { name: string; gone: boolean; you: boolean }) {
+/**
+ * A player, with their world seed and how far into it they are underneath.
+ *
+ * The seed says which world their team came from and the moves say how long
+ * they have been at it, which between them are the two things anybody asks
+ * about an opponent they have never met.
+ */
+function PlayerChip({
+  name,
+  gone,
+  you,
+  seed,
+  moves,
+}: {
+  name: string;
+  gone: boolean;
+  you: boolean;
+  seed?: string;
+  moves?: number;
+}) {
+  const detail = [seed ? `seed ${seed}` : null, moves !== undefined ? `${moves.toLocaleString()} moves` : null]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <span className={`tag${gone ? " fall" : ""}`}>
-      {name}
-      {you ? " (you)" : ""}
-      {gone ? " · AI" : ""}
+    <span className={`tag playerChip${gone ? " fall" : ""}`}>
+      <span>
+        {name}
+        {you ? " (you)" : ""}
+        {gone ? " · AI" : ""}
+      </span>
+      {detail ? <span className="playerDetail">{detail}</span> : null}
     </span>
   );
 }
@@ -84,6 +109,8 @@ function BracketBoard({ view }: { view: TourneyView }) {
                           name={player.name}
                           gone={player.gone}
                           you={player.id === view.self}
+                          seed={player.seed}
+                          moves={player.moves}
                         />
                       ) : (
                         <span className="muted">—</span>
@@ -166,12 +193,15 @@ function PrizePick({
 export function TourneyScreen({
   roster,
   seed,
+  moves,
   onExit,
   onPrize,
 }: {
   roster: Individual[];
   /** This save's world seed. If we host, the prize is drawn from it. */
   seed: string;
+  /** How many moves into this save, shown under our name to the room. */
+  moves: number;
   onExit: () => void;
   /** Puts a won creature into the save, as an input. */
   onPrize: (creature: Individual) => void;
@@ -184,7 +214,7 @@ export function TourneyScreen({
   const [chosen, setChosen] = useState<number[]>([]);
   const [status, setStatus] = useState<PartyStatus | null>(null);
   const [view, setView] = useState<TourneyView | null>(null);
-  const [lobby, setLobby] = useState<{ id: string; name: string }[]>([]);
+  const [lobby, setLobby] = useState<Entrant[]>([]);
   const [taken, setTaken] = useState(false);
 
   const sessionRef = useRef<TourneySession | null>(null);
@@ -244,6 +274,7 @@ export function TourneyScreen({
       code: clean,
       host: hosting,
       seed,
+      moves,
       team: picked,
       send,
     });
@@ -253,7 +284,7 @@ export function TourneyScreen({
 
     session.announce();
     refresh();
-  }, [chosen, code, hosting, name, refresh, roster, seed, teamSize]);
+  }, [chosen, code, hosting, moves, name, refresh, roster, seed, teamSize]);
 
   const act = useCallback(
     (action: BattleAction) => {
@@ -451,7 +482,14 @@ export function TourneyScreen({
         </h3>
         <div className="row">
           {lobby.map((one) => (
-            <PlayerChip key={one.id} name={one.name} gone={false} you={one.id === view?.self} />
+            <PlayerChip
+              key={one.id}
+              name={one.name}
+              gone={false}
+              you={one.id === view?.self}
+              seed={one.seed}
+              moves={one.moves}
+            />
           ))}
         </div>
 

@@ -507,7 +507,7 @@ back three levels stronger for every beating they have taken from you, and this
 is that rule with a smaller step, because he brings as many as you have and
 counters every one of them.
 
-He comes once at the start and then every 2,500 moves, measured from the last
+He comes first at move 500 and then every 2,500 moves, measured from the last
 time rather than as a modulo on the clock, so a long encounter does not eat into
 the next one. There is no ball and no running: it is a trainer battle, and you
 do not get to walk away from this one.
@@ -609,8 +609,8 @@ speaker has with the fact, never a joke instead of the fact.
 
 The numbers are guarded the way `docs/status.md` is. `HN12` names a constant,
 the phrase written against it, and the value that phrase was written for —
-change `STEPS_PER_EGG` and it fails saying the line about walking a hundred and
-twenty steps is now a lie, and to rewrite the line rather than the number. A
+change `STEPS_PER_EGG` and it fails saying the line about walking three hundred
+steps is now a lie, and to rewrite the line rather than the number. A
 hint that is merely plausible is worse than no hint, because it will be
 believed.
 
@@ -1016,8 +1016,15 @@ be a free switch, and the battle system charges a turn for those.
 
 The daycare is a building in Hearth that you walk into, rather than a menu you
 carry — a deposit anywhere else is refused, because walking back is what makes
-walking out mean anything. Leave two compatible creatures there, walk 120 steps, and
+walking out mean anything. Leave two compatible creatures there, walk 300 steps, and
 there is an egg.
+
+The egg goes in your bag rather than straight into the party, and hatches after
+another 250 to 2,500 steps — longer the rarer what is inside, by catch rate and
+then by shine and colour. What hatches is rolled when the egg is taken, so its
+shell already wears the child's chroma. When the count reaches nought the
+evolution scene plays with the egg as the "before", and its ending sends the
+`hatch` input that brings the creature out.
 
 Every stat is inherited from one parent or the other, and three of the six
 additionally **mutate upward**. That mutation is load bearing: wild IVs cap at
