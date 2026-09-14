@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aiAction, resolveTurn, startBattle, WILD_RULES, type BattleEvent } from "@/engine/battle";
-import { BEAT_MS, beatLength, beatsFor, catchFor } from "@/lib/beats";
+import { BEAT_MS, BLOW_GAP_MS, beatLength, beatsFor, catchFor } from "@/lib/beats";
+import { cuesFor } from "@/lib/sound";
 import { creature } from "./helpers";
 
 /**
@@ -177,6 +178,37 @@ describe("against a real turn", () => {
 });
 
 describe("a ball thrown", () => {
+  it("A14: a move that lands more than once swings and shakes once per blow, and the answer waits", () => {
+    const events = played("doublekick", "tackle");
+    const blows = events.filter((event) => event.t === "damage" && event.side === 1).length;
+    expect(blows, "Double Kick should land twice here").toBe(2);
+
+    const [mine, theirs] = beatsFor(events);
+    expect(mine.lunges).toHaveLength(2);
+    expect(theirs.hits).toHaveLength(2);
+    expect(mine.lunges[1] - mine.lunges[0]).toBe(BLOW_GAP_MS);
+    expect(theirs.hits[1].at).toBeGreaterThan(theirs.hits[0].at);
+
+    // Rattata answers after the second blow rather than over it.
+    // (Only when it swung second, of course.)
+    if (theirs.lungeAt !== null && theirs.lungeAt > mine.lunges[0]) expect(theirs.lungeAt).toBeGreaterThanOrEqual(mine.lunges[1] + BEAT_MS);
+    const [first, second] = beatsFor([
+      { t: "use", side: 0, moveId: "doublekick" },
+      { t: "damage", side: 1, amount: 5, quarters: 4, crit: false },
+      { t: "damage", side: 1, amount: 5, quarters: 4, crit: true },
+      { t: "hits", side: 0, count: 2 },
+      { t: "use", side: 1, moveId: "tackle" },
+      { t: "damage", side: 0, amount: 5, quarters: 4, crit: false },
+    ] as BattleEvent[]);
+    expect(first.lunges).toEqual([0, BLOW_GAP_MS]);
+    expect(second.hits.map((hit) => hit.crit)).toEqual([false, true]);
+    expect(second.lungeAt).toBe(BEAT_MS + BLOW_GAP_MS);
+
+    // And the sound is two hits, at the two times.
+    const hits = cuesFor(events, [mine, theirs]).filter((cue) => (cue.cue === "hit" || cue.cue === "crit") && cue.at <= theirs.hits[1].at);
+    expect(hits.map((cue) => cue.at)).toEqual(expect.arrayContaining(theirs.hits.map((hit) => hit.at)));
+  });
+
   it("A12: a catch wobbles three times, an escape one to three by the turn, and nothing else has a ball", () => {
     const caught: BattleEvent[] = [{ t: "caught" }];
     const got = catchFor(caught, 7)!;

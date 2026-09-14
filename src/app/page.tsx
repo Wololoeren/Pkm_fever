@@ -232,8 +232,12 @@ export default function Page() {
    * alternative was a cast, which would have been a way of insisting the
    * notice is the shape it is rather than showing it.
    */
+  // Not after answering an offer: that scene has just played, and showing the
+  // reveal again on the notice it leaves behind was the evolution playing twice.
   const evolved =
-    state?.notice?.t === "evolved" && seenEvolution !== state.notice ? state.notice : null;
+    state?.notice?.t === "evolved" && !state.notice.watched && seenEvolution !== state.notice
+      ? state.notice
+      : null;
 
   /**
    * An evolution waiting to be answered, and the creature it is about.
@@ -790,11 +794,17 @@ export default function Page() {
         // An egg that has walked its steps. The creature is already decided;
         // the scene ending, however it ends, is what opens it.
         <EvolutionScene
-          key={`egg:${hatching.index}:${hatching.egg.total}`}
+          key={`egg:${hatching.from}:${hatching.index}:${hatching.egg.total}`}
           from={EGG}
           to={hatching.egg.creature.speciesId}
           variantId={hatching.egg.creature.variantId}
-          onDone={() => dispatch({ t: "hatch", index: hatching.index })}
+          onDone={() =>
+            dispatch(
+              hatching.from === "incubator"
+                ? { t: "hatch", index: hatching.index, from: "incubator" }
+                : { t: "hatch", index: hatching.index },
+            )
+          }
         />
       ) : evolved ? (
         <EvolutionScene

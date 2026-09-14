@@ -98,6 +98,9 @@ const OPS: Record<Exclude<Input["t"], "move">, number> = {
   reforge: 42,
   hatch: 43,
   rename: 44,
+  addBox: 45,
+  renameBox: 46,
+  moveToBox: 47,
 };
 
 /** The same table read backwards, built once. */

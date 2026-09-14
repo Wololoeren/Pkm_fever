@@ -47,11 +47,16 @@ export function cuesFor(
   }
 
   let levelled = false;
+  // Which blow on each side this is, so a move that lands three times is
+  // heard three times, each when it lands.
+  const blows: [number, number] = [0, 0];
   for (const event of events) {
     switch (event.t) {
-      case "damage":
-        if (event.amount > 0) out.push({ at: beats[event.side].hitAt ?? 0, cue: event.crit ? "crit" : "hit" });
+      case "damage": {
+        const hit = beats[event.side].hits[blows[event.side]++];
+        if (event.amount > 0) out.push({ at: hit?.at ?? beats[event.side].hitAt ?? 0, cue: event.crit ? "crit" : "hit" });
         break;
+      }
       case "miss":
         out.push({ at: beats[other(event.side)].dodgeAt ?? 0, cue: "miss" });
         break;

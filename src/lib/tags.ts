@@ -2,7 +2,7 @@ import { aimFactor, stageFactor, type Combatant } from "@/engine/battle";
 import { factorText } from "./mods";
 import { BATTLE_STAT_IDS, type Individual } from "@/engine/types";
 import type { AimStat, SideConditionId } from "@/engine/statusmoves";
-import { move as moveEntry, type StageStat } from "@/engine/dex";
+import { move as moveEntry, species as speciesEntry, type StageStat } from "@/engine/dex";
 
 /**
  * Everything happening to one side of a battle, as badges.
@@ -340,6 +340,14 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
         label: vol.types.map((type) => type.toUpperCase()).join("/"),
         title: `Retyped — it is ${vol.types.join(" and ")} now, to the chart and to everything else, until it switches out`,
         cls: "fall",
+      });
+    }
+    if (vol.transformed) {
+      out.push({
+        key: "transformed",
+        label: "TRANSFORMED",
+        title: `Transformed — really a ${speciesEntry(vol.transformed.speciesId).name}, and turns back when it leaves the field or the battle ends`,
+        cls: "rise",
       });
     }
     if (vol.seen) {

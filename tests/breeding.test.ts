@@ -5,12 +5,20 @@ import {
   compatible,
   chromaOdds,
   climbChance,
+  EGG_STEPS_MIN,
+  eggSteps,
+  expectedIvs,
   generationsToMax,
+  hatchReduction,
+  incubatorSlots,
+  reducedHatch,
   HATCH_MAX,
   HATCH_MIN,
   hatchRarity,
   hatchSteps,
   inheritChroma,
+  mutationBonus,
+  mutationChance,
   inheritTier,
   STEPS_PER_EGG,
   tierMatrix,
@@ -18,7 +26,7 @@ import {
   type DaycareState,
 } from "@/engine/breeding";
 import { ALL_SPECIES } from "@/engine/dex";
-import { applyInput, depositRefusal, hatchRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
+import { applyInput, collectRefusal, depositRefusal, hatchRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
 import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
@@ -40,7 +48,7 @@ const SEED = "BREED1";
 
 /** A daycare holding a pair, ready to walk. */
 function pairing(first: Individual, second: Individual, steps: number): DaycareState {
-  return { slots: [first, second], steps, eggIndex: 0, eggReady: false, applied: [] };
+  return { slots: [first, second], steps, eggIndex: 0, eggReady: false, applied: [], incubating: [] };
 }
 
 /** A wild-strength creature: IVs somewhere in 0..6, like anything caught. */
@@ -333,6 +341,140 @@ describe("the daycare", () => {
     const hatched = applyInput(world, out, { t: "hatch", index: 0 });
     expect(hatched.party).toHaveLength(6);
     expect(hatched.box).toHaveLength(out.box.length);
+  });
+
+  it("BR20: the expected IVs the daycare shows are what eggs actually average", () => {
+    const first = wild("bulbasaur", 1, "E1");
+    const second = wild("oddish", 2, "E1");
+    for (const applied of [[], ["catalyst"], ["heirloom", "primordialseed"]] as BreedingItem[][]) {
+      const rows = expectedIvs(first, second, applied);
+      const eggs = 4000;
+      const sums: Record<string, number> = {};
+      for (let egg = 0; egg < eggs; egg++) {
+        const child = breed(SEED, first, second, egg, applied);
+        for (const stat of STAT_IDS) sums[stat] = (sums[stat] ?? 0) + child.ivs[stat];
+      }
+      for (const row of rows) {
+        expect(sums[row.stat] / eggs, `${row.stat} with ${applied.join("+") || "nothing"}`).toBeCloseTo(row.expected, 0);
+        expect(row.gain).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("BR21: the rare three raise the mutation rate, add up, and make eggs better", () => {
+    expect(mutationBonus([])).toBe(0);
+    expect(mutationBonus(["sporeofchange"])).toBe(10);
+    expect(mutationBonus(["sporeofchange", "livingamber", "primordialseed"])).toBe(65);
+    // Three of six slots is a half; a tenth of the other half on top.
+    expect(mutationChance([])).toBeCloseTo(0.5);
+    expect(mutationChance(["sporeofchange"])).toBeCloseTo(0.55);
+    expect(mutationChance(["heirloom", "primordialseed"])).toBeCloseTo(5 / 6 + (1 / 6) * 0.35);
+
+    const first = wild("bulbasaur", 1, "E2");
+    const second = wild("oddish", 2, "E2");
+    const total = (applied: BreedingItem[]) =>
+      expectedIvs(first, second, applied).reduce((sum, row) => sum + row.gain, 0);
+    expect(total(["livingamber"])).toBeGreaterThan(total([]));
+    expect(total(["livingamber", "primordialseed"])).toBeGreaterThan(total(["livingamber"]));
+    expect(generationsToMax(["primordialseed"])).toBeLessThan(generationsToMax());
+  });
+
+  it("BR22: pairing items cut the wait flat first, then by a percentage", () => {
+    expect(eggSteps([])).toBe(STEPS_PER_EGG);
+    expect(eggSteps(["pairingbell"])).toBe(STEPS_PER_EGG - 50);
+    expect(eggSteps(["roseincense"])).toBe(Math.round(STEPS_PER_EGG * 0.8));
+    // The percentage is taken off what the flat cuts leave, not off the base.
+    expect(eggSteps(["pairingbell", "courtingsong", "roseincense"])).toBe(Math.round((STEPS_PER_EGG - 150) * 0.8));
+    expect(eggSteps(["pairingbell", "courtingsong", "roseincense", "moonlitcharm"])).toBe(
+      Math.max(EGG_STEPS_MIN, Math.round((STEPS_PER_EGG - 150) * 0.4)),
+    );
+
+    // And the daycare lays on the shorter count.
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const applied = ["pairingbell"];
+    const pair = {
+      ...base,
+      daycare: {
+        ...pairing(creature("bulbasaur", { uid: 92, gender: "female" }), creature("oddish", { uid: 93, gender: "male" }), eggSteps(applied) - 1),
+        applied,
+      },
+    };
+    expect(applyInput(world, pair, { t: "move", dir: "n" }).daycare.eggReady).toBe(true);
+  });
+
+  it("BR23: hatching items shorten the eggs taken while they are applied", () => {
+    expect(hatchReduction(["warmblanket"])).toBe(15);
+    expect(hatchReduction(["warmblanket", "embercradle"])).toBe(45);
+    expect(reducedHatch(1000, ["warmblanket", "embercradle"])).toBe(550);
+
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const ready = (applied: string[]) =>
+      standInside(world, {
+        ...base,
+        daycare: {
+          ...pairing(creature("bulbasaur", { uid: 92, gender: "female" }), creature("oddish", { uid: 93, gender: "male" }), 0),
+          eggReady: true,
+          applied,
+        },
+      }, "daycare");
+    const plain = applyInput(world, ready([]), { t: "collectEgg" }).eggs.at(-1)!;
+    const warm = applyInput(world, ready(["embercradle"]), { t: "collectEgg" }).eggs.at(-1)!;
+    expect(warm.total).toBe(reducedHatch(plain.total, ["embercradle"]));
+  });
+
+  it("BR24: an incubated egg hatches as you walk anywhere, into the box", () => {
+    expect(incubatorSlots([])).toBe(0);
+    expect(incubatorSlots(["incubator", "broodlamp", "hatcherystone"])).toBe(4);
+
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const five = Array.from({ length: 5 }, (_, at) => creature("machop", { uid: 100 + at }));
+    const ready = standInside(world, {
+      ...base,
+      party: [...base.party, ...five],
+      bag: { ...base.bag, incubator: 1 },
+      daycare: {
+        ...pairing(creature("bulbasaur", { uid: 92, gender: "female" }), creature("oddish", { uid: 93, gender: "male" }), 0),
+        eggReady: true,
+        applied: [],
+      },
+    }, "daycare");
+
+    // Full party, and no incubator applied: nowhere for the egg to go.
+    expect(collectRefusal(world, ready, "party")).toMatch(/party is full/);
+    expect(collectRefusal(world, ready, "incubator")).toBe("no incubator applied");
+
+    const warmed = applyInput(world, ready, { t: "toggleItem", item: "incubator" });
+    const kept = applyInput(world, warmed, { t: "collectEgg", to: "incubator" });
+    expect(kept.eggs).toHaveLength(0);
+    expect(kept.daycare.incubating).toHaveLength(1);
+    expect(collectRefusal(world, { ...kept, daycare: { ...kept.daycare, eggReady: true } }, "incubator")).toBe("every incubator is taken");
+
+    // The incubator cannot be taken off from under the egg.
+    expect(() => applyInput(world, kept, { t: "toggleItem", item: "incubator" })).toThrow(/still in/);
+
+    // Walk it down from anywhere — here, one step from ready.
+    const nearly = { ...kept, daycare: { ...kept.daycare, incubating: [{ ...kept.daycare.incubating[0], steps: 1 }] } };
+    let walked = nearly;
+    for (const dir of ["n", "s", "e", "w"] as const) {
+      try {
+        walked = applyInput(world, nearly, { t: "move", dir });
+        break;
+      } catch {
+        /* walled */
+      }
+    }
+    expect(readyEgg(walked)).toMatchObject({ index: 0, from: "incubator" });
+
+    const boxBefore = walked.box.length;
+    const hatched = applyInput(world, walked, { t: "hatch", index: 0, from: "incubator" });
+    expect(hatched.daycare.incubating).toHaveLength(0);
+    expect(hatched.party).toHaveLength(walked.party.length);
+    expect(hatched.box).toHaveLength(boxBefore + 1);
+    expect(hatched.box.at(-1)!.speciesId).toBe("bulbasaur");
+    expect(hatched.notice).toMatchObject({ t: "hatched", boxed: true });
   });
 
   it("BR14c: the rarer what is inside, the longer the walk", () => {

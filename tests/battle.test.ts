@@ -131,6 +131,62 @@ describe("damage", () => {
 });
 
 describe("status and stages", () => {
+  it("B9d: Hex and Infernal Parade hit twice as hard at a target with a condition", () => {
+    for (const moveId of ["hex", "infernalparade"]) {
+      const attacker = creature("gengar", { level: 50, moves: [moveId], iv: 0 });
+      const hitOn = (status?: "slp" | "par") => {
+        // The same tag and turn, so the damage roll and crit roll are identical
+        // and the only difference is the condition.
+        const target = creature("lapras", { level: 50, moves: ["splash"], uid: 2, iv: 0, status });
+        const battle = startBattle(SEED, "wild:hex:0", [attacker], [target]);
+        const result = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], WILD_RULES, 0);
+        return damageTo(result.battle.events, 1);
+      };
+      const plain = hitOn();
+      expect(plain, moveId).toBeGreaterThan(10);
+      for (const status of ["slp", "par"] as const) {
+        const doubled = hitOn(status);
+        expect(doubled, `${moveId} on ${status}`).toBeGreaterThanOrEqual(plain * 2 - 2);
+        expect(doubled, `${moveId} on ${status}`).toBeLessThanOrEqual(plain * 2 + 2);
+      }
+    }
+  });
+
+  it("B9b: a creature asleep on a counter of n loses exactly n turns, then moves on the next", () => {
+    for (const counter of [1, 2, 3]) {
+      const sleeper = { ...creature("machop", { level: 40, moves: ["tackle"], status: "slp" }), sleepTurns: counter };
+      let battle = startBattle(SEED, `wild:sleep:${counter}`, [sleeper], [creature("chansey", { level: 80, moves: ["splash"], uid: 2 })]);
+      let lost = 0;
+      let woke = -1;
+      for (let at = 0; at < 6 && woke < 0; at++) {
+        battle = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], WILD_RULES, 0).battle;
+        if (battle.events.some((event) => event.t === "blocked" && event.side === 0 && event.reason === "slp")) lost++;
+        if (battle.events.some((event) => event.t === "woke" && event.side === 0)) woke = at;
+      }
+      expect(lost, `counter ${counter}`).toBe(counter);
+      expect(woke, `counter ${counter}`).toBe(counter);
+    }
+  });
+
+  it("B9c: a sleep move always costs its target at least one turn", () => {
+    for (let n = 0; n < 30; n++) {
+      const tag = `wild:spore:${n}`;
+      const battle = startBattle(SEED, tag, [creature("paras", { level: 50, moves: ["spore"] })], [
+        creature("rattata", { level: 20, moves: ["tackle"], uid: 2 }),
+      ]);
+      let state = resolveTurn(battle, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], WILD_RULES, 0).battle;
+      if (activeOf(state, 1).status !== "slp") continue;
+      // Counted from the turn it fell asleep: if the spore was faster, the
+      // target loses that very turn.
+      let lost = state.events.filter((event) => event.t === "blocked" && event.side === 1).length;
+      for (let at = 0; at < 5 && activeOf(state, 1).status === "slp" && !state.outcome; at++) {
+        state = resolveTurn(state, [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], WILD_RULES, 0).battle;
+        lost += state.events.filter((event) => event.t === "blocked" && event.side === 1).length;
+      }
+      expect(lost, tag).toBeGreaterThanOrEqual(1);
+    }
+  });
+
   it("B9: a status move applies its condition", () => {
     const result = fight(
       creature("pikachu", { level: 40, moves: ["thunderwave"] }),

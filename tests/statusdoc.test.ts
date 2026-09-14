@@ -204,6 +204,7 @@ describe("the reference matches the engine", () => {
       biding: "**Biding**",
       bided: "**Biding**",
       fresh: "**New**",
+      transformed: "**Transformed**",
     };
     for (const field of fields) {
       expect(shown[field], `${field} has no row in docs/status.md`).toBeDefined();

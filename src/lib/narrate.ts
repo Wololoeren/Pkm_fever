@@ -47,6 +47,9 @@ const AIM_NAMES: Record<string, string> = {
  * them cannot invalidate a save.
  */
 const VOLATILE_TEXT: Record<string, string> = {
+  roused: "was shaken out of it",
+  spun: "spun free",
+  cleared: "had its stat changes wiped away",
   seeded: "was seeded",
   // Landing and biting are two sentences. Sharing one made the turn a seed
   // took hold read as the game stuttering.

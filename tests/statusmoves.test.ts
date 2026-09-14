@@ -719,6 +719,51 @@ describe("borrowing", () => {
     expect(damagedOn(swung.events, 1)).toBeGreaterThan(0);
   });
 
+  it("X38b: a caught Ditto is a Ditto, with its own stats and moves", () => {
+    const wildDitto = creature("ditto", { level: 30, moves: ["transform"], uid: 2, iv: 3 });
+    const ours = creature("machamp", { level: 60, moves: ["bulkup"], iv: 31 });
+
+    // Ours sets up while the Ditto copies it; then a Master Ball.
+    const copied = turn(fought(ours, wildDitto), 0, 0);
+    expect(activeOf(copied.battle, 1).speciesId).toBe("machamp");
+
+    const thrown = resolveTurn(copied.battle, [{ t: "ball", item: "masterball" }, { t: "pass" }], WILD_RULES, 1);
+    expect(thrown.caught).not.toBeNull();
+    expect(thrown.caught!.speciesId).toBe("ditto");
+    expect(thrown.caught!.ivs).toEqual(wildDitto.ivs);
+    expect(thrown.caught!.natureId).toBe(wildDitto.natureId);
+    expect(thrown.caught!.moves).toEqual(["transform"]);
+    expect(thrown.caught!.hp).toBeLessThanOrEqual(maxHp(thrown.caught!));
+    // And the team handed back with the result says the same.
+    expect(activeOf(thrown.battle, 1).speciesId).toBe("ditto");
+  });
+
+  it("X38c: your own Ditto goes home as a Ditto, and turns back when it is switched out", () => {
+    const ditto = creature("ditto", { level: 50, moves: ["transform"] });
+    const bench = creature("machop", { level: 50, moves: ["tackle"], uid: 3 });
+    const theirs = creature("snorlax", { level: 50, moves: ["splash"], uid: 2 });
+
+    const battle = startBattle(SEED, TAG, [ditto, bench], [theirs]);
+    const copied = turn(battle, 0, 0).battle;
+    expect(activeOf(copied, 0).speciesId).toBe("snorlax");
+
+    // Switched out: the one on the bench is a Ditto again.
+    const swapped = resolveTurn(copied, [{ t: "switch", partyIndex: 1 }, { t: "fight", moveIndex: 0 }], WILD_RULES, 0).battle;
+    expect(swapped.sides[0].team[0].speciesId).toBe("ditto");
+    expect(swapped.sides[0].team[0].moves).toEqual(["transform"]);
+
+    // Still transformed when the battle ends: reverted on the way out. It
+    // copies a Tackle off something weak and wins with it.
+    let won = startBattle(SEED, TAG, [ditto], [creature("caterpie", { level: 3, moves: ["tackle"], uid: 4, iv: 0 })]);
+    won = turn(won, 0, 0).battle;
+    expect(activeOf(won, 0).speciesId).toBe("caterpie");
+    for (let at = 0; at < 5 && !won.outcome; at++) won = turn(won, 0, 0).battle;
+    expect(won.outcome).toEqual({ t: "win", side: 0 });
+    expect(won.sides[0].team[0].speciesId).toBe("ditto");
+    expect(won.sides[0].team[0].moves).toEqual(["transform"]);
+    expect(won.sides[0].team[0].ivs).toEqual(ditto.ivs);
+  });
+
   it("X39: Smeargle keeps what it copies", () => {
     const smeargle = creature("smeargle", { level: 50, moves: ["sketch"] });
     const theirs = creature("machop", { level: 50, moves: ["karatechop"], uid: 2 });

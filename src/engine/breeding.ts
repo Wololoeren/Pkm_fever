@@ -73,10 +73,33 @@ export const CLIMB_ITEMS = ["glint", "gleam", "lustre", "radiance", "brilliance"
 /** The one piece of breeding equipment that is spent rather than kept. */
 export const GLITTER = "glitter";
 
+/**
+ * The rare three that raise the mutation rate, weakest first.
+ *
+ * Each gives every IV that is *not* already one of the mutating slots a flat
+ * chance to mutate anyway. They add, to each other and to nothing else, so
+ * all three applied is a 65% chance on every stat left over. Their sizes live
+ * in the item catalogue with everything else about them.
+ */
+export const MUTATION_ITEMS = ["sporeofchange", "livingamber", "primordialseed"] as const;
+
+/**
+ * The daycare's own equipment: faster hatching, incubators, and a shorter wait
+ * for the pair. Their sizes live in the item catalogue. The first of each is
+ * sold at the Mart; the rest are found.
+ */
+export const HATCH_ITEMS = ["warmblanket", "embercradle"] as const;
+export const INCUBATOR_ITEMS = ["incubator", "broodlamp", "hatcherystone"] as const;
+export const PAIRING_ITEMS = ["pairingbell", "courtingsong", "roseincense", "moonlitcharm"] as const;
+
 export const BREEDING_ITEMS = [
   "heirloom",
   "talisman",
   "catalyst",
+  ...MUTATION_ITEMS,
+  ...PAIRING_ITEMS,
+  ...HATCH_ITEMS,
+  ...INCUBATOR_ITEMS,
   "prism",
   ...CLIMB_ITEMS,
   GLITTER,
@@ -108,6 +131,11 @@ export interface DaycareState {
   eggReady: boolean;
   /** Which found items are applied to this pairing. */
   applied: BreedingItem[];
+  /**
+   * Eggs left in the daycare's incubators rather than carried. They walk down
+   * with every step you take anywhere, and what hatches goes to the box.
+   */
+  incubating: Egg[];
 }
 
 /**
@@ -172,7 +200,7 @@ export function hatchSteps(seed: string, first: Individual, second: Individual, 
 }
 
 export function emptyDaycare(): DaycareState {
-  return { slots: [null, null], steps: 0, eggIndex: 0, eggReady: false, applied: [] };
+  return { slots: [null, null], steps: 0, eggIndex: 0, eggReady: false, applied: [], incubating: [] };
 }
 
 /**
@@ -559,13 +587,18 @@ function inheritIvs(
   const mutated = new Set<StatId>(
     shuffle(rng, STAT_IDS).slice(0, mutatedSlots(applied, [first, second])),
   );
+  const bonus = mutationBonus(applied);
 
   const ivs = {} as StatTable;
   for (const stat of STAT_IDS) {
     const from = rng() < 0.5 ? first : second;
+    // The rare items: a stat left out of the slots gets its own chance. Only
+    // rolled when one is applied, so a pairing without them draws exactly the
+    // numbers it always drew.
+    const extra = bonus > 0 && !mutated.has(stat) && rng() * 100 < bonus;
     // The mutation is the whole point: without it nothing could ever exceed
     // the best parent, and a wild ceiling of 6 would be the game's ceiling.
-    const boost = mutated.has(stat) ? intBetween(rng, low, high) : 0;
+    const boost = mutated.has(stat) || extra ? intBetween(rng, low, high) : 0;
     ivs[stat] = Math.min(IV_MAX, from.ivs[stat] + boost);
   }
 
@@ -594,6 +627,99 @@ function mutatedSlots(applied: readonly BreedingItem[], pair: readonly (Individu
   return Math.max(fromItems, fromHeld);
 }
 
+/** The sum of one numeric item field over what is applied. */
+function appliedTotal(
+  applied: readonly BreedingItem[],
+  field: "pairFlat" | "pairPercent" | "hatchPercent" | "incubatorSlots",
+): number {
+  let total = 0;
+  for (const id of applied) {
+    if (isItem(id)) total += itemSpec(id)[field] ?? 0;
+  }
+  return total;
+}
+
+/** The fewest steps a pair can take to lay, however much is applied. */
+export const EGG_STEPS_MIN = 30;
+/** The most a hatch can be shortened by, in percent. */
+export const HATCH_PERCENT_MAX = 75;
+/** The most incubators a daycare can hold. */
+export const INCUBATORS_MAX = 4;
+
+/**
+ * Steps the pair needs to lay an egg with what is applied: the flat cuts come
+ * off first, then the percentage off what is left — so the two never go below
+ * `EGG_STEPS_MIN` together.
+ */
+export function eggSteps(applied: readonly BreedingItem[]): number {
+  const flat = Math.max(0, STEPS_PER_EGG - appliedTotal(applied, "pairFlat"));
+  const percent = Math.min(100, appliedTotal(applied, "pairPercent"));
+  return Math.max(EGG_STEPS_MIN, Math.round((flat * (100 - percent)) / 100));
+}
+
+/** How much shorter an egg taken now will hatch, in percent. */
+export function hatchReduction(applied: readonly BreedingItem[]): number {
+  return Math.min(HATCH_PERCENT_MAX, appliedTotal(applied, "hatchPercent"));
+}
+
+/** Hatch steps once the applied reduction has been taken off. Never below one. */
+export function reducedHatch(steps: number, applied: readonly BreedingItem[]): number {
+  return Math.max(1, Math.round((steps * (100 - hatchReduction(applied))) / 100));
+}
+
+/** How many incubators the applied items give the daycare. */
+export function incubatorSlots(applied: readonly BreedingItem[]): number {
+  return Math.min(INCUBATORS_MAX, appliedTotal(applied, "incubatorSlots"));
+}
+
+/** The extra mutation chance, in percent, from the rare items applied. */
+export function mutationBonus(applied: readonly BreedingItem[]): number {
+  let total = 0;
+  for (const id of applied) {
+    if (isItem(id)) total += itemSpec(id).mutationBonus ?? 0;
+  }
+  return Math.min(100, total);
+}
+
+/** The chance any one IV mutates on an egg from this pair, nought to one. */
+export function mutationChance(
+  applied: readonly BreedingItem[],
+  pair: readonly (Individual | null)[] = [],
+): number {
+  const slots = mutatedSlots(applied, pair) / STAT_IDS.length;
+  return slots + (1 - slots) * (mutationBonus(applied) / 100);
+}
+
+/**
+ * What an egg from this pair is expected to have, stat by stat.
+ *
+ * Exact rather than simulated: each stat is one parent's value or the other's
+ * with even odds, plus a boost on the chance it mutates, spread evenly over
+ * the boost range and cut at the cap. `gain` is how far that sits above the
+ * average of the two parents — the part that is the daycare's doing.
+ */
+export function expectedIvs(
+  first: Individual,
+  second: Individual,
+  applied: readonly BreedingItem[],
+): { stat: StatId; first: number; second: number; expected: number; gain: number }[] {
+  const [low, high] = mutationRange(applied.includes("catalyst"));
+  const chance = mutationChance(applied, [first, second]);
+  const width = high - low + 1;
+
+  return STAT_IDS.map((stat) => {
+    let expected = 0;
+    for (const parent of [first, second]) {
+      const base = parent.ivs[stat];
+      let boosted = 0;
+      for (let boost = low; boost <= high; boost++) boosted += Math.min(IV_MAX, base + boost);
+      expected += 0.5 * ((1 - chance) * base + (chance * boosted) / width);
+    }
+    const average = (first.ivs[stat] + second.ivs[stat]) / 2;
+    return { stat, first: first.ivs[stat], second: second.ivs[stat], expected, gain: expected - average };
+  });
+}
+
 /**
  * Roughly how many generations a line needs to take one stat from a wild catch
  * to perfect.
@@ -605,6 +731,6 @@ function mutatedSlots(applied: readonly BreedingItem[], pair: readonly (Individu
  */
 export function generationsToMax(applied: readonly BreedingItem[] = []): number {
   const [low, high] = mutationRange(applied.includes("catalyst"));
-  const perGeneration = ((low + high) / 2) * (mutatedSlots(applied) / STAT_IDS.length);
+  const perGeneration = ((low + high) / 2) * mutationChance(applied);
   return Math.ceil((IV_MAX - WILD_IV_MAX) / perGeneration);
 }

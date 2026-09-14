@@ -4,7 +4,12 @@ import { abilitiesOf, abilityOdds } from "@/engine/abilities";
 import {
   BREEDING_ITEMS,
   breedingRefusal,
+  eggSteps,
+  expectedIvs,
+  hatchReduction,
+  incubatorSlots,
   generationsToMax,
+  mutationChance,
   chromaOdds,
   climbChance,
   flatBonus,
@@ -14,7 +19,7 @@ import {
   type BreedingItem,
 } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
-import { depositRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
+import { collectRefusal, depositRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
@@ -22,9 +27,10 @@ import { chroma, variant } from "@/engine/variants";
 import { swatchFor } from "@/render/palette";
 import { hasItem, item as itemSpec } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
+import { BoxPanel } from "./BoxPanel";
 import { ReleaseButton } from "./ReleaseButton";
 import { Sprite } from "./Sprite";
-import { GenderMark, VariantTag } from "./PartyStrip";
+import { EggSlots, GenderMark, VariantTag } from "./PartyStrip";
 
 /**
  * The hub: the daycare and the box.
@@ -271,7 +277,12 @@ export function HubPanel({
   const [first, second] = state.daycare.slots;
   const refusal = first && second ? breedingRefusal(first, second) : null;
   const pair = Boolean(first && second) && refusal === null;
-  const progress = pair ? state.daycare.steps / STEPS_PER_EGG : 0;
+  const needed = eggSteps(state.daycare.applied);
+  const progress = pair ? state.daycare.steps / needed : 0;
+  const slots = incubatorSlots(state.daycare.applied);
+  const toParty = collectRefusal(world, state, "party");
+  const toIncubator = collectRefusal(world, state, "incubator");
+  const faster = hatchReduction(state.daycare.applied);
   const slotsFull = Boolean(first && second);
 
   return (
@@ -316,23 +327,46 @@ export function HubPanel({
             {state.daycare.eggReady
               ? "An egg is waiting"
               : pair
-                ? `${state.daycare.steps} / ${STEPS_PER_EGG} steps`
+                ? `${state.daycare.steps} / ${needed} steps`
                 : "no pair"}
           </span>
           <button
             type="button"
             className="primary"
-            disabled={!state.daycare.eggReady || state.party.length + state.eggs.length >= 6}
-            title={
-              state.daycare.eggReady && state.party.length + state.eggs.length >= 6
-                ? "Your party is full — an egg needs a slot"
-                : undefined
-            }
+            disabled={Boolean(toParty)}
+            title={state.daycare.eggReady ? (toParty ?? "Carry it in your party") : undefined}
             onClick={() => onInput({ t: "collectEgg" })}
           >
             Take the egg
           </button>
+          {slots ? (
+            <button
+              type="button"
+              disabled={Boolean(toIncubator)}
+              title={state.daycare.eggReady ? (toIncubator ?? "Leave it here; it hatches into the box as you walk") : undefined}
+              onClick={() => onInput({ t: "collectEgg", to: "incubator" })}
+            >
+              Incubate ({state.daycare.incubating.length}/{slots})
+            </button>
+          ) : null}
         </div>
+        {needed !== STEPS_PER_EGG || faster ? (
+          <p className="muted">
+            {needed !== STEPS_PER_EGG ? `The pair lays every ${needed} steps instead of ${STEPS_PER_EGG}. ` : ""}
+            {faster ? `Eggs taken now hatch in ${faster}% fewer steps.` : ""}
+          </p>
+        ) : null}
+
+        {state.daycare.incubating.length ? (
+          <>
+            <h3>Incubating</h3>
+            <EggSlots eggs={state.daycare.incubating} />
+          </>
+        ) : null}
+
+        {first && second && pair ? (
+          <ExpectedIvs first={first} second={second} applied={state.daycare.applied} />
+        ) : null}
 
         <h3>The ladder</h3>
         <ShineMatrix pair={state.daycare.slots} applied={state.daycare.applied} />
@@ -355,7 +389,11 @@ export function HubPanel({
                   {on ? " ·  on" : ""}
                 </span>
                 <span className="muted itemBlurb">
-                  {owned ? itemSpec(item).blurb : "Not found yet — it is out there somewhere."}
+                  {owned
+                    ? itemSpec(item).blurb
+                    : itemSpec(item).price > 0
+                      ? `Sold at the Mart for ${itemSpec(item).price.toLocaleString()}. ${itemSpec(item).blurb}`
+                      : "Not found yet — it is out there somewhere."}
                 </span>
               </button>
             );
@@ -435,46 +473,67 @@ export function HubPanel({
           ))}
         </div>
 
-        <h3>Box · {state.box.length}</h3>
-        {state.box.length ? (
-          <div className="boxList scrolls">
-            {state.box.map((creature, index) => (
-              <Row
-                key={creature.uid}
-                creature={creature}
-                onInspect={onInspect}
-                action="Take out"
-                label="Into your party"
-                disabled={state.party.length + state.eggs.length >= 6}
-                onAct={() => onInput({ t: "retrieve", index })}
-                extra={
-                  <>
-                  <button
-                    type="button"
-                    className="ghost small"
-                    disabled={Boolean(depositRefusal(world, state, "box", index))}
-                    onClick={() => onInput({ t: "deposit", from: "box", index })}
-                    title={depositRefusal(world, state, "box", index) ?? "Straight to the daycare"}
-                  >
-                    Daycare
-                  </button>
-                  <ReleaseButton
-                    state={state}
-                    from="box"
-                    index={index}
-                    creature={creature}
-                    onInput={onInput}
-                  />
-                  </>
-                }
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="muted">Nothing boxed. Anything caught with a full party ends up here.</p>
-        )}
+        <BoxPanel state={state} onInput={onInput} onInspect={onInspect} />
       </div>
     </section>
+  );
+}
+
+const IV_LABELS: Record<string, string> = { hp: "HP", atk: "Atk", def: "Def", spa: "SpA", spd: "SpD", spe: "Spe" };
+
+/**
+ * What an egg from this pair should come out with, before it is laid.
+ *
+ * The mutation is the only way anything climbs, and it is invisible in the
+ * moment: one egg at a time, on stats picked at random. So the daycare says
+ * what it is worth on average — the chance any IV mutates with what is
+ * applied, and per stat the two parents, the expected child and how much of
+ * that the daycare added over the parents' average.
+ */
+function ExpectedIvs({
+  first,
+  second,
+  applied,
+}: {
+  first: Individual;
+  second: Individual;
+  applied: readonly BreedingItem[];
+}) {
+  const rows = expectedIvs(first, second, applied);
+  const chance = Math.round(mutationChance(applied, [first, second]) * 100);
+  const total = rows.reduce((sum, row) => sum + row.gain, 0);
+
+  return (
+    <>
+      <h3>Expected IVs per egg</h3>
+      <p className="muted">
+        Each IV comes from one parent or the other, then has a <strong>{chance}%</strong> chance
+        to mutate upward. On average an egg gains <strong>+{total.toFixed(1)}</strong> IV points
+        over the parents&apos; average.
+      </p>
+      <table className="statTable">
+        <thead>
+          <tr>
+            <th />
+            <th className="num">{displayName(first)}</th>
+            <th className="num">{displayName(second)}</th>
+            <th className="num">Egg</th>
+            <th className="num">Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.stat}>
+              <td>{IV_LABELS[row.stat]}</td>
+              <td className="num">{row.first}</td>
+              <td className="num">{row.second}</td>
+              <td className="num">{row.expected.toFixed(1)}</td>
+              <td className={`num ${row.gain > 0.05 ? "good" : "muted"}`}>+{row.gain.toFixed(1)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 

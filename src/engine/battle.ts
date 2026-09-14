@@ -105,6 +105,16 @@ export interface Volatiles {
   shieldStreak?: number;
   /** Stages up the critical ladder, from Focus Energy. */
   crit?: number;
+  /**
+   * What a Transform copied over, so it can be put back.
+   *
+   * Transform rewrites the creature itself — species, stats, nature, abilities
+   * and moves — because every damage and stat function reads the creature.
+   * That is only right while it stands there. It is undone when it leaves the
+   * field and when the battle ends, so a caught Ditto is a Ditto and yours
+   * does not walk home as whatever it last copied.
+   */
+  transformed?: Pick<Individual, "speciesId" | "ivs" | "evs" | "natureId" | "abilities" | "moves" | "pp">;
   /** Turns until Yawn puts it to sleep. */
   yawn?: number;
   /** Nightmare, which only bites while it sleeps. */
@@ -267,6 +277,12 @@ export type BattleAction =
 
 /** What `volatile` events can be about. */
 export type VolatileKind =
+  /** Woken or cured by a move that reads the condition: Wake-Up Slap, Smelling Salts. */
+  | "roused"
+  /** Rapid Spin, shaking off a seed and a bind. */
+  | "spun"
+  /** Clear Smog, taking every stat stage off. */
+  | "cleared"
   | "seeded"
   /**
    * The seed *biting*, which is a different sentence from being seeded.
@@ -576,8 +592,8 @@ const NO_AIM: AimStages = { accuracy: 0, evasion: 0 };
 const SEED_SHARE = 8;
 const NIGHTMARE_SHARE = 4;
 
-/** Rest, and how long Yawn takes to land. */
-const REST_TURNS = 3;
+/** Rest — two turns lost, awake on the third — and how long Yawn takes to land. */
+const REST_TURNS = 2;
 const YAWN_TURNS = 2;
 
 /** Power points a copied moveset comes out with. */
@@ -954,7 +970,7 @@ export function landsAs(
   if (move.category === "status" || move.id === STRUGGLE) return null;
   if (drinker(defender, move)) return 0;
   if (move.type === "ground" && (defending.afloat ?? 0) > 0) return 0;
-  return effectiveness(move.type, typesAgainst(attacker, defender, move, defending));
+  return chartFor(move, typesAgainst(attacker, defender, move, defending));
 }
 
 /** Multiplying by per-mille, kept in integers like everything else. */
@@ -1199,6 +1215,11 @@ interface Turn {
    */
   used: [string | null, string | null];
   /**
+   * The move each side chose this turn, before either resolved. Sucker Punch
+   * asks: it only works against a foe that is about to attack.
+   */
+  chosen?: [string | null, string | null];
+  /**
    * Which side is catching something on its way out with Pursuit.
    *
    * Set by `resolveTurn` before either move resolves, because it is the one
@@ -1319,7 +1340,10 @@ function landDamage(
   // Sturdy: from full health, one hit never finishes it. Trimmed here rather
   // than in the damage formula, because it is about the blow landing rather
   // than about how hard it was.
-  let amount = wanted;
+  //
+  // False Swipe the same way, and first: it never takes the last point, which
+  // is what makes it the move you catch things with.
+  let amount = move.id === "falseswipe" ? Math.min(wanted, Math.max(0, defender.hp - 1)) : wanted;
   if (amount >= defender.hp) {
     // Sturdy and a Focus Sash want full health and always work; a Focus Band
     // wants neither and sometimes does. One loop, because the difference
@@ -1954,6 +1978,21 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       // health. Power points come out at five apiece, as they do in the games:
       // a copied moveset is not a fresh one.
       const copied = target.moves.slice(0, 4);
+      // The original, the first time only: transforming twice must still put
+      // back the creature it started as, not the first thing it copied.
+      if (!volatiles(turn, side).transformed) {
+        mergeVolatiles(turn, side, {
+          transformed: {
+            speciesId: user.speciesId,
+            ivs: { ...user.ivs },
+            evs: { ...user.evs },
+            natureId: user.natureId,
+            abilities: [...user.abilities],
+            moves: [...user.moves],
+            pp: [...user.pp],
+          },
+        });
+      }
       setActive(turn, side, {
         ...user,
         speciesId: target.speciesId,
@@ -2618,6 +2657,190 @@ function damageContext(turn: Turn, side: SideIndex, moveId: string): DamageConte
  * them do not have one: the manifest ships `power: 0` for every move whose
  * damage Showdown computes in a script, and moves.ts is the missing script.
  */
+/** Special moves that hit physical Defence. */
+const PHYSICAL_TARGET = new Set(["psyshock", "psystrike", "secretsword"]);
+
+/** Moves that ignore the target's Defence and Sp. Def stages. */
+const IGNORES_DEFENCE_STAGES = new Set(["sacredsword", "chipaway", "darkestlariat"]);
+
+/** A terrain's type, for Terrain Pulse. */
+const TERRAIN_TYPE: Record<string, string> = {
+  electric: "electric",
+  grassy: "grass",
+  misty: "fairy",
+  psychic: "psychic",
+};
+
+/**
+ * The type chart's verdict, for the two moves that read it differently.
+ *
+ * Freeze-Dry is super effective on Water whatever else the target is — a
+ * Water/Ground takes it at four times. Flying Press is Fighting and Flying at
+ * once, the two multipliers taken together, so a Ghost is still immune.
+ */
+function chartFor(move: MoveEntry, against: readonly string[]): number {
+  if (move.id === "flyingpress") {
+    return Math.floor((effectiveness("fighting", against) * effectiveness("flying", against)) / 4);
+  }
+  const quarters = effectiveness(move.type, against);
+  if (move.id === "freezedry" && against.includes("water")) return quarters * 4;
+  return quarters;
+}
+
+/**
+ * A move's power once the situation has had its say.
+ *
+ * The manifest carries one base power and Showdown works the rest out in a
+ * callback per move, so every one of these was a flat number whatever was
+ * happening: a Venoshock into a poisoned target, a Revenge after being hit, an
+ * Eruption at one hit point. Each reads only what the turn already knows.
+ */
+function situationalPower(turn: Turn, side: SideIndex, move: MoveEntry, power: number): number {
+  const foe = other(side);
+  const user = active(turn, side);
+  const target = active(turn, foe);
+  const took = (at: SideIndex) => turn.taken[at].physical + turn.taken[at].special > 0;
+  const terrain = terrainNow(turn);
+
+  switch (move.id) {
+    // What the target is carrying.
+    case "hex":
+    case "infernalparade":
+      return target.status ? power * 2 : power;
+    case "venoshock":
+    case "barbbarrage":
+      return target.status === "psn" ? power * 2 : power;
+    case "wakeupslap":
+      return target.status === "slp" ? power * 2 : power;
+    case "smellingsalts":
+      return target.status === "par" ? power * 2 : power;
+    case "brine":
+      return target.hp * 2 <= maxHp(target) ? power * 2 : power;
+    case "knockoff":
+      return target.heldItem ? Math.floor((power * 3) / 2) : power;
+
+    // What the user is carrying.
+    case "facade":
+      return user.status === "brn" || user.status === "psn" || user.status === "par" ? power * 2 : power;
+    case "acrobatics":
+      return user.heldItem ? power : power * 2;
+    case "eruption":
+    case "waterspout":
+    case "dragonenergy":
+      return Math.max(1, Math.floor((power * user.hp) / maxHp(user)));
+    case "storedpower":
+    case "powertrip": {
+      const stages = turn.battle.sides[side].stages;
+      const aim = aimOf(turn, side);
+      const raised =
+        (["atk", "def", "spa", "spd", "spe"] as StageStat[]).reduce((sum, stat) => sum + Math.max(0, stages[stat]), 0) +
+        Math.max(0, aim.accuracy) +
+        Math.max(0, aim.evasion);
+      return power + 20 * raised;
+    }
+    case "lastrespects": {
+      const fallen = turn.battle.sides[side].team.filter((one) => isFainted(one)).length;
+      return power * (1 + Math.min(100, fallen));
+    }
+
+    // The order of the turn.
+    case "payback":
+      return turn.movingLast === side ? power * 2 : power;
+    case "boltbeak":
+    case "fishiousrend":
+      return turn.movingLast === foe ? power * 2 : power;
+    case "revenge":
+    case "avalanche":
+      return took(side) ? power * 2 : power;
+    case "assurance":
+      return took(foe) ? power * 2 : power;
+
+    // The field.
+    case "risingvoltage":
+      return terrain === "electric" && grounded(turn, foe) ? power * 2 : power;
+    case "expandingforce":
+      return terrain === "psychic" && grounded(turn, side) ? Math.floor((power * 3) / 2) : power;
+    case "psyblade":
+      return terrain === "electric" ? Math.floor((power * 3) / 2) : power;
+    case "mistyexplosion":
+      return terrain === "misty" && grounded(turn, side) ? Math.floor((power * 3) / 2) : power;
+    case "hydrosteam":
+      return weatherNow(turn) === "sun" ? Math.floor((power * 3) / 2) : power;
+
+    default:
+      return power;
+  }
+}
+
+/**
+ * Moves that do nothing unless something is true, checked before anything is
+ * aimed.
+ *
+ * - Dream Eater only feeds on a sleeping target.
+ * - Sucker Punch only lands on a foe that has chosen to attack and has not
+ *   done it yet.
+ * - Synchronoise only reaches something that shares one of the user's types.
+ */
+function moveFails(turn: Turn, side: SideIndex, moveId: string): boolean {
+  const foe = other(side);
+  switch (moveId) {
+    case "dreameater":
+      return active(turn, foe).status !== "slp";
+    case "suckerpunch": {
+      const theirs = turn.chosen?.[foe] ?? null;
+      return turn.used[foe] !== null || !theirs || moveById(theirs).category === "status";
+    }
+    case "synchronoise": {
+      const mine = typesOf(turn, side);
+      return !typesOf(turn, foe).some((type) => mine.includes(type));
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * What a handful of moves do once they have connected, beside the damage.
+ *
+ * - Wake-Up Slap wakes what it hit, and Smelling Salts cures the paralysis it
+ *   doubled against.
+ * - Rapid Spin frees the user from a seed and a bind.
+ * - Clear Smog takes every stat stage off the target.
+ */
+function afterHit(turn: Turn, side: SideIndex, moveId: string): void {
+  const foe = other(side);
+  const target = active(turn, foe);
+  switch (moveId) {
+    case "wakeupslap":
+    case "smellingsalts": {
+      const wanted = moveId === "wakeupslap" ? "slp" : "par";
+      if (isFainted(target) || target.status !== wanted) return;
+      setActive(turn, foe, { ...target, status: null, sleepTurns: 0 });
+      turn.events.push({ t: "volatile", side: foe, which: "roused" });
+      return;
+    }
+    case "rapidspin": {
+      const held = volatiles(turn, side);
+      if (!held.seeded && !held.bound) return;
+      mergeVolatiles(turn, side, { seeded: undefined, bound: undefined });
+      turn.events.push({ t: "volatile", side, which: "spun" });
+      return;
+    }
+    case "clearsmog": {
+      if (isFainted(target)) return;
+      const combatant = turn.battle.sides[foe];
+      const stats = ["atk", "def", "spa", "spd", "spe"] as StageStat[];
+      if (!stats.some((stat) => combatant.stages[stat] !== 0) && !combatant.aim) return;
+      combatant.stages = { ...NO_STAGES };
+      combatant.aim = undefined;
+      turn.events.push({ t: "volatile", side: foe, which: "cleared" });
+      return;
+    }
+    default:
+      return;
+  }
+}
+
 function damageFor(
   turn: Turn,
   side: SideIndex,
@@ -2647,33 +2870,42 @@ function damageFor(
   // in this arithmetic.
   const struggling = move.id === STRUGGLE;
 
-  const quarters = struggling
-    ? 4
-    : effectiveness(move.type, typesAgainst(attacker, defender, move, volatiles(turn, other(side))));
+  const against = typesAgainst(attacker, defender, move, volatiles(turn, other(side)));
+  const quarters = struggling ? 4 : chartFor(move, against);
   if (move.category === "status" || power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
   }
 
   const physical = move.category === "physical";
+  // Which creature's which stat attacks, and which stat defends. Nearly always
+  // the user's Attack or Sp. Atk into the matching defence; six moves differ.
+  //   Foul Play      the target's own Attack, with the target's stages.
+  //   Body Press     the user's Defence, with its Defence stages.
+  //   Psyshock, Psystrike, Secret Sword   special, but into physical Defence.
+  // And Sacred Sword, Chip Away and Darkest Lariat ignore the target's
+  // defensive stages altogether.
+  const attackSide = move.id === "foulplay" ? other(side) : side;
+  const attackStat: StageStat = move.id === "bodypress" ? "def" : physical ? "atk" : "spa";
+  const defendStat: StageStat = physical || PHYSICAL_TARGET.has(move.id) ? "def" : "spd";
   const attack = scaled(
     effectiveStat(
-      attacker,
-      physical ? "atk" : "spa",
-      turn.battle.sides[side].stages[physical ? "atk" : "spa"],
-      volatiles(turn, side).stats,
+      active(turn, attackSide),
+      attackStat,
+      turn.battle.sides[attackSide].stages[attackStat],
+      volatiles(turn, attackSide).stats,
     ),
-    fieldStatMille(turn, side, physical ? "atk" : "spa"),
+    fieldStatMille(turn, attackSide, attackStat),
   );
   const defence = Math.max(
     1,
     scaled(
       effectiveStat(
         defender,
-        physical ? "def" : "spd",
-        turn.battle.sides[other(side)].stages[physical ? "def" : "spd"],
+        defendStat,
+        IGNORES_DEFENCE_STAGES.has(move.id) ? 0 : turn.battle.sides[other(side)].stages[defendStat],
         volatiles(turn, other(side)).stats,
       ),
-      fieldStatMille(turn, other(side), physical ? "def" : "spd"),
+      fieldStatMille(turn, other(side), defendStat),
     ),
   );
 
@@ -2724,7 +2956,9 @@ function damageFor(
   // the abilities, so Sand Force compounds on top of the sand.
   const weather = weatherNow(turn);
   if (weather === "sun" && move.type === "fire") value = scaled(value, 1500);
-  if (weather === "sun" && move.type === "water") value = scaled(value, 500);
+  // Hydro Steam is the one Water move the sun helps; its half-again is in
+  // `situationalPower`, and here it is spared the halving.
+  if (weather === "sun" && move.type === "water" && move.id !== "hydrosteam") value = scaled(value, 500);
   if (weather === "rain" && move.type === "water") value = scaled(value, 1500);
   if (weather === "rain" && move.type === "fire") value = scaled(value, 500);
   if (weather && weather !== "sun" && (move.id === "solarbeam" || move.id === "solarblade")) value = scaled(value, 500);
@@ -2764,6 +2998,10 @@ function damageFor(
 
   value = Math.floor((value * quarters) / 4);
 
+  // Collision Course and Electro Drift: a third harder when it was already
+  // super effective.
+  if (quarters > 4 && (move.id === "collisioncourse" || move.id === "electrodrift")) value = scaled(value, 1333);
+
   // Filter and Solid Rock on the way in; Tinted Lens on the way out. Both are
   // about the type chart's verdict rather than about a type, which is why they
   // sit after the multiplier rather than beside it.
@@ -2792,7 +3030,8 @@ function damageFor(
   const gutsy = effects(attacker, "stat").some(
     (effect) => effect.when === "statused" && effect.stat === "atk",
   );
-  if (attacker.status === "brn" && physical && !gutsy) value = Math.floor(value / 2);
+  // Facade ignores it too, which is the other half of why it doubles when burned.
+  if (attacker.status === "brn" && physical && !gutsy && move.id !== "facade") value = Math.floor(value / 2);
 
   return { amount: Math.max(1, value), quarters, crit };
 }
@@ -2923,8 +3162,11 @@ function canAct(turn: Turn, side: SideIndex): boolean {
     return false;
   }
 
+  // The counter is turns still to lose. It used to wake the creature when the
+  // counter reached *one* and let it move that turn, so a roll of 1 cost
+  // nothing and a third of every sleep landed was a wasted move.
   if (creature.status === "slp") {
-    if (creature.sleepTurns <= 1) {
+    if (creature.sleepTurns <= 0) {
       setActive(turn, side, { ...creature, status: null, sleepTurns: 0 });
       turn.events.push({ t: "woke", side });
       return true;
@@ -3006,6 +3248,10 @@ function executeMove(
   const move =
     moveId === "weatherball" && weatherUp
       ? { ...base, type: WEATHER_TYPE[weatherUp], power: 100 }
+      : // Terrain Pulse is Weather Ball for the ground: the terrain's type and
+        // double power, for a user standing on it.
+        moveId === "terrainpulse" && terrainNow(turn) && grounded(turn, side)
+        ? { ...base, type: TERRAIN_TYPE[terrainNow(turn)!], power: base.power * 2 }
       : // Pursuit catches what is running. Doubled here, beside Weather Ball,
         // because it is the same shape — a move whose numbers are a fact
         // about the turn rather than about the move — and `turn.pursuing` is
@@ -3076,7 +3322,11 @@ function executeMove(
     turn.events.push({ t: "fizzled", side, moveId });
     return;
   }
-  if (moveId === "fakeout" && !volatiles(turn, side).fresh) {
+  if ((moveId === "fakeout" || moveId === "firstimpression") && !volatiles(turn, side).fresh) {
+    turn.events.push({ t: "fizzled", side, moveId });
+    return;
+  }
+  if (moveFails(turn, side, moveId)) {
     turn.events.push({ t: "fizzled", side, moveId });
     return;
   }
@@ -3276,10 +3526,7 @@ function executeMove(
     return;
   }
 
-  const quarters = effectiveness(
-    move.type,
-    typesAgainst(attacker, defender, move, volatiles(turn, other(side))),
-  );
+  const quarters = chartFor(move, typesAgainst(attacker, defender, move, volatiles(turn, other(side))));
   // Struggle is the exception to the type chart. It has to be: a creature out
   // of moves facing something its last resort cannot touch would be stuck in
   // a battle with no way to act and no way to lose.
@@ -3399,7 +3646,7 @@ function executeMove(
           turn,
           side,
           move,
-          powerOfBlow(move, variable.power, blow),
+          powerOfBlow(move, situationalPower(turn, side, move, variable.power), blow),
           blow,
         );
         dealt += landDamage(turn, side, move, result.amount, result.quarters, result.crit);
@@ -3691,6 +3938,8 @@ function afterMove(turn: Turn, side: SideIndex): void {
   if (hasFlag(move, "recharge") && !isFainted(active(turn, side))) {
     mergeVolatiles(turn, side, { recharging: true });
   }
+
+  if (landed) afterHit(turn, side, moveId);
 
   /*
    * Outrage, Thrash, Petal Dance, Raging Fury: two turns or three of the same
@@ -4113,7 +4362,9 @@ export function resolveTurn(
         return finish(turn, null, 0);
       }
       ballsUsed = 1;
-      const wild = active(turn, 1);
+      // What is caught is the creature, not what it is pretending to be: a
+      // Ditto mid-Transform is thrown at, and kept, as a Ditto.
+      const wild = untransformed(turn, 1);
       const mult = ballMultiplier(ours.item ?? "pokeball", state, active(turn, 0), wild);
       const odds = mult === null ? 256 : catchOdds(wild, mult);
       if (intBelow(rngFor(state.seed, state.tag, turn.battle.turn, "ball"), 256) < odds) {
@@ -4194,6 +4445,7 @@ export function resolveTurn(
   const moves: [string | null, string | null] = [moveA, moveB];
   // Analytic asks, and it has to be answered before either move resolves.
   turn.movingLast = second;
+  turn.chosen = moves;
 
   if (moves[first]) {
     executeMove(turn, first, moves[first]!);
@@ -4491,6 +4743,24 @@ function onArriving(turn: Turn, side: SideIndex): void {
   }
 }
 
+/** The active creature as it was before any Transform, without changing anything. */
+function untransformed(turn: Turn, side: SideIndex): Individual {
+  const creature = active(turn, side);
+  const was = volatiles(turn, side).transformed;
+  if (!was) return creature;
+  const restored = { ...creature, ...was, ivs: { ...was.ivs }, evs: { ...was.evs }, abilities: [...was.abilities], moves: [...was.moves], pp: [...was.pp] };
+  // Health carries over, but not above what the original can hold: the copy
+  // may have had a bigger health pool than the creature underneath it.
+  return { ...restored, hp: Math.min(restored.hp, maxHp(restored)) };
+}
+
+/** Puts a transformed creature back as it was. Called on leaving the field and at the end. */
+function revertTransform(turn: Turn, side: SideIndex): void {
+  if (!volatiles(turn, side).transformed) return;
+  setActive(turn, side, untransformed(turn, side));
+  mergeVolatiles(turn, side, { transformed: undefined });
+}
+
 function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
   const combatant = turn.battle.sides[side];
   if (partyIndex < 0 || partyIndex >= combatant.team.length) throw new IllegalAction("no such party member");
@@ -4498,6 +4768,10 @@ function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
     throw new IllegalAction("that one is already out");
   }
   if (isFainted(combatant.team[partyIndex])) throw new IllegalAction("that one has fainted");
+
+  // Before anything else about leaving, including a fainted one: the slot's
+  // volatiles are about to be wiped, and the original goes with them.
+  revertTransform(turn, side);
 
   // Whatever the one on its way out can do about leaving.
   onLeaving(turn, side);
@@ -4711,6 +4985,12 @@ function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnR
   // ball it did not have a thousand times over. A guarantee that only holds
   // on the common path is not a guarantee.
   if (!turn.battle.outcome && turn.battle.turn >= MAX_TURNS) decideOnHealth(turn);
+  // A decided battle hands its teams back to the save, so nobody leaves it
+  // still wearing a Transform.
+  if (turn.battle.outcome) {
+    revertTransform(turn, 0);
+    revertTransform(turn, 1);
+  }
   return { battle: { ...turn.battle, events: turn.events }, caught, ballsUsed };
 }
 

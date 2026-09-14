@@ -249,6 +249,7 @@ describe("what is happening to a creature", () => {
       bound: 4,
       biding: 2,
       fresh: true,
+      transformed: { speciesId: "ditto", ivs: {}, evs: {}, natureId: "hardy", abilities: [], moves: ["transform"], pp: [10] },
     };
 
     for (const field of fields) {

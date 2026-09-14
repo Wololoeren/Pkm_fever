@@ -110,8 +110,25 @@ import { BIOME_IDS } from "./biomes";
  * 500 rather than on the first step. Running from a wild creature is rolled on
  * the level gap rather than on speed. And a thrown Great or Ultra Ball uses its
  * own catch rate instead of a Poké Ball's. Any one of these replays a 33 log
- * into a different game. */
-export const ENGINE_VERSION = 34;
+ * into a different game.
+ *
+ * 35 is sleep costing the turns it says. The counter woke a creature when it
+ * reached one and let it move, so every sleep was a turn shorter than rolled
+ * and a third of them were nothing; a recorded battle with a sleep in it
+ * resolves differently now. Folded in, unreleased: Hex and Infernal Parade
+ * doubling against a target with a condition, and Transform being undone when
+ * the creature leaves the field or the battle ends (a caught or owned Ditto
+ * used to keep whatever it had copied). Also folded in: the box's named tabs
+ * (`boxNames`, `boxOf` and three inputs), and three found breeding items that
+ * raise the mutation rate — found on arrival at places that used to give
+ * nothing, so a recorded walk now picks them up. And the daycare kit: pairing
+ * and hatching items that shorten both waits, incubators, and five more
+ * found places. And thirty-odd moves that read the situation — Venoshock,
+ * Facade, Brine, Knock Off, Revenge, Payback, Eruption, Stored Power, the
+ * terrain moves, False Swipe, Freeze-Dry, Flying Press, Foul Play, Body Press,
+ * Psyshock, Sacred Sword, Dream Eater, Sucker Punch and more — every one of
+ * which used to be its flat base power or always worked. */
+export const ENGINE_VERSION = 35;
 
 // ------------------------------------------------------------------ stats
 

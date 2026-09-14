@@ -37,10 +37,12 @@ Yawn coming due, an ability, an item.
 
 ### Two things that are not what they look like
 
-**Sleep costs nought, one or two turns — not one to three.** The counter is set
-to `1 + intBelow(rng, 3)`, and `canAct` wakes the creature when it reaches 1
-*and lets it move that same turn*. So a roll of 1 costs nothing at all, and a
-third of every sleep landed in this game is a wasted move by whoever cast it.
+**Sleep costs one, two or three turns.** The counter is set to
+`1 + intBelow(rng, 3)` and is the number of turns still to lose: each turn it
+tries to move, `canAct` takes one off and the turn is lost, and once it is at
+nought it wakes *and moves that turn*. It used to wake at 1 instead, which made
+a roll of 1 cost nothing and a third of every sleep a wasted move. Rest sets it
+to 2.
 
 **Freeze is the harshest thing in the table.** Twenty percent a turn is a mean
 of five lost turns, and unlike the games this one has **no thaw on being hit by
@@ -90,6 +92,7 @@ cheapest answer to most of the list.
 | **Blessing** (Healing Wish, Lunar Dance) | the user faints, and the one that replaces it arrives at full health with no condition. Refused with nobody in reserve |
 | **Retyped** (Soak, Reflect Type, Conversion, Forest's Curse) | its types are these now rather than its species', and every question about a type — the chart, the same-type bonus, a status immunity, a seed, a Prankster — is asked of them. A switch restores its species' |
 | **Seen** (Foresight, Odor Sleuth, Miracle Eye) | its Ghost does not stop Normal and Fighting, or its Dark does not stop Psychic. Scrappy for one battle |
+| **Transformed** (Transform) | it is the foe's species with the foe's IVs, EVs, nature, abilities and moves (5 PP each), keeping its own level and health. The original is kept and put back when it leaves the field or the battle ends, so a caught Ditto is a Ditto |
 | **Afloat** (Magnet Rise, Telekinesis) | Ground *attacks* do nothing to it, for **5** or **3** turns. A Sand Attack still lands |
 
 ### What a damaging move leaves behind

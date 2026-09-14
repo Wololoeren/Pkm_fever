@@ -14,10 +14,12 @@ import { fieldKey } from "./field";
 import {
   breed,
   compatible,
+  eggSteps,
   emptyDaycare,
   GLITTER,
   hatchSteps,
-  STEPS_PER_EGG,
+  incubatorSlots,
+  reducedHatch,
   type BreedingItem,
   type DaycareState,
   type Egg,
@@ -180,13 +182,14 @@ export type Input =
   | { t: "continue" }
   | { t: "deposit"; from: "party" | "box"; index: number }
   | { t: "withdraw"; slot: 0 | 1 }
-  | { t: "collectEgg" }
+  /** `to` the incubators rather than the party; absent means the party. */
+  | { t: "collectEgg"; to?: "party" | "incubator" }
   /**
    * Opens an egg that has walked its steps. An input rather than something
    * that happens on the step, because the hatching is a scene the player
    * watches, and the creature joining is the end of it.
    */
-  | { t: "hatch"; index: number }
+  | { t: "hatch"; index: number; from?: "party" | "incubator" }
   | { t: "toggleItem"; item: BreedingItem }
   /** Moves a creature between the party and the box. */
   | { t: "store"; index: number }
@@ -301,6 +304,12 @@ export type Input =
    * question of either. An empty name takes the nickname off again.
    */
   | { t: "rename"; uid: number; name: string }
+  /** Opens another box tab. */
+  | { t: "addBox" }
+  /** Names a box tab. Empty gives it its default name back. */
+  | { t: "renameBox"; tab: number; name: string }
+  /** Moves a boxed creature into another tab, if that tab has room. */
+  | { t: "moveToBox"; uid: number; tab: number }
   /**
    * Using something from the bag, on a party member.
    *
@@ -493,7 +502,12 @@ export type Notice =
    * scene to pick the wrong appearance, and a shiny watching itself evolve in
    * factory colours is the version of this bug that got noticed.
    */
-  | { t: "evolved"; from: string; to: string; uid: number }
+  /**
+   * `watched` when the change was the answer to an offer: the player has just
+   * sat through the scene that asked, so there is nothing left to show. A
+   * stone's evolution has no such question in front of it and is revealed.
+   */
+  | { t: "evolved"; from: string; to: string; uid: number; watched?: true }
   /** Put down somewhere else by the Grey Line. The route, for the UI to name. */
   | { t: "travelled"; route: string }
   | { t: "given"; item: string; on: string }
@@ -590,6 +604,15 @@ export interface GameState {
   rivalVisits: number;
   party: Individual[];
   box: Individual[];
+  /**
+   * The box's tabs, by name. Always at least one. A tab holds `BOX_SIZE`.
+   *
+   * Which tab a creature sits in is `boxOf`, by uid, rather than a list per
+   * tab: `box` stays one flat list so every input that already names a box
+   * index keeps meaning what it meant.
+   */
+  boxNames: string[];
+  boxOf: Record<number, number>;
   nextUid: number;
   /** Everything held, by item id. Balls, medicine, rods and breeding gear in
    * one place, because "how many of this do I have" should have one answer. */
@@ -846,6 +869,20 @@ const ITEM_FOR_PLACE: Record<string, BreedingItem> = {
   "glacier:2": "radiance",
   "cloudreach:1": "brilliance",
   "crystalvault:1": "prism",
+
+  // The rare three that raise the mutation rate, one to a world and further
+  // out the stronger they are: the spores in the second fungus wood, the amber
+  // in the far garden, the seed in the deepest ash.
+  "mycelia:2": "sporeofchange",
+  "fellgarden:2": "livingamber",
+  "ashflats:3": "primordialseed",
+
+  // The daycare's stronger kit; the weaker half of it is at the Mart.
+  "meadow:3": "courtingsong",
+  "duskhollow:1": "moonlitcharm",
+  "emberfields:2": "embercradle",
+  "saltpan:2": "broodlamp",
+  "glacier:1": "hatcherystone",
 };
 
 const STARTING_BALLS = 30;
@@ -896,6 +933,8 @@ export function initialState(world: World): GameState {
     rivalVisits: 0,
     party: [],
     box: [],
+    boxNames: [defaultBoxName(0)],
+    boxOf: {},
     nextUid: 1,
     bag: { pokeball: STARTING_BALLS },
     money: STARTING_MONEY,
@@ -1004,7 +1043,109 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))));
+  return shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))))));
+}
+
+/** How many a box tab holds: a seven by seven grid. */
+export const BOX_SIZE = 49;
+/** How many tabs can be added by hand. More appear on their own if every one fills. */
+export const BOX_TABS_MAX = 32;
+/** The longest a tab's name may be. */
+export const BOX_NAME_MAX = 16;
+
+function defaultBoxName(tab: number): string {
+  return `Box ${tab + 1}`;
+}
+
+/**
+ * Every boxed creature in a tab, and no tab entry for anyone not boxed.
+ *
+ * In the funnel rather than at the dozen places a creature can land in the
+ * box — a catch with a full party, a trade, a gift, storing — for the reason
+ * `onFile` gives: a thirteenth road would quietly not be one of them. A new
+ * arrival goes in the first tab with room, and a new tab is opened if none
+ * has any.
+ *
+ * Skipped when neither the box nor the placements changed, which is nearly
+ * every input: this runs once per input and a long save is ninety thousand.
+ */
+function shelved(before: GameState, state: GameState): GameState {
+  if (state.box === before.box && state.boxOf === before.boxOf) return state;
+
+  const boxOf: Record<number, number> = {};
+  const count: number[] = state.boxNames.map(() => 0);
+  const unplaced: Individual[] = [];
+  for (const creature of state.box) {
+    const tab = state.boxOf[creature.uid];
+    if (tab !== undefined && tab < count.length) {
+      boxOf[creature.uid] = tab;
+      count[tab]++;
+    } else {
+      unplaced.push(creature);
+    }
+  }
+
+  const boxNames = [...state.boxNames];
+  for (const creature of unplaced) {
+    let tab = count.findIndex((n) => n < BOX_SIZE);
+    if (tab < 0) {
+      tab = boxNames.length;
+      boxNames.push(defaultBoxName(tab));
+      count.push(0);
+    }
+    boxOf[creature.uid] = tab;
+    count[tab]++;
+  }
+
+  return { ...state, boxNames, boxOf };
+}
+
+/** How many creatures sit in a tab. */
+export function boxCount(state: GameState, tab: number): number {
+  return state.box.reduce((n, creature) => n + (state.boxOf[creature.uid] === tab ? 1 : 0), 0);
+}
+
+/** Why a box input would be refused, or null. */
+export function boxRefusal(state: GameState, input: Extract<Input, { t: "addBox" | "renameBox" | "moveToBox" }>): string | null {
+  if (state.phase === "battle") return "not in the middle of a battle";
+  switch (input.t) {
+    case "addBox":
+      return state.boxNames.length >= BOX_TABS_MAX ? `no more than ${BOX_TABS_MAX} boxes` : null;
+    case "renameBox":
+      return input.tab >= 0 && input.tab < state.boxNames.length ? null : "no such box";
+    case "moveToBox": {
+      if (!state.box.some((one) => one.uid === input.uid)) return "that is not in the box";
+      if (input.tab < 0 || input.tab >= state.boxNames.length) return "no such box";
+      if (state.boxOf[input.uid] === input.tab) return null;
+      return boxCount(state, input.tab) >= BOX_SIZE ? "that box is full" : null;
+    }
+  }
+}
+
+/** A typed box name, tidied the way a nickname is; empty gives the default back. */
+export function cleanBoxName(name: string, tab: number): string {
+  const clean = [...name.replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim()]
+    .slice(0, BOX_NAME_MAX)
+    .join("")
+    .trim();
+  return clean || defaultBoxName(tab);
+}
+
+function boxInput(state: GameState, input: Extract<Input, { t: "addBox" | "renameBox" | "moveToBox" }>): GameState {
+  const refusal = boxRefusal(state, input);
+  if (refusal) throw new IllegalInput(refusal);
+  const next = { ...state, tick: state.tick + 1, notice: null };
+  switch (input.t) {
+    case "addBox":
+      return { ...next, boxNames: [...state.boxNames, defaultBoxName(state.boxNames.length)] };
+    case "renameBox":
+      return {
+        ...next,
+        boxNames: state.boxNames.map((name, tab) => (tab === input.tab ? cleanBoxName(input.name, tab) : name)),
+      };
+    case "moveToBox":
+      return { ...next, boxOf: { ...state.boxOf, [input.uid]: input.tab } };
+  }
 }
 
 /**
@@ -1203,9 +1344,9 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
     case "withdraw":
       return withdraw(world, state, input.slot);
     case "collectEgg":
-      return collectEgg(world, state);
+      return collectEgg(world, state, input.to ?? "party");
     case "hatch":
-      return hatchEgg(state, input.index);
+      return hatchEgg(state, input.index, input.from ?? "party");
     case "toggleItem":
       return toggleItem(world, state, input.item);
     case "store":
@@ -1222,6 +1363,10 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return reorderParty(state, input.from, input.to);
     case "rename":
       return rename(state, input.uid, input.name);
+    case "addBox":
+    case "renameBox":
+    case "moveToBox":
+      return boxInput(state, input);
     case "useItem":
       return applyItem(world, state, input.item, input.index);
     case "fieldMove":
@@ -1569,16 +1714,20 @@ function atDaycare(world: World, state: GameState): boolean {
  * counter does not move, so the UI can say why.
  */
 function walked(before: GameState): GameState {
-  // Every egg in the bag is walked, whatever the daycare is doing.
-  const state = before.eggs.some((egg) => egg.steps > 0)
-    ? { ...before, eggs: before.eggs.map((egg) => (egg.steps > 0 ? { ...egg, steps: egg.steps - 1 } : egg)) }
-    : before;
+  const step = (eggs: Egg[]) => eggs.map((egg) => (egg.steps > 0 ? { ...egg, steps: egg.steps - 1 } : egg));
+
+  // Every egg carried is walked, and every egg in an incubator too: the
+  // daycare keeps them warm, but it is still your walking that hatches them.
+  let state = before.eggs.some((egg) => egg.steps > 0) ? { ...before, eggs: step(before.eggs) } : before;
+  if (state.daycare.incubating.some((egg) => egg.steps > 0)) {
+    state = { ...state, daycare: { ...state.daycare, incubating: step(state.daycare.incubating) } };
+  }
 
   const [first, second] = state.daycare.slots;
   if (!first || !second || state.daycare.eggReady || !compatible(first, second)) return state;
 
   const steps = state.daycare.steps + 1;
-  return steps < STEPS_PER_EGG
+  return steps < eggSteps(state.daycare.applied)
     ? { ...state, daycare: { ...state.daycare, steps } }
     : { ...state, daycare: { ...state.daycare, steps: 0, eggReady: true } };
 }
@@ -2048,16 +2197,29 @@ function takeArenaPrize(world: World, state: GameState, index: number): GameStat
   };
 }
 
-function collectEgg(world: World, state: GameState): GameState {
-  if (!atDaycare(world, state)) throw new IllegalInput("you are not in the daycare");
-  if (!state.daycare.eggReady) throw new IllegalInput("no egg yet");
-  if (partyFull(state)) throw new IllegalInput("your party is full — an egg needs a slot");
+/** Why an egg cannot be taken to that place, or null. */
+export function collectRefusal(world: World, state: GameState, to: "party" | "incubator"): string | null {
+  if (!atDaycare(world, state)) return "you are not in the daycare";
+  if (!state.daycare.eggReady) return "no egg yet";
+  if (to === "party" && partyFull(state)) return "your party is full — an egg needs a slot";
+  if (to === "incubator" && state.daycare.incubating.length >= incubatorSlots(state.daycare.applied)) {
+    return incubatorSlots(state.daycare.applied) ? "every incubator is taken" : "no incubator applied";
+  }
+  return null;
+}
+
+function collectEgg(world: World, state: GameState, to: "party" | "incubator"): GameState {
+  const refusal = collectRefusal(world, state, to);
+  if (refusal) throw new IllegalInput(refusal);
 
   const [first, second] = state.daycare.slots;
   if (!first || !second) throw new IllegalInput("no pair");
 
   const child = breed(world.seed, first, second, state.daycare.eggIndex, state.daycare.applied);
-  const steps = hatchSteps(world.seed, first, second, state.daycare.eggIndex, child);
+  const steps = reducedHatch(
+    hatchSteps(world.seed, first, second, state.daycare.eggIndex, child),
+    state.daycare.applied,
+  );
   const egg: Egg = { creature: atFullHealth({ ...child, uid: 0 }), steps, total: steps };
 
   // Glitter is spent on the egg, not on the outcome. It bought the roll, the
@@ -2074,10 +2236,11 @@ function collectEgg(world: World, state: GameState): GameState {
   return {
     ...state,
     tick: state.tick + 1,
-    eggs: [...state.eggs, egg],
+    eggs: to === "party" ? [...state.eggs, egg] : state.eggs,
     bag,
     daycare: {
       ...state.daycare,
+      incubating: to === "incubator" ? [...state.daycare.incubating, egg] : state.daycare.incubating,
       applied,
       eggReady: false,
       eggIndex: state.daycare.eggIndex + 1,
@@ -2088,23 +2251,41 @@ function collectEgg(world: World, state: GameState): GameState {
 }
 
 /** Why an egg cannot be opened, or null when it can. */
-export function hatchRefusal(state: GameState, index: number): string | null {
+export function hatchRefusal(state: GameState, index: number, from: "party" | "incubator" = "party"): string | null {
   if (state.phase !== "field") return "not now";
-  const egg = state.eggs[index];
+  const egg = (from === "party" ? state.eggs : state.daycare.incubating)[index];
   if (!egg) return "no such egg";
   if (egg.steps > 0) return "it is not ready to hatch";
   return null;
 }
 
-/** The first egg ready to open, or null. What the page plays the scene for. */
-export function readyEgg(state: GameState): { index: number; egg: Egg } | null {
-  const index = state.eggs.findIndex((egg) => egg.steps === 0);
-  return index < 0 ? null : { index, egg: state.eggs[index] };
+/**
+ * The first egg ready to open, or null. What the page plays the scene for.
+ * A carried one first, then the incubators.
+ */
+export function readyEgg(state: GameState): { index: number; egg: Egg; from: "party" | "incubator" } | null {
+  const carried = state.eggs.findIndex((egg) => egg.steps === 0);
+  if (carried >= 0) return { index: carried, egg: state.eggs[carried], from: "party" };
+  const kept = state.daycare.incubating.findIndex((egg) => egg.steps === 0);
+  return kept < 0 ? null : { index: kept, egg: state.daycare.incubating[kept], from: "incubator" };
 }
 
-function hatchEgg(state: GameState, index: number): GameState {
-  const refusal = hatchRefusal(state, index);
+function hatchEgg(state: GameState, index: number, from: "party" | "incubator"): GameState {
+  const refusal = hatchRefusal(state, index, from);
   if (refusal) throw new IllegalInput(refusal);
+
+  if (from === "incubator") {
+    // Into the box always: an incubated egg never had a party slot to hatch into.
+    const born = { ...state.daycare.incubating[index].creature, uid: state.nextUid };
+    return {
+      ...state,
+      tick: state.tick + 1,
+      daycare: { ...state.daycare, incubating: state.daycare.incubating.filter((_, at) => at !== index) },
+      box: [...state.box, born],
+      nextUid: state.nextUid + 1,
+      notice: { t: "hatched", speciesId: born.speciesId, variantId: born.variantId, boxed: true },
+    };
+  }
 
   const hatched = { ...state.eggs[index].creature, uid: state.nextUid };
 
@@ -2126,6 +2307,10 @@ function toggleItem(world: World, state: GameState, item: BreedingItem): GameSta
   const applied = state.daycare.applied.includes(item)
     ? state.daycare.applied.filter((held) => held !== item)
     : [...state.daycare.applied, item].sort();
+  // An incubator cannot be taken away from under an egg that is in it.
+  if (incubatorSlots(applied) < state.daycare.incubating.length) {
+    throw new IllegalInput("an egg is still in that incubator");
+  }
 
   return { ...state, tick: state.tick + 1, daycare: { ...state.daycare, applied }, notice: null };
 }
@@ -4233,7 +4418,7 @@ function answerEvolution(state: GameState, uid: number, to: string, accept: bool
     party: state.party.map(change),
     box: state.box.map(change),
     pendingEvolutions,
-    notice: { t: "evolved", from: was.speciesId, to, uid },
+    notice: { t: "evolved", from: was.speciesId, to, uid, watched: true },
   };
 }
 
@@ -5324,6 +5509,7 @@ export function stateHash(state: GameState): string {
     state.daycare.eggIndex,
     state.daycare.eggReady ? "1" : "0",
     state.daycare.applied.join(","),
+    state.daycare.incubating.map((egg) => `${individual(egg.creature)}@${egg.steps}/${egg.total}`).join("|"),
   ].join(":");
 
   const canonical = [
@@ -5356,6 +5542,12 @@ export function stateHash(state: GameState): string {
     state.rivalVisits,
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
+    state.boxNames.map((name) => encodeURIComponent(name)).join(","),
+    Object.keys(state.boxOf)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map((uid) => `${uid}>${state.boxOf[uid]}`)
+      .join(","),
     state.nextUid,
     state.money,
     bagEntries(state.bag).map(([id, count]) => `${id}x${count}`).join(","),

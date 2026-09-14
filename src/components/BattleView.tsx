@@ -25,6 +25,7 @@ import { autoPick, pickByKey, switchTargets } from "@/lib/switching";
 import { MoveNote } from "./MoveNote";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
+import { WeatherLayer } from "./WeatherLayer";
 
 /**
  * One battle view for both kinds of battle.
@@ -585,6 +586,7 @@ export function BattleView({
         <div className="stageField">
           <FieldLine field={battle.field} />
           <div className="field">
+            <WeatherLayer field={battle.field} />
         {/* Hover either creature for its full numbers. Nothing across the
             field is secret: a duel commits to a move before it is revealed,
             so reading the opponent cannot be used to cheat. */}

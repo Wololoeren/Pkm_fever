@@ -2,6 +2,7 @@
 
 import { useEffect, type RefObject } from "react";
 import { typeColor } from "@/render/palette";
+import { playStrike } from "./strikes";
 import { BALL_FLIGHT_MS, BALL_SETTLE_MS, CATCH_TAIL_MS, WOBBLE_MS, type Beat, type Catch } from "@/lib/beats";
 
 /**
@@ -118,6 +119,8 @@ export function useBeat(
     if (stillness()) return;
 
     const running: Animation[] = [];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const spawned: HTMLElement[] = [];
     const play = (
       target: HTMLElement,
       frames: Keyframe[],
@@ -131,7 +134,7 @@ export function useBeat(
     // purpose: this is a sprite standing on a field, not a fighting game.
     const toward = facing === "right" ? 18 : -18;
 
-    if (beat.lungeAt !== null) {
+    for (const lungeAt of beat.lunges) {
       play(
         element,
         [
@@ -140,15 +143,15 @@ export function useBeat(
           { transform: "translateX(0)" },
         ],
         260,
-        beat.lungeAt,
+        lungeAt,
       );
     }
 
-    if (beat.hitAt !== null) {
+    for (const hit of beat.hits) {
       // Away from the blow, and harder on a critical. Three shakes rather than
       // one: a single displacement reads as the sprite having moved, and a
       // shake reads as having been hit.
-      const kick = beat.crit ? 9 : 5;
+      const kick = hit.crit ? 9 : 5;
       const away = facing === "right" ? -kick : kick;
       play(
         element,
@@ -159,8 +162,8 @@ export function useBeat(
           { transform: `translateX(${away * 0.4}px)` },
           { transform: "translateX(0)" },
         ],
-        beat.crit ? 320 : 220,
-        beat.hitAt,
+        hit.crit ? 320 : 220,
+        hit.at,
       );
 
       // And a wash of the attacking move's own colour over it, which is the
@@ -174,17 +177,29 @@ export function useBeat(
         // makes it invisible at rest, and it is why it needs no `opacity: 0`
         // in the stylesheet — which would have been a rule that hides itself
         // and is never shown again in CSS, the exact shape Y1 guards against.
-        const wash = beat.crit ? "rgba(255, 255, 255, 0.85)" : typeColor(beat.type ?? "normal");
+        const wash = hit.crit ? "rgba(255, 255, 255, 0.85)" : typeColor(hit.type ?? "normal");
         play(
           mark,
           [
             { background: wash, opacity: 0, transform: "scale(0.7)" },
-            { background: wash, opacity: beat.crit ? 0.85 : 0.55, transform: "scale(1.05)", offset: 0.3 },
+            { background: wash, opacity: hit.crit ? 0.85 : 0.55, transform: "scale(1.05)", offset: 0.3 },
             { background: wash, opacity: 0, transform: "scale(1.25)" },
           ],
-          beat.crit ? 380 : 300,
-          beat.hitAt,
+          hit.crit ? 380 : 300,
+          hit.at,
         );
+
+        // And what the move looks like landing: flames, a splash, a bolt.
+        // Only for a blow somebody threw — a burn has no shape to show.
+        const stage = mark.parentElement;
+        const moveId = hit.moveId;
+        if (stage && moveId) {
+          timers.push(
+            setTimeout(() => {
+              spawned.push(...playStrike(stage, hit.type ?? "normal", moveId, hit.crit));
+            }, hit.at),
+          );
+        }
       }
     }
 
@@ -235,6 +250,8 @@ export function useBeat(
 
     return () => {
       for (const animation of running) animation.cancel();
+      for (const timer of timers) clearTimeout(timer);
+      for (const piece of spawned) piece.remove();
     };
     // `beat` is rebuilt every render, so it cannot be a dependency without
     // restarting the animation on every keystroke elsewhere on the page. The

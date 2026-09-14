@@ -1,6 +1,6 @@
 # Items
 
-**541 of them**, of which 288 are machines. The other 253 are below.
+**553 of them**, of which 288 are machines. The other 265 are below.
 
 Seven of those are the printer's inks — one per colour but ivory, which is the
 one it never ran out of. They are not on any shelf at any price: an ink is
@@ -24,7 +24,7 @@ something you give to a creature to keep, something you use on the world.
 | Berries | 41 | The same, but eaten and gone the moment it does it |
 | Tonics | 37 | Moves a number on a stat screen |
 | Stones | 22 | Turns one creature into another |
-| Breeding | 19 | Applied to a pairing at the daycare |
+| Breeding | 31 | Applied to a pairing at the daycare. Nine are the daycare's kit — Pairing Bell and Courting Song (50/100 steps off the wait for an egg), Rose Incense and Moonlit Charm (20/40% off, after the flat cuts), Warm Blanket and Ember Cradle (15/30% off hatching), Incubator, Brood Lamp and Hatchery Stone (1/1/2 incubators, up to 4); the first of each kind is sold. Three more — Spore of Change, Living Amber, Primordial Seed — give each IV outside the mutating slots a 10/20/35% chance to mutate anyway |
 | Machines | 288 | Teaches a move, and keeps |
 | Lures | 9 | Draws one kind of thing out of the grass |
 | Medicine | 11 | Health, and what ails it |

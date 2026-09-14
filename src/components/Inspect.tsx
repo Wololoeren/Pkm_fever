@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
-import { MAX_MOVES, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
+import { depositRefusal, MAX_MOVES, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
 import { abilitiesOf } from "@/engine/abilities";
 import { natureVector } from "@/engine/natures";
 import { displayPower } from "@/engine/moves";
@@ -26,6 +26,7 @@ import { GenderMark } from "./PartyStrip";
 import type { World } from "@/engine/world";
 import { InfoDot } from "./InfoDot";
 import { MoveNote } from "./MoveNote";
+import { ReleaseButton } from "./ReleaseButton";
 import { Sprite } from "./Sprite";
 
 /**
@@ -194,6 +195,62 @@ function NameEditor({
   );
 }
 
+/**
+ * What can be done with a boxed creature, now the box is a grid of pictures.
+ *
+ * The rows it used to sit in carried these buttons; the grid has room for a
+ * picture and a level, so they moved to the sheet a left click opens. Nothing
+ * for a party member — those rows are still in the Centre.
+ */
+function BoxActions({
+  world,
+  creature,
+  state,
+  onInput,
+  onClose,
+}: {
+  world: World;
+  creature: Individual;
+  state: GameState;
+  onInput: (input: Input) => void;
+  onClose: () => void;
+}) {
+  const index = state.box.findIndex((one) => one.uid === creature.uid);
+  if (index < 0) return null;
+  const full = state.party.length + state.eggs.length >= 6;
+  const daycare = depositRefusal(world, state, "box", index);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="ghost small"
+        disabled={full}
+        title={full ? "Your party is full" : "Into your party"}
+        onClick={() => {
+          onInput({ t: "retrieve", index });
+          onClose();
+        }}
+      >
+        Take out
+      </button>
+      <button
+        type="button"
+        className="ghost small"
+        disabled={Boolean(daycare)}
+        title={daycare ?? "Straight to the daycare"}
+        onClick={() => {
+          onInput({ t: "deposit", from: "box", index });
+          onClose();
+        }}
+      >
+        Daycare
+      </button>
+      <ReleaseButton state={state} from="box" index={index} creature={creature} onInput={onInput} />
+    </>
+  );
+}
+
 export function Inspect({
   world,
   creature,
@@ -296,9 +353,12 @@ export function Inspect({
               </p>
             </div>
           </div>
-          <button type="button" className="ghost" onClick={onClose}>
-            Close <kbd>E</kbd>
-          </button>
+          <div className="row">
+            <BoxActions world={world} creature={creature} state={state} onInput={onInput} onClose={onClose} />
+            <button type="button" className="ghost" onClick={onClose}>
+              Close <kbd>E</kbd>
+            </button>
+          </div>
         </header>
 
         <h3>

@@ -88,6 +88,19 @@ export interface ItemSpec {
   climbBonus?: number;
   /** Breeding: spent when the egg is produced rather than kept. */
   consumed?: boolean;
+  /**
+   * Breeding: percentage points of chance that each IV not already mutating
+   * mutates anyway. Additive across items; see `mutationBonus`.
+   */
+  mutationBonus?: number;
+  /** Daycare: steps taken off the pair's wait for an egg, before any percentage. */
+  pairFlat?: number;
+  /** Daycare: percent off the pair's wait, applied after the flat cuts. */
+  pairPercent?: number;
+  /** Daycare: percent off the hatch steps of an egg taken while applied. */
+  hatchPercent?: number;
+  /** Daycare: incubators it adds, where eggs wait and hatch into the box. */
+  incubatorSlots?: number;
   /** Lures: what draws, and how far down the route's census it can reach. */
   lure?: LureSpec;
   /** Machines: the move it teaches. */
@@ -636,6 +649,27 @@ const BREEDING_ITEMS: ItemSpec[] = [
   { id: "heirloom", name: "Heirloom", blurb: "Daycare: 5 of each egg's 6 IVs mutate upward instead of 3. Never used up." },
   { id: "talisman", name: "Talisman", blurb: "Daycare: each egg always gets the first parent's nature. Never used up." },
   { id: "catalyst", name: "Catalyst", blurb: "Daycare: IVs that mutate go up by 2–5 points instead of 1–3. Never used up." },
+  // The rare three. They stack with each other, with the Heirloom and with the
+  // Catalyst: the Heirloom decides how many IVs are sure to mutate, these give
+  // the rest a chance, and the Catalyst decides how far each one goes.
+  {
+    id: "sporeofchange",
+    name: "Spore of Change",
+    blurb: "Daycare: each IV that would not mutate gets a 10% chance to mutate anyway. Stacks with the other two. Never used up.",
+    mutationBonus: 10,
+  },
+  {
+    id: "livingamber",
+    name: "Living Amber",
+    blurb: "Daycare: each IV that would not mutate gets a 20% chance to mutate anyway. Stacks with the other two. Never used up.",
+    mutationBonus: 20,
+  },
+  {
+    id: "primordialseed",
+    name: "Primordial Seed",
+    blurb: "Daycare: each IV that would not mutate gets a 35% chance to mutate anyway. Stacks with the other two. Never used up.",
+    mutationBonus: 35,
+  },
   { id: "prism", name: "Prism", blurb: "Daycare: each egg's base chance to gain a shine rung goes from 1% to 5%. Never used up." },
   ...CHROMA_IDS.map((id) => ({
     id: `lens-${id}`,
@@ -656,6 +690,89 @@ const BREEDING_ITEMS: ItemSpec[] = [
   sell: 0,
   stacks: false,
 }));
+
+/**
+ * The daycare's working kit: a shorter wait for the pair, a shorter hatch, and
+ * incubators. The first of each kind is on the Mart's shelf, because these
+ * change how long breeding takes rather than how good it is, and waiting less
+ * is something money can fairly buy. The stronger ones are out in the world.
+ *
+ * All of them are applied at the daycare like the rest and never used up.
+ */
+const DAYCARE_GEAR: ItemSpec[] = [
+  {
+    id: "pairingbell",
+    name: "Pairing Bell",
+    price: 6000,
+    sell: 3000,
+    blurb: "Daycare: the pair lays an egg 50 steps sooner. Flat cuts come off before any percentage. Never used up.",
+    pairFlat: 50,
+  },
+  {
+    id: "courtingsong",
+    name: "Courting Song",
+    price: 0,
+    sell: 0,
+    blurb: "Daycare: the pair lays an egg 100 steps sooner. Flat cuts come off before any percentage. Never used up.",
+    pairFlat: 100,
+  },
+  {
+    id: "roseincense",
+    name: "Rose Incense",
+    price: 10000,
+    sell: 5000,
+    blurb: "Daycare: the pair's wait for an egg is 20% shorter, taken after any flat cuts. Never used up.",
+    pairPercent: 20,
+  },
+  {
+    id: "moonlitcharm",
+    name: "Moonlit Charm",
+    price: 0,
+    sell: 0,
+    blurb: "Daycare: the pair's wait for an egg is 40% shorter, taken after any flat cuts. Never used up.",
+    pairPercent: 40,
+  },
+  {
+    id: "warmblanket",
+    name: "Warm Blanket",
+    price: 8000,
+    sell: 4000,
+    blurb: "Daycare: eggs taken while this is applied hatch in 15% fewer steps. Stacks, up to 75%. Never used up.",
+    hatchPercent: 15,
+  },
+  {
+    id: "embercradle",
+    name: "Ember Cradle",
+    price: 0,
+    sell: 0,
+    blurb: "Daycare: eggs taken while this is applied hatch in 30% fewer steps. Stacks, up to 75%. Never used up.",
+    hatchPercent: 30,
+  },
+  {
+    id: "incubator",
+    name: "Incubator",
+    price: 15000,
+    sell: 7500,
+    blurb: "Daycare: one incubator. An egg left in it hatches as you walk, without a party slot, and goes to the box. Never used up.",
+    incubatorSlots: 1,
+  },
+  {
+    id: "broodlamp",
+    name: "Brood Lamp",
+    price: 0,
+    sell: 0,
+    blurb: "Daycare: one more incubator. Eggs left in it hatch as you walk and go to the box. Never used up.",
+    incubatorSlots: 1,
+  },
+  {
+    id: "hatcherystone",
+    name: "Hatchery Stone",
+    price: 0,
+    sell: 0,
+    blurb: "Daycare: two more incubators, up to four in all. Eggs left in them hatch as you walk and go to the box. Never used up.",
+    incubatorSlots: 2,
+  },
+].map((entry) => ({ ...entry, kind: "breeding" as const, stacks: false }));
 
 /**
  * Glitter, which is the other half of what the Appraiser in the north pays.
@@ -1078,6 +1195,7 @@ export const ITEMS: readonly ItemSpec[] = [
   ...TOOLS,
   ...KEYS,
   ...BREEDING_ITEMS,
+  ...DAYCARE_GEAR,
   GLITTER,
   ...STONES,
   ...TONICS,

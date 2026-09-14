@@ -232,6 +232,7 @@ describe("what buys the climb", () => {
         eggIndex: 0,
         eggReady: true,
         applied: [GLITTER],
+        incubating: [],
       },
       route: [...world.routes.values()].find((one) => one.role === "daycare")!.id,
     };

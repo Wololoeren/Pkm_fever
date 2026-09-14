@@ -148,6 +148,9 @@ describe("the stones", () => {
       from: "caterpie",
       to: "metapod",
       uid: state.party[0].uid,
+      // Watched: the scene that asked has already played, so the page must
+      // not play the reveal a second time off this notice.
+      watched: true,
     });
 
     const again = applyInput(world, became, { t: "useItem", item: "rarecandy", index: 0 });
