@@ -1,5 +1,6 @@
 "use client";
 
+import { rememberedTrainerName } from "./MainMenu";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BattleAction } from "@/engine/battle";
 import { BRACKET_SIZES, roundName, type BracketSize } from "@/engine/bracket";
@@ -207,6 +208,8 @@ export function TourneyScreen({
   onPrize: (creature: Individual) => void;
 }) {
   const [name, setName] = useState("");
+  // Your trainer name, to start with: the one on everything you catch.
+  useEffect(() => setName((current) => current || rememberedTrainerName()), []);
   const [hosting, setHosting] = useState(true);
   const [size, setSize] = useState<BracketSize>(4);
   const [teamSize, setTeamSize] = useState(3);

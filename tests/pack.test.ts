@@ -85,6 +85,7 @@ describe("packing a log", () => {
       { t: "collectEgg", to: "incubator" },
       { t: "rename", uid: 1, name: "Sprout" },
       { t: "addBox" },
+      { t: "trainer", name: "Ash" },
       { t: "renameBox", tab: 0, name: "Keepers" },
       { t: "moveToBox", uid: 1, tab: 1 },
       { t: "toggleItem", item: "prism" },

@@ -20,7 +20,7 @@ import { LearnPanel } from "@/components/LearnPanel";
 import { TalkPanel } from "@/components/TalkPanel";
 import { HubPanel } from "@/components/HubPanel";
 import { MartPanel } from "@/components/MartPanel";
-import { MainMenu } from "@/components/MainMenu";
+import { MainMenu, rememberedTrainerName, rememberTrainerName } from "@/components/MainMenu";
 import { EggSlots, PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
 import { BALLS, countOf, item } from "@/engine/items";
@@ -28,7 +28,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
@@ -107,6 +107,44 @@ const INDOORS_NOTE: Partial<Record<InteriorRole, string>> = {
  * them in its log, and it has to load, replay and verify (as cheated) anywhere.
  */
 const CHEATS_AVAILABLE = process.env.NODE_ENV === "development";
+
+/**
+ * A save from before trainer names asks for one, once.
+ *
+ * Everything it has already caught is signed with the name the moment it is
+ * given, so nothing is lost by choosing late.
+ */
+function TrainerPrompt({ onInput }: { onInput: (input: Input) => void }) {
+  const [name, setName] = useState("");
+  useEffect(() => setName(rememberedTrainerName()), []);
+  const ok = cleanTrainerName(name).length > 0;
+  return (
+    <section className="panel">
+      <h3>Choose a trainer name</h3>
+      <p className="muted">It goes on everything you catch, as &ldquo;caught by&rdquo;, and stays with it through trades.</p>
+      <form
+        className="row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!ok) return;
+          rememberTrainerName(cleanTrainerName(name));
+          onInput({ t: "trainer", name });
+        }}
+      >
+        <input
+          value={name}
+          maxLength={TRAINER_NAME_MAX}
+          onChange={(event) => setName(event.target.value)}
+          aria-label="Trainer name"
+          spellCheck={false}
+        />
+        <button type="submit" className="primary" disabled={!ok}>
+          Save
+        </button>
+      </form>
+    </section>
+  );
+}
 
 export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
@@ -436,9 +474,11 @@ export default function Page() {
       <main className="shell">
         <MainMenu
           autosave={autosave}
-          onNew={(seed) => {
+          onNew={(seed, trainer) => {
             clearAutosave();
-            start(seed);
+            // The name is the first input, so it is in the save like
+            // everything else and replays onto every creature caught.
+            start(seed, [{ t: "trainer", name: trainer }]);
           }}
           onLoad={(save) => start(save.seed, save.inputs)}
         />
@@ -739,6 +779,8 @@ export default function Page() {
           ) : null}
         </section>
       )}
+
+      {!state.trainerName ? <TrainerPrompt onInput={dispatch} /> : null}
 
       {state.talking ? (
         <TalkPanel world={session.world} state={state} onInput={dispatch} />

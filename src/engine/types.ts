@@ -260,6 +260,13 @@ export interface Individual {
   heldItem: string | null;
   /** Nickname, or null to display the species name. */
   nickname: string | null;
+  /**
+   * Who caught it: the trainer name of the save it first joined, or the name
+   * of the person in the world who handed it over. Kept through trades, so a
+   * creature always says where it came from. Absent on a creature nobody has
+   * signed yet — the engine signs everything of yours once you have a name.
+   */
+  caughtBy?: string | null;
   /** Which egg produced it, or null for a wild catch. Breeding reads this. */
   parents: [number, number] | null;
   gender: Gender;

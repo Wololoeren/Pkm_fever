@@ -215,6 +215,16 @@ listed at the end.
   party or box is level 40+ — guarded by `state.expShareGiven`. Not in shops,
   sells for 2000 (H2 requires a sell price). Removed from the "should not
   exist" table in `docs/items-deferred.md`. Tests ES1–ES4.
+- **Trainer names and "caught by".** `trainer` input (opcode 48), once per
+  save, 12 chars; the new-game form requires it and sends it as the first
+  input; a save without one shows `TrainerPrompt` in `page.tsx`. The last name
+  typed is remembered in localStorage (`pkmfever.trainerName`) and pre-fills
+  the tournament name. `Individual.caughtBy` is set by `signed()` at the end
+  of `applyInput` on every party/box creature without one; trades keep the
+  sender's (or "Unknown"), NPC gifts carry the NPC's name. Neither the name
+  nor `caughtBy` is in `stateHash`, so today's-seed hashes still compare
+  across players (a nickname *is* in the hash — worth revisiting for the same
+  reason). Shown on the stat sheet. Tests in `tests/trainer.test.ts`.
 - `tests/nickname.test.ts` NUL bytes replaced with escapes.
 - This file.
 

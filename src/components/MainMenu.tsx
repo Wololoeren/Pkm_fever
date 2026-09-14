@@ -2,7 +2,27 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { TRAINER_NAME_MAX, cleanTrainerName } from "@/engine/engine";
 import { dailySeed, parseSave, randomSeed, type SaveFile } from "@/lib/save";
+
+/** Where the last trainer name typed is remembered, so the next game starts with it. */
+const NAME_KEY = "pkmfever.trainerName";
+
+export function rememberedTrainerName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberTrainerName(name: string): void {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    /* private window: nothing to remember it in */
+  }
+}
 
 /**
  * The four ways in.
@@ -16,10 +36,14 @@ export function MainMenu({
   onLoad,
 }: {
   autosave: SaveFile | null;
-  onNew: (seed: string) => void;
+  /** A new game in this world, played under this trainer name. */
+  onNew: (seed: string, trainer: string) => void;
   onLoad: (save: SaveFile) => void;
 }) {
   const [seed, setSeed] = useState(() => randomSeed());
+  const [trainer, setTrainer] = useState("");
+  useEffect(() => setTrainer(rememberedTrainerName()), []);
+  const named = cleanTrainerName(trainer).length > 0;
   // Read once the page is in a browser, not while the static export is
   // rendered: the build machine's date is not the player's.
   const [today, setToday] = useState<string | null>(null);
@@ -52,6 +76,16 @@ export function MainMenu({
         </p>
         <div className="row">
           <input
+            value={trainer}
+            onChange={(event) => setTrainer(event.target.value)}
+            maxLength={TRAINER_NAME_MAX}
+            placeholder="Trainer name"
+            aria-label="Trainer name"
+            spellCheck={false}
+          />
+        </div>
+        <div className="row">
+          <input
             value={seed}
             onChange={(event) => setSeed(event.target.value)}
             aria-label="World seed"
@@ -68,7 +102,16 @@ export function MainMenu({
           >
             Today&apos;s
           </button>
-          <button type="button" className="primary" onClick={() => onNew(seed)}>
+          <button
+            type="button"
+            className="primary"
+            disabled={!named}
+            title={named ? undefined : "Choose a trainer name first — it goes on everything you catch"}
+            onClick={() => {
+              rememberTrainerName(cleanTrainerName(trainer));
+              onNew(seed, trainer);
+            }}
+          >
             Begin
           </button>
         </div>

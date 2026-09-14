@@ -166,6 +166,8 @@ export type Direction = "n" | "s" | "e" | "w";
 
 export type Input =
   | { t: "pickStarter"; index: number }
+  /** The player's trainer name. Given once, normally before the starter. */
+  | { t: "trainer"; name: string }
   | { t: "move"; dir: Direction }
   | { t: "fight"; moveIndex: number }
   /** Nothing left to fight with. Legal only when that is actually true. */
@@ -617,6 +619,8 @@ export interface GameState {
   boxOf: Record<number, number>;
   /** Whether the Exp. Share has been handed over. Once per save. */
   expShareGiven: boolean;
+  /** The player's trainer name, written on everything they catch. Null until chosen. */
+  trainerName: string | null;
   nextUid: number;
   /** Everything held, by item id. Balls, medicine, rods and breeding gear in
    * one place, because "how many of this do I have" should have one answer. */
@@ -940,6 +944,7 @@ export function initialState(world: World): GameState {
     boxNames: [defaultBoxName(0)],
     boxOf: {},
     expShareGiven: false,
+    trainerName: null,
     nextUid: 1,
     bag: { pokeball: STARTING_BALLS },
     money: STARTING_MONEY,
@@ -1048,7 +1053,44 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))))));
+  return signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))))))));
+}
+
+/** The longest a trainer name may be. */
+export const TRAINER_NAME_MAX = 12;
+
+/** A typed trainer name, tidied the way a nickname is. Empty means none. */
+export function cleanTrainerName(name: string): string {
+  return [...name.replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim()]
+    .slice(0, TRAINER_NAME_MAX)
+    .join("")
+    .trim();
+}
+
+/** Why this trainer name would be refused, or null. */
+export function trainerRefusal(state: GameState, name: string): string | null {
+  if (state.trainerName) return "you already have a trainer name";
+  return cleanTrainerName(name) ? null : "a trainer name needs at least one letter";
+}
+
+/**
+ * Signs everything of yours that nobody has signed.
+ *
+ * In the funnel, for the reason `shelved` is: a creature joins by a dozen
+ * roads — the starter, a ball, an egg, a prize, a stranger on a route — and a
+ * thirteenth would quietly go unsigned. What arrives already signed keeps its
+ * signature: a traded creature, or one handed over by somebody in the world.
+ *
+ * Nothing happens before a name is chosen, and then everything already caught
+ * is signed at once, so an old save that picks a name later loses nothing.
+ */
+function signed(state: GameState): GameState {
+  const name = state.trainerName;
+  if (!name) return state;
+  const unsigned = (one: Individual) => one.caughtBy == null;
+  if (!state.party.some(unsigned) && !state.box.some(unsigned)) return state;
+  const sign = (one: Individual) => (unsigned(one) ? { ...one, caughtBy: name } : one);
+  return { ...state, party: state.party.map(sign), box: state.box.map(sign) };
 }
 
 /** The level at which the Exp. Share is handed over. */
@@ -1396,6 +1438,11 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return reorderParty(state, input.from, input.to);
     case "rename":
       return rename(state, input.uid, input.name);
+    case "trainer": {
+      const refusal = trainerRefusal(state, input.name);
+      if (refusal) throw new IllegalInput(refusal);
+      return { ...state, tick: state.tick + 1, trainerName: cleanTrainerName(input.name), notice: null };
+    }
     case "addBox":
     case "renameBox":
     case "moveToBox":
@@ -1691,6 +1738,11 @@ function trade(world: World, state: GameState, give: number, receive: Individual
     ...receive,
     uid: state.nextUid,
     traded: true,
+    // Whoever caught it, as their save signed it — or a plain "Unknown" from a
+    // client too old to say, rather than letting this save sign it as its own.
+    caughtBy: typeof receive.caughtBy === "string" && cleanTrainerName(receive.caughtBy)
+      ? cleanTrainerName(receive.caughtBy)
+      : "Unknown",
     // `prize` is *not* cleared, and is spread through from whatever arrived.
     // The two flags answer different questions — "somebody else raised this"
     // and "a bracket produced this" — and a prize that changed hands is
@@ -4536,6 +4588,8 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
       moves: [],
       heldItem: null,
       nickname: offer.nickname ?? null,
+      // Signed by the person who handed it over, not by you.
+      caughtBy: person.name,
       traded: true,
       prize: false,
       cheat: false,
@@ -5509,6 +5563,9 @@ export function stateHash(state: GameState): string {
       creature.abilities.join("+"),
       // Encoded, so a colon or a bar typed into a name cannot fake a boundary.
       encodeURIComponent(creature.nickname ?? ""),
+      // Not who caught it: a trainer name is who is playing, not what is
+      // happening, and two people on today's seed should be able to compare
+      // hashes whatever they are called.
     ].join(":");
 
   const counters = (table: Record<string, number>) =>

@@ -347,6 +347,9 @@ export function Inspect({
                 {creature.cheat ? <span className="tag fall">CHEAT</span> : null}
               </div>
               <p className="muted eggLine">
+                Caught by <strong>{creature.caughtBy ?? "you"}</strong>
+              </p>
+              <p className="muted eggLine">
                 {entry.eggGroups.includes("Undiscovered")
                   ? "Egg group: none — this one cannot breed at all."
                   : `Egg group${entry.eggGroups.length > 1 ? "s" : ""}: ${entry.eggGroups.join(", ")}`}
