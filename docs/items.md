@@ -1,6 +1,6 @@
 # Items
 
-**553 of them**, of which 288 are machines. The other 265 are below.
+**554 of them**, of which 288 are machines. The other 266 are below.
 
 Seven of those are the printer's inks — one per colour but ivory, which is the
 one it never ran out of. They are not on any shelf at any price: an ink is
@@ -20,7 +20,7 @@ something you give to a creature to keep, something you use on the world.
 
 | Shelf | Count | What it is |
 | --- | --- | --- |
-| Held | 70 | Given to a creature; does something while carried |
+| Held | 71 | Given to a creature; does something while carried |
 | Berries | 41 | The same, but eaten and gone the moment it does it |
 | Tonics | 37 | Moves a number on a stat screen |
 | Stones | 22 | Turns one creature into another |
@@ -124,6 +124,7 @@ ignores its own Flame Orb and a Fire type cannot be burned by one.
 
 | Item | Effect |
 | --- | --- |
+| **Exp. Share** | Held by one that did **not** fight: half the whole experience of each beaten creature, and its effort. Given once, when one of yours first reaches level 40, and never again — not in any shop |
 | **Lucky Egg** | Experience **×1.5** |
 | **Amulet Coin** / **Luck Incense** | Trainer purse **×2** |
 | **Everstone** | It will not evolve, by **either** road |

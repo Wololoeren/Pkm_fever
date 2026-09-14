@@ -719,6 +719,13 @@ export default function Page() {
               {state.notice.until.toLocaleString()}.
             </p>
           ) : null}
+          {state.notice?.t === "expShare" ? (
+            <p className="good">
+              {state.notice.on} reached level 40, and you were given an Exp. Share! Give it to a
+              creature from the Bag: it earns half the experience of every battle your team wins,
+              even without fighting.
+            </p>
+          ) : null}
           {state.notice?.t === "eggTaken" ? (
             <p className="good">
               You took the egg. Keep walking with it and see what hatches.

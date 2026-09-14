@@ -131,6 +131,12 @@ type EffectShape =
   | { t: "locked" }
   /** Experience it earns is multiplied. */
   | { t: "study"; mille: number }
+  /**
+   * A share of what a beaten creature was worth, for sitting it out: the
+   * Exp. Share. Paid to a holder that did not fight, in per-mille of the
+   * whole prize, with the effort that goes with it.
+   */
+  | { t: "share"; mille: number }
   /** Money won from a trainer is multiplied. */
   | { t: "purse"; mille: number }
   /** It will not evolve, by any road. */

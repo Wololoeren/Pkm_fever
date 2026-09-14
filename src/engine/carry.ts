@@ -112,6 +112,8 @@ export interface HeldItemSeed {
   name: string;
   blurb: string;
   price: number;
+  /** What a Mart pays, when it is not the usual half. */
+  sell?: number;
   hold: HoldSpec;
 }
 
@@ -369,6 +371,15 @@ const SINGLES: HeldItemSeed[] = [
   },
 
   // ---------------------------------------------- outside a battle entirely
+  {
+    id: "hold-expshare",
+    name: "Exp. Share",
+    blurb:
+      "If it did not fight, it still gets half the experience of every creature your team beats, and the effort points too. Given once, when one of yours first reaches level 40, and never again.",
+    price: 0,
+    sell: 2000,
+    hold: { effects: [{ t: "share", mille: 500 }] },
+  },
   {
     id: "hold-luckyegg",
     name: "Lucky Egg",

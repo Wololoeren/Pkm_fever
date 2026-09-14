@@ -245,7 +245,6 @@ Not deferred. These would work today and should not exist here.
 | **PP Up**, **PP Max** | The same, permanently |
 | **Bottle Cap**, **Gold Bottle Cap** | Sets IVs to perfect. Breeding *is* the IV system — ten to fifteen generations to perfect one stat — and a shop row that skips it would make the pillar decorative |
 | **Rare Candy** | Already in, and priced so that fighting stays the cheaper road |
-| **Exp. Share** | Would work, and shouldn't be free: experience is earned by whatever was standing, which is what makes the switch a decision. It is a balance change, not an item |
 | **Berries for planting** | There is no growing anything, and adding soil is a different game |
 | **Vitamins beyond the six** | There are six stats |
 | **Poké Doll**, **Fluffy Tail**, **Poké Toy** | A Smoke Ball is in and does this better: an item that guarantees an escape is worth having, and three of them is two too many |

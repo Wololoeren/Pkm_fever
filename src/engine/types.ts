@@ -127,7 +127,9 @@ import { BIOME_IDS } from "./biomes";
  * Facade, Brine, Knock Off, Revenge, Payback, Eruption, Stored Power, the
  * terrain moves, False Swipe, Freeze-Dry, Flying Press, Foul Play, Body Press,
  * Psyshock, Sacred Sword, Dream Eater, Sucker Punch and more — every one of
- * which used to be its flat base power or always worked. */
+ * which used to be its flat base power or always worked. And the Exp. Share,
+ * handed over when anybody first reaches level 40, which changes who levels in
+ * any battle fought after. */
 export const ENGINE_VERSION = 35;
 
 // ------------------------------------------------------------------ stats

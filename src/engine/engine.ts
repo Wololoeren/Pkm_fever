@@ -451,6 +451,8 @@ export type Notice =
   /** An egg went into the bag, and how long it will take. */
   | { t: "eggTaken"; steps: number }
   | { t: "hatched"; speciesId: string; variantId: string; boxed: boolean }
+  /** The Exp. Share, handed over because `on` reached level 40. */
+  | { t: "expShare"; on: string }
   | { t: "beatTrainer"; name: string; money: number }
   | { t: "traded"; given: string; received: string }
   /** A bracket won, and which of the three was taken. */
@@ -613,6 +615,8 @@ export interface GameState {
    */
   boxNames: string[];
   boxOf: Record<number, number>;
+  /** Whether the Exp. Share has been handed over. Once per save. */
+  expShareGiven: boolean;
   nextUid: number;
   /** Everything held, by item id. Balls, medicine, rods and breeding gear in
    * one place, because "how many of this do I have" should have one answer. */
@@ -935,6 +939,7 @@ export function initialState(world: World): GameState {
     box: [],
     boxNames: [defaultBoxName(0)],
     boxOf: {},
+    expShareGiven: false,
     nextUid: 1,
     bag: { pokeball: STARTING_BALLS },
     money: STARTING_MONEY,
@@ -1043,7 +1048,35 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))))));
+  return shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))))));
+}
+
+/** The level at which the Exp. Share is handed over. */
+export const EXP_SHARE_LEVEL = 40;
+export const EXP_SHARE = "hold-expshare";
+
+/**
+ * The Exp. Share, the first time anybody of yours reaches level 40.
+ *
+ * In the funnel, for the reason `shelved` is: a level can come from a battle,
+ * a Rare Candy, a bracket prize or a trade, and a fifth road would quietly not
+ * give it. Out in the field only, and only on an input that left nothing else
+ * to say: a stone's evolution, a hatching or a battle's result is never
+ * written over, and the Exp. Share arrives with the next step instead.
+ *
+ * Once per save, by a flag rather than by looking for the item, because the
+ * item can be held, sold, or go with a creature that is released.
+ */
+function shared(state: GameState): GameState {
+  if (state.expShareGiven || state.phase !== "field" || state.notice) return state;
+  const grown = [...state.party, ...state.box].find((one) => one.level >= EXP_SHARE_LEVEL);
+  if (!grown) return state;
+  return {
+    ...state,
+    expShareGiven: true,
+    bag: addItem(state.bag, EXP_SHARE),
+    notice: { t: "expShare", on: grown.nickname ?? speciesById(grown.speciesId).name },
+  };
 }
 
 /** How many a box tab holds: a seven by seven grid. */
@@ -5543,6 +5576,7 @@ export function stateHash(state: GameState): string {
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
     state.boxNames.map((name) => encodeURIComponent(name)).join(","),
+    state.expShareGiven ? "1" : "0",
     Object.keys(state.boxOf)
       .map(Number)
       .sort((a, b) => a - b)

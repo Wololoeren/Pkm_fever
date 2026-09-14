@@ -4871,13 +4871,26 @@ function settle(turn: Turn, rules: BattleRules): void {
 
     const base = effortYield(loser.speciesId);
 
-    for (const at of helped) {
+    /*
+     * The Exp. Share: anybody holding one who did not fight gets half the
+     * whole prize on top, not a cut of what the fighters earned. Fainted
+     * holders are not paid, for the reason fainted fighters are not.
+     */
+    const shares = new Map<number, number>();
+    for (const at of helped) shares.set(at, each);
+    team.forEach((member, at) => {
+      if (shares.has(at) || !standing(at)) return;
+      const cut = effects(member, "share").reduce((most, effect) => Math.max(most, effect.mille), 0);
+      if (cut > 0) shares.set(at, Math.max(1, scaled(whole, cut)));
+    });
+
+    for (const [at, share] of shares) {
       const earner = turn.battle.sides[0].team[at];
       if (!earner) continue;
 
       // A Lucky Egg is the *holder's*, so it is read per recipient rather
       // than off whoever happened to be standing at the end.
-      let amount = each;
+      let amount = share;
       for (const effect of effects(earner, "study")) amount = scaled(amount, effect.mille);
 
       const growth = awardExp(earner, amount);

@@ -1031,7 +1031,7 @@ const HOLDABLE: ItemSpec[] = HELD_ITEMS.map((entry) => ({
   price: entry.price,
   // Half, like everything else with a price; the ones nobody stocks are worth
   // something at the counter anyway, because they are found.
-  sell: entry.price > 0 ? Math.floor(entry.price / 2) : 400,
+  sell: entry.sell ?? (entry.price > 0 ? Math.floor(entry.price / 2) : 400),
   blurb: entry.blurb,
   // Held items stack in the bag: two Leftovers is two creatures with
   // Leftovers, which is not the same claim as "a second rod is not twice the

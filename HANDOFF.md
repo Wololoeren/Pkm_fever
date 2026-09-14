@@ -207,6 +207,14 @@ listed at the end.
   `.mover` (via the flash's parent), removed on finish, on cancel, and by a
   backup timer (a non-painting tab leaves animations pending forever). Hits in
   `beats.ts` now carry `moveId`. Shapes are `.strike-*` in `globals.css`.
+- **Exp. Share** (`hold-expshare` in `carry.ts`, effect `share` in
+  `abilities.ts`). A holder that did not fight gets half the whole
+  `expYield` of each beaten creature, plus effort; fighters' shares are
+  unchanged; fainted holders get nothing. Given once by `shared()` at the end
+  of `applyInput` — the first field input with no other notice after anybody in
+  party or box is level 40+ — guarded by `state.expShareGiven`. Not in shops,
+  sells for 2000 (H2 requires a sell price). Removed from the "should not
+  exist" table in `docs/items-deferred.md`. Tests ES1–ES4.
 - `tests/nickname.test.ts` NUL bytes replaced with escapes.
 - This file.
 
