@@ -32,7 +32,6 @@ import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/
 import type { BattleAction } from "@/engine/battle";
 import { applyInput, bestRod, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
-import { APPEARANCE_COUNT } from "@/engine/variants";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
   clearAutosave,
@@ -492,12 +491,6 @@ export default function Page() {
     return boxed ? { creature: boxed, index: -1 } : null;
   }, [state, inspecting]);
 
-  const foundLabel = useMemo(() => {
-    if (!state) return "";
-    const special = state.found.filter((id) => id !== "normal").length;
-    return `${special} of ${APPEARANCE_COUNT - 1}`;
-  }, [state]);
-
   if ((!session || !state) && vaultOpen) {
     return (
       <main className="shell">
@@ -610,10 +603,6 @@ export default function Page() {
           <div>
             <dt>Badges</dt>
             <dd>{state.badges.length} of 8</dd>
-          </div>
-          <div>
-            <dt>Variants</dt>
-            <dd>{foundLabel}</dd>
           </div>
           <div>
             <dt>Boxed</dt>

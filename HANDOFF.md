@@ -242,6 +242,15 @@ listed at the end.
   well"). `offerRefusal` for `heal` now asks `needsCentre()` — health, a
   condition, or any move below its max PP. Not save-breaking: a refused
   input was never recorded. Test N6b in `npc.test.ts`.
+- **Variant tracking removed** (user's call). `GameState.found`, the
+  "Variants N of 53" header entry and the journal's "Variants found" are
+  gone; it only ever counted catches, NPC trades and joining critters, so a
+  shiny starter or a bred shiny never showed. Changes `stateHash`; on 36.
+- **Bug: the hatching/evolution scene flashed the new shape** in colour at
+  the start of the flicker (4s). The swap counter counted the upcoming swap,
+  so the first flicker frame was "after" while the silhouette filter was
+  still fading in. `shapeAt()` in `EvolutionScene.tsx` now counts only
+  swaps that have happened. Tests `evolutionscene.test.ts`.
 
 ## Earlier on 2026-09-15 — committed locally, not pushed (ENGINE_VERSION 36)
 

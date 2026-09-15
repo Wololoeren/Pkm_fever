@@ -40,7 +40,6 @@ export interface Journal {
   rival: { visits: number; lastVisit: number | null; following: boolean };
   placesVisited: number;
   placesInAll: number;
-  variantsFound: number;
   /** Everyone still with you, in the order they became yours. */
   firsts: { uid: number; speciesId: string; name: string; level: number }[];
   cheated: boolean;
@@ -73,7 +72,6 @@ export function journalOf(world: World, state: GameState, inputs: readonly Input
     },
     placesVisited: state.visited.filter((id) => world.routes.get(id)?.kind === "route").length,
     placesInAll: outdoors.length,
-    variantsFound: state.found.length,
     firsts: everyone.map((one) => ({
       uid: one.uid,
       speciesId: one.speciesId,

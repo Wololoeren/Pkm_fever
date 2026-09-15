@@ -34,7 +34,6 @@ export function JournalPanel({
     ["Species met · caught", `${journal.speciesMet} · ${journal.speciesCaught}`],
     ["Trainers beaten", `${journal.trainersBeaten} (${journal.trainerWins} wins)`],
     ["Places", `${journal.placesVisited} of ${journal.placesInAll}`],
-    ["Variants found", journal.variantsFound.toLocaleString()],
   ];
 
   return (

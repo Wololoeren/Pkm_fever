@@ -66,6 +66,38 @@ const STAGES = {
   reveal: TOTAL,
 };
 
+/**
+ * Which shape is on screen at this point in the scene. The flicker accelerates: the gap between swaps
+ * shrinks from most of a second to a twentieth of one, which is what makes
+ * the last few seconds read as the thing struggling rather than blinking.
+ */
+export function shapeAt(elapsed: number): "before" | "after" {
+  if (elapsed < STAGES.gather) return "before";
+  if (elapsed >= STAGES.flash) return "after";
+
+  const into = elapsed - STAGES.gather;
+  const span = STAGES.flicker - STAGES.gather;
+
+  // The swaps are counted rather than divided out, because the gap between
+  // them is itself shrinking — dividing by a moving number makes the phase
+  // jump every time the number moves, which reads as a stutter.
+  //
+  // Only swaps that have *happened* are counted. It used to count the one
+  // about to happen as well, so the first frame of the flicker was already
+  // the "after" shape — and because the silhouette fades in over 200ms,
+  // that frame showed the hatchling (or the evolution) in full colour for
+  // an instant before anything had started.
+  let at = 0;
+  let swaps = 0;
+  for (;;) {
+    const gap = Math.max(50, 700 - 650 * (at / span) ** 2);
+    if (at + gap > into || swaps >= 500) break;
+    at += gap;
+    swaps++;
+  }
+  return swaps % 2 === 0 ? "before" : "after";
+}
+
 export function EvolutionScene({
   from,
   to,
@@ -145,27 +177,7 @@ export function EvolutionScene({
   const before = hatching ? null : speciesById(from);
   const after = speciesById(to);
 
-  // Which shape is on screen. The flicker accelerates: the gap between swaps
-  // shrinks from most of a second to a twentieth of one, which is what makes
-  // the last few seconds read as the thing struggling rather than blinking.
-  const showing = (() => {
-    if (elapsed < STAGES.gather) return "before";
-    if (elapsed >= STAGES.flash) return "after";
-
-    const into = elapsed - STAGES.gather;
-    const span = STAGES.flicker - STAGES.gather;
-
-    // The swaps are counted rather than divided out, because the gap between
-    // them is itself shrinking — dividing by a moving number makes the phase
-    // jump every time the number moves, which reads as a stutter.
-    let at = 0;
-    let swaps = 0;
-    while (at < into && swaps < 500) {
-      at += Math.max(50, 700 - 650 * (at / span) ** 2);
-      swaps++;
-    }
-    return swaps % 2 === 0 ? "before" : "after";
-  })();
+  const showing = shapeAt(elapsed);
 
   const stage =
     elapsed < STAGES.gather

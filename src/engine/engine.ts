@@ -678,8 +678,6 @@ export interface GameState {
   money: number;
   battle: BattleState | null;
   notice: Notice | null;
-  /** Variant ids caught so far, sorted. The census progress the UI shows. */
-  found: string[];
   daycare: DaycareState;
   /** Routes stepped on, sorted. Drives the one-off item finds, and is the
    * beginning of an exploration record. */
@@ -1007,7 +1005,6 @@ export function initialState(world: World): GameState {
     money: STARTING_MONEY,
     battle: null,
     notice: null,
-    found: [],
     daycare: emptyDaycare(),
     visited: [HUB_ID],
     beaten: [],
@@ -3979,9 +3976,6 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
 
   if (spec.kind === "joins") {
     const boxed = partyFull(state);
-    const found = state.found.includes(creature.variantId)
-      ? state.found
-      : [...state.found, creature.variantId].sort();
 
     return {
       ...state,
@@ -3989,7 +3983,6 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
       party: boxed ? state.party : [...state.party, creature],
       box: boxed ? [...state.box, creature] : state.box,
       nextUid: state.nextUid + 1,
-      found,
       met: [...state.met, spec.id].sort(),
       talking: null,
       notice: { t: "joined", speciesId: creature.speciesId, boxed, critterId: spec.id },
@@ -5115,7 +5108,6 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
     party,
     nextUid: state.nextUid + 1,
     helped: [...state.helped, person.id].sort(),
-    found: state.found.includes(got.variantId) ? state.found : [...state.found, got.variantId].sort(),
     notice: person.delivers
       ? {
           t: "swindled",
@@ -5867,16 +5859,12 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
       const caught = result.caught;
       if (!caught) throw new IllegalInput("caught nothing");
       const boxed = partyFull(base);
-      const found = base.found.includes(caught.variantId)
-        ? base.found
-        : [...base.found, caught.variantId].sort();
 
       const kept: GameState = {
         ...base,
         phase: "battleEnd",
         party: boxed ? base.party : [...base.party, caught],
         box: boxed ? [...base.box, caught] : base.box,
-        found,
         // A creature standing in the open, once caught, is not standing there
         // any more. Fleeing does *not* record it: it is still out there, which
         // is the whole reason a roamer is worth a second attempt.
@@ -6180,7 +6168,6 @@ export function stateHash(state: GameState): string {
     state.money,
     bagEntries(state.bag).map(([id, count]) => `${id}x${count}`).join(","),
     battle,
-    state.found.join(","),
     daycare,
     state.visited.join(","),
     state.beaten.join(","),
