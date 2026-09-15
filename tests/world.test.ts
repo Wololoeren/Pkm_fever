@@ -586,7 +586,10 @@ function walkFrom(
       const y = at.y + dy;
       if (x < 0 || y < 0 || x >= route.width || y >= route.height) continue;
       if (steps[y * route.width + x] >= 0) continue;
-      if (!passable(route.tiles[y * route.width + x], () => true)) continue;
+      // On foot. Cut and Surf shortcuts exist precisely to make the walk
+      // shorter for somebody carrying them; the maze is what is left for
+      // somebody who is not.
+      if (!walkable(route.tiles[y * route.width + x])) continue;
       steps[y * route.width + x] = steps[at.y * route.width + at.x] + 1;
       queue.push({ x, y });
     }

@@ -30,7 +30,8 @@ describe("nicknames", () => {
     const named = applyInput(world, started, { t: "rename", uid, name: "Sprout" });
     expect(named.party[0].nickname).toBe("Sprout");
     expect(displayName(named.party[0])).toBe("Sprout");
-    expect(stateHash(named)).not.toBe(stateHash(started));
+    // A name is not state two players compare: it stays out of the hash.
+    expect(stateHash(named)).toBe(stateHash(started));
 
     // An empty name takes it off again.
     const cleared = applyInput(world, named, { t: "rename", uid, name: "   " });

@@ -130,6 +130,63 @@ switch:
   **Dragon Tail** and **Circle Throw** hit and drive the *other* side out.
   Neither leaves anything behind to show on a plate.
 
+### The last of the deferred moves
+
+Restriction, decoys, borrowed abilities and items, and the counters a handful
+of attacks keep. All on the appearance: switching out ends every one of them,
+except where Baton Pass carries it.
+
+| | Arithmetic |
+| --- | --- |
+| **Substitute** (Substitute, Shed Tail) | costs `max(1, floor(maxHp / 4))` and fails at or below that much health. The decoy has that many HP; damaging moves hit it instead (sound and other `bypasssub` moves go through), status moves aimed at it fail, and nothing that hangs off a hit — secondaries, binds, item theft — reaches the creature behind |
+| **Taunted** (Taunt) | no status moves for **3** turns |
+| **Disabled** (Disable) | its last move refused for **4** turns |
+| **Encore** (Encore) | only its last move for **3** turns; ends early if that move runs out of PP. A move picked before the Encore landed is replaced by it |
+| **Tormented** (Torment) | never the same move twice in a row, for as long as it stays in |
+| **Imprisoning** (Imprison) | the other side cannot use any move this one knows |
+| **Heal Block** (Heal Block 5 turns, Psychic Noise 2) | no healing from moves, drains, items, Leftovers, Rest or Wish, and `heal`-flagged moves cannot be picked |
+| **Grudge** (Grudge) | if a move knocks it out before it moves again, that move drops to **0** PP |
+| **Powdered** (Powder) | a Fire move it uses this turn fails and costs it `max(1, floor(maxHp / 4))` |
+| **Electrified** (Electrify, Ion Deluge) | its move this turn is Electric; Ion Deluge does it to every Normal move for the rest of the turn |
+| **Octolocked** (Octolock) | cannot switch or run, and **−1** Defence and Sp. Def at the end of every turn while whoever set it stays in |
+| **Cursed** (Curse from a Ghost) | `max(1, floor(maxHp / 4))` every turn. The Ghost pays `floor(maxHp / 2)` to set it; anything else using Curse gets **+1** Attack and Defence and **−1** Speed |
+| **Guarding** (Quick Guard, Wide Guard, Crafty Shield, Mat Block) | this turn only: moves with raised priority, moves that hit everything opposite, status moves, or — first turn out only — damaging moves |
+| **Snatching** (Snatch) | this turn, the other side's next self-targeting status move is used by this side instead |
+| **Magic Coat** (Magic Coat) | this turn, a `reflectable` move aimed at it is used back on whoever threw it, once |
+| **Mimicking** (Mimic) | Mimic's slot holds the target's last move at **5** PP until it leaves |
+| **Embargo** (Embargo) | its held item does nothing for **5** turns |
+| **No item** (`muffled`) | the item Embargo or Magic Room switched off, kept to hand back |
+| **Ability changed** (Worry Seed, Gastro Acid, Entrainment, Role Play, Doodle, Skill Swap, Simple Beam) | its abilities rewritten until it leaves or the battle ends — Insomnia (and it wakes), none, the user's, the target's, exchanged, or Simple |
+| **Fury Cutter** (`cutter`) | ×2 and ×4 power on the second and third consecutive hits, then stays at ×4 |
+| **Echoed Voice** (`echoes`) | 40 power × (1 + consecutive turns used), up to 200 |
+| **Failed** (`stumbled`) | its last move did not connect: Stomping Tantrum and Temper Flare are ×2 |
+| **Rage** (Rage) | **+1** Attack every time it is hit, until it uses another move |
+| **Exposed** (Glaive Rush) | until the end of next turn, every move hits it and does ×2 |
+| **Grounded** (Smack Down, Thousand Arrows) | Ground moves reach it, terrain affects it, and it is pulled out of a Fly |
+| **Salt Cure** (Salt Cure) | `max(1, floor(maxHp / 8))` every turn, `/ 4` for Water and Steel types |
+| **Syrup** (Syrup Bomb) | **−1** Speed at the end of each of **3** turns |
+
+Lash Out is ×2 after any of its stats was lowered this turn, and Rage Fist is
+50 + 50 per hit taken this battle, up to 350 — counted per team member on the
+side, so a switch does not reset it. Uproar is a three-turn commitment during
+which nothing on either side can fall asleep, and it wakes whoever is asleep
+when it starts.
+
+**Items that move.** Knock Off removes the target's item for the rest of the
+battle and it comes back afterwards. Thief and Covet take the target's item if
+the user holds nothing; Trick and Switcheroo exchange them; Bestow gives the
+user's away. In a wild battle those three are permanent; in any other battle
+every item is handed back to whoever held it at the start. Incinerate burns a
+held berry for good, Recycle returns the last item the user used up, Stuff
+Cheeks eats a held berry now for **+2** Defence and Teatime makes both sides
+eat theirs.
+
+**Leaving.** Baton Pass switches out and the next one keeps the stages, the
+two ladders, and confusion, Focus Energy, a seed, roots, a substitute, the
+perish count, floating, a curse, Heal Block, Embargo, Lock-On and altered
+stats. Shed Tail costs half its health and passes only a substitute worth a
+quarter. Parting Shot lowers the target's Attack and Sp. Atk and then switches.
+
 ### The shield streak
 
 A shield put up on consecutive turns gets rarer, and that is the whole of what
@@ -245,6 +302,41 @@ Beam and Solar Blade are ×0.5 in any weather that is not sun, and never need
 a turn to charge here. Weather Ball is the weather's type at 100 power. Aurora
 Veil is Reflect and Light Screen together, and only while it hails or snows.
 
+### The rooms
+
+Also on the battle, and several can be up at once. Gravity fails if used while
+up; the three rooms end early if used again.
+
+| | Arithmetic |
+| --- | --- |
+| **Gravity** | **5** turns. Everything is grounded — Flying types and Levitate included, and anything mid-Fly comes down — accuracy is `floor(accuracy · 5 / 3)`, and moves with the `gravity` flag (Fly, Bounce, Splash, High Jump Kick…) fail |
+| **Trick Room** | **5** turns. Within the same priority, the slower one moves first |
+| **Wonder Room** | **5** turns. A physical hit meets the target's Sp. Def number and a special hit its Defence; the stages stay with their own stat |
+| **Magic Room** | **5** turns. Every held item does nothing |
+| **Fairy Lock** | nobody may switch or run this turn and the next |
+
+Camouflage makes the user the type of the ground — the terrain's type if one
+is up, otherwise the first type of the place the battle is in, or Normal — and
+Nature Power calls a move by the same reading. Court Change exchanges every
+screen and hazard between the two sides.
+
+### The hazards
+
+On the side, by layers, until something sweeps them. They bite on every
+arrival, a replacement for something that fainted included.
+
+| | Arithmetic |
+| --- | --- |
+| **Stealth Rock** | `max(1, floor(maxHp · quarters / 32))`, where quarters is how Rock hits it — everything, grounded or not |
+| **Spikes** (up to 3) | grounded only: `floor(maxHp / 8)`, `/ 6`, `/ 4` |
+| **Toxic Spikes** (up to 2) | grounded only: poisoned. A grounded Poison type clears them instead |
+| **Sticky Web** | grounded only: **−1** Speed, from the other side, so Mist and Clear Body refuse it |
+
+Rapid Spin and Mortal Spin clear the user's side; Defog clears both sides and
+the target's Reflect, Light Screen, Mist and Safeguard, and lowers its
+evasion; Tidy Up clears both sides and every substitute and raises Attack and
+Speed.
+
 In the formula below, the field's multipliers land **between the same-type
 bonus and the abilities**, so a Sand Force compounds on top of the sand.
 
@@ -292,11 +384,6 @@ until the rival started drawing moves from the whole dex.
 **Freeze has no thaw on a Fire hit**, as above. It is the one condition here
 that is meaningfully harsher than its namesake.
 
-**Toxic Spikes, Stealth Rock and the rest of the hazards** are not here; they
-want an on-arrival hook, and `docs/moves-deferred.md` says so.
-
-**Sixteen further conditions are filtered out of every move pool** rather than
-dealt as slots that do nothing: Substitute, Taunt, Encore, Disable and the rest
-of the move-restriction family, the hazards, Baton Pass. `src/engine/
-statusmoves.ts` is the list, and `README.md` groups them by the one capability
-each is waiting for.
+**The eleven doubles-only moves are filtered out of every move pool** rather
+than dealt as slots that always fail: Helping Hand, Follow Me and the rest of
+what needs an ally. `docs/moves-deferred.md` is the list.

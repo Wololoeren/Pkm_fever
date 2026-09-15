@@ -1,6 +1,6 @@
 # Items
 
-**554 of them**, of which 288 are machines. The other 266 are below.
+**574 of them**, of which 308 are machines. The other 266 are below.
 
 Seven of those are the printer's inks — one per colour but ivory, which is the
 one it never ran out of. They are not on any shelf at any price: an ink is
@@ -10,8 +10,9 @@ the colour it opens stays open. See `src/engine/printer.ts`.
 The machine count fell from 312 to 268 when status moves were audited: 44 of
 them taught a move this engine has no machinery for, so the shelf was selling
 a four-thousand-a-go lesson in wasting a turn. It climbs back as the machinery
-arrives — twenty have returned with the status moves honoured since — and
-`docs/moves-deferred.md` is what is still off the shelf. See
+arrives — forty have returned with the status moves honoured since, the last
+twenty with the final pass — and `docs/moves-deferred.md` is what is still off
+the shelf. See
 `src/engine/statusmoves.ts`.
 
 The bag sorts by what an item *is for*, because that is the only question a

@@ -31,11 +31,19 @@
 export type WeatherId = "sun" | "rain" | "sand" | "hail" | "snow";
 export type TerrainId = "electric" | "grassy" | "misty" | "psychic";
 export type SportId = "water" | "mud";
+/**
+ * The conditions on the battle that are not a weather or a terrain. Several
+ * can be up at once, so they are a map of turns rather than one slot.
+ * Fairy Lock is here because it is the same shape — a count on the battle —
+ * with a count of two, so it holds through the turn after it is used.
+ */
+export type RoomId = "gravity" | "trickroom" | "wonderroom" | "magicroom" | "fairylock";
 
 export interface Field {
   weather?: { id: WeatherId; turns: number };
   terrain?: { id: TerrainId; turns: number };
   sport?: { id: SportId; turns: number };
+  rooms?: Partial<Record<RoomId, number>>;
 }
 
 /** How long any of the three lasts. Five turns, as a screen does. */
@@ -72,6 +80,9 @@ export function fieldKey(field: Field | undefined): string {
     field.weather ? `w:${field.weather.id}=${field.weather.turns}` : "",
     field.terrain ? `t:${field.terrain.id}=${field.terrain.turns}` : "",
     field.sport ? `s:${field.sport.id}=${field.sport.turns}` : "",
+    ...Object.entries(field.rooms ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, turns]) => `r:${id}=${turns}`),
   ]
     .filter(Boolean)
     .join("+");

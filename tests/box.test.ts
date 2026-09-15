@@ -85,9 +85,11 @@ describe("box tabs", () => {
     expect(() => applyInput(world, many, { t: "addBox" })).toThrow();
   });
 
-  it("BX6: tabs and names are state, and replay", () => {
+  it("BX6: tabs are state and names replay, but a name is not in the hash", () => {
     const named = applyInput(world, started, { t: "renameBox", tab: 0, name: "Keepers" });
-    expect(stateHash(named)).not.toBe(stateHash(started));
+    expect(named.boxNames[0]).toBe("Keepers");
+    expect(stateHash(named)).toBe(stateHash(started));
+    expect(stateHash(applyInput(world, started, { t: "addBox" }))).not.toBe(stateHash(started));
 
     const inputs: Input[] = [
       { t: "pickStarter", index: 0 },

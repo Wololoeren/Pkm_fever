@@ -8,6 +8,7 @@ import { computeStats, ivTotal, IV_MAX } from "@/engine/stats";
 import { TradeSession, type TradeMessage, type TradeView } from "@/engine/trade";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
+import { anyFlags, flagsText, teamFlags } from "@/engine/integrity";
 import { joinRoom, normaliseRoomCode, randomRoomCode, type Room, type RoomStatus } from "@/lib/room";
 import { BattleView } from "./BattleView";
 import { GenderMark, VariantTag } from "./PartyStrip";
@@ -101,6 +102,8 @@ export function PvpScreen({
   const [duel, setDuel] = useState<DuelView | null>(null);
   const [trade, setTrade] = useState<TradeView | null>(null);
   const [waitingOnThem, setWaitingOnThem] = useState(false);
+  /** Whether the player has seen the warning about flagged teams and chosen to fight anyway. */
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const duelRef = useRef<DuelSession | null>(null);
   const tradeRef = useRef<TradeSession | null>(null);
@@ -199,6 +202,7 @@ export function PvpScreen({
     setStatus(null);
     setDuel(null);
     setTrade(null);
+    setAcknowledged(false);
   }, []);
 
   // A bracket is its own screen. It shares the roster and the way out and
@@ -431,6 +435,51 @@ export function PvpScreen({
 
   const over = duel?.phase === "over";
   const role = duel?.role ?? 0;
+
+  /*
+   * Before the first turn: who is bringing creatures a save cannot vouch for.
+   *
+   * Both teams arrive whole in the opening handshake, flags and all, so this
+   * is known before either side has committed a move — and the opponent's
+   * battle waits for our first commit, so holding here costs them nothing.
+   */
+  const ourFlags = teamFlags(battle.sides[role].team);
+  const theirFlags = teamFlags(battle.sides[role === 0 ? 1 : 0].team);
+  if (!acknowledged && !over && battle.turn === 0 && (anyFlags(ourFlags) || anyFlags(theirFlags))) {
+    return (
+      <section className="hubCol duelSetup">
+        <h2>Before you battle</h2>
+        {anyFlags(theirFlags) ? (
+          <p className="warn">Your opponent is bringing {flagsText(theirFlags)}.</p>
+        ) : (
+          <p className="good">Your opponent&apos;s team is all their own.</p>
+        )}
+        {anyFlags(ourFlags) ? (
+          <p className="warn">You are bringing {flagsText(ourFlags)} — they are seeing the same warning.</p>
+        ) : null}
+        <p className="muted">
+          Cheated creatures were made or changed with the testing shortcuts. Vault creatures started a run as a copy
+          from somebody&apos;s vault. Traded and prize creatures came from another world. The flags are what each
+          client reports; the verify page is where a save proves them.
+        </p>
+        <div className="row">
+          <button type="button" className="primary" onClick={() => setAcknowledged(true)}>
+            Battle anyway
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              duelRef.current?.resign();
+              disconnect();
+            }}
+          >
+            Leave
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>

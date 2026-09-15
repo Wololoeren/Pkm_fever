@@ -296,6 +296,16 @@ export interface Individual {
    */
   prize: boolean;
   /**
+   * Whether this run began with it, copied out of the player's vault.
+   *
+   * The vault is every creature from every run the player has added, kept in
+   * their browser. A Vault Adventure starts with a copy of one — reset to
+   * level 5 with no effort, keeping its IVs, abilities and held item — and
+   * the input that brings it carries it whole, like a trade. Marked so a
+   * tournament can decide whether it cares. Absent on everything else.
+   */
+  vault?: boolean;
+  /**
    * Whether a testing shortcut made or altered this one.
    *
    * `GameState.cheated` already says a save touched the menu, and that is a

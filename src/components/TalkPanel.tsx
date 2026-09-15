@@ -12,6 +12,17 @@ import {
   shredReady,
   shredRefusal,
   shredValue,
+  bidRefusal,
+  closedBids,
+  WORKSHOP_JOBS,
+  WORKSHOP_STATIONS,
+  workshopLeaveRefusal,
+  workshopTakeRefusal,
+  collectRefusalAuction,
+  pawnRefusal,
+  pawnReady,
+  pawnValue,
+  pawnWait,
   shredWait,
   speakingTo,
   stations,
@@ -24,9 +35,11 @@ import { contender as cupSpec, CUP_SIZE } from "@/engine/cup";
 import { gym as gymSpec, gymBreakdown } from "@/engine/gyms";
 import { arena, arenaBreakdown, ARENA_ROUNDS, ARENA_SIZE } from "@/engine/arenas";
 import { missingInks, printable, PRINT_COOLDOWN } from "@/engine/printer";
-import { SHRED_COOLDOWN, SHRED_PER_CANDY } from "@/engine/engine";
+import { PAWN_COOLDOWN, PAWN_PER_LEVEL, SHRED_COOLDOWN, SHRED_PER_CANDY } from "@/engine/engine";
 import { CUT_COOLDOWN, cutReady, cutWait } from "@/engine/lapidary";
 import { natureName } from "@/engine/smith";
+import { AUCTION_WIN_PERCENT, board, lot as auctionLot } from "@/engine/auction";
+import { Sprite } from "@/components/Sprite";
 import { chroma } from "@/engine/variants";
 import { species as speciesById } from "@/engine/dex";
 import { item } from "@/engine/items";
@@ -204,6 +217,63 @@ export function TalkPanel({
       }));
     }
 
+    if (person.kind === "workshop") {
+      return WORKSHOP_STATIONS.flatMap((station): Option[] => {
+        const held = state.workshop[station];
+        if (held) {
+          return [
+            {
+              label: `Fetch ${displayName(held.creature)} · Lv${held.creature.level} from ${WORKSHOP_JOBS[station]}`,
+              why: workshopTakeRefusal(world, state, station),
+              run: () => onInput({ t: "workshopTake", station }),
+            },
+          ];
+        }
+        // Only the party members who could do the job are offered for it.
+        return state.party.flatMap((creature, index) =>
+          speciesById(creature.speciesId).types.includes(station)
+            ? [
+                {
+                  label: `Leave ${displayName(creature)} · Lv${creature.level} ${WORKSHOP_JOBS[station]}`,
+                  why: workshopLeaveRefusal(world, state, station, index, creature.uid),
+                  run: () => onInput({ t: "workshopLeave", station, index, confirm: creature.uid }),
+                },
+              ]
+            : [],
+        );
+      });
+    }
+
+    if (person.kind === "auction") {
+      const settle = closedBids(world, state);
+      return [
+        {
+          label: settle.length
+            ? `Settle ${settle.length} closed lot${settle.length === 1 ? "" : "s"}`
+            : "Settle closed lots",
+          why: collectRefusalAuction(world, state),
+          run: () => onInput({ t: "collectBids" }),
+        },
+        // Armed: the money leaves now and does not come back until the lot closes.
+        ...board(world.seed, state.stepsTaken).map((lot) => ({
+          label: `Bid ¤${lot.price.toLocaleString()} · ${speciesById(lot.speciesId).name} Lv${lot.level}`,
+          why: bidRefusal(world, state, lot.n),
+          arms: -1 - lot.n,
+          run: () => onInput({ t: "bid", n: lot.n }),
+        })),
+      ];
+    }
+
+    if (person.kind === "pawn") {
+      // Armed like the shredder's: a sale does not come back.
+      return state.party.map((creature, index) => ({
+        label: `Sell ${displayName(creature)} · Lv${creature.level} for ¤${pawnValue(creature).toLocaleString()}`,
+        why: pawnRefusal(world, state, index, creature.uid),
+        arms: creature.uid,
+        run: () => onInput({ t: "pawn", index, confirm: creature.uid }),
+      }));
+    }
+
     if (person.kind === "cut") {
       // Armed like the shredder's and the Appraiser's: irreversible, and the
       // list can slide under a click.
@@ -315,7 +385,7 @@ export function TalkPanel({
         </button>
       </div>
 
-      {dialogueOf(person).map((line, index) => (
+      {dialogueOf(person, state.helped.includes(person.id)).map((line, index) => (
         <p key={index} className={line.startsWith("(") ? "muted" : undefined}>
           {line}
         </p>
@@ -357,6 +427,36 @@ export function TalkPanel({
           {shredReady(state.tick, state.shreddedAt)
             ? ` One at a time: the machine wants ${SHRED_COOLDOWN} moves between them.`
             : ` The machine is still running — ${shredWait(state.tick, state.shreddedAt)} moves.`}
+        </p>
+      ) : null}
+
+      {person.kind === "auction" ? <AuctionBoard world={world} state={state} /> : null}
+
+      {person.kind === "workshop" ? (
+        <div className="muted">
+          {WORKSHOP_STATIONS.map((station) => {
+            const held = state.workshop[station];
+            const job = { ice: "Ice cream (an Ice type)", fire: "Roast chicken (a Fire type)", water: "The garden (a Water type)" }[station];
+            return (
+              <p key={station}>
+                {job}:{" "}
+                {held
+                  ? `${displayName(held.creature)}, Lv${held.creature.level} (arrived at Lv${held.fromLevel})`
+                  : "nobody"}
+              </p>
+            );
+          })}
+          <p>One experience point per step you take. No new moves and no evolving while it works.</p>
+        </div>
+      ) : null}
+
+      {person.kind === "pawn" ? (
+        <p className="muted">
+          ¤{PAWN_PER_LEVEL} for every level, and anything it is holding comes back to your bag. It does not come
+          back.
+          {pawnReady(state.stepsTaken, state.pawnedAt)
+            ? ` One at a time: he needs ${PAWN_COOLDOWN} steps to sell each one on.`
+            : ` He is still selling the last one on — ${pawnWait(state.stepsTaken, state.pawnedAt)} steps.`}
         </p>
       ) : null}
 
@@ -485,5 +585,51 @@ function GymTerms({ state, gymId }: { state: GameState; gymId: string }) {
       {state.tick.toLocaleString()} moves you have taken, and {sums.fromBadges} for the{" "}
       {state.badges.length} badges you already hold. Winning hands over {item(spec.tool).name}.
     </p>
+  );
+}
+
+
+/**
+ * The board: six lots, soonest to close first, each with its countdown and
+ * whether you are in on it. Closed lots you bid on stay listed below until
+ * they are settled.
+ */
+function AuctionBoard({ world, state }: { world: World; state: GameState }) {
+  const lots = board(world.seed, state.stepsTaken);
+  const closed = closedBids(world, state);
+  return (
+    <div className="auction">
+      <p className="muted">
+        A bid is paid now and held. When the lot closes it wins {AUCTION_WIN_PERCENT}% of the time; otherwise
+        every coin comes back. Settle closed lots here either way.
+      </p>
+      <div className="auctionBoard">
+        {lots.map((lot) => {
+          const mine = state.bids.some((bid) => bid.n === lot.n);
+          const left = lot.closesAt - state.stepsTaken;
+          return (
+            <div key={lot.n} className={`auctionLot${mine ? " bidOn" : ""}`}>
+              <Sprite speciesId={lot.speciesId} variantId={lot.variantId} size={96} />
+              <strong>{speciesById(lot.speciesId).name}</strong>
+              <span className="muted">Lv{lot.level}</span>
+              <span>¤{lot.price.toLocaleString()}</span>
+              <span className="muted">
+                {left.toLocaleString()} step{left === 1 ? "" : "s"} left
+              </span>
+              {mine ? <span className="tag rise">YOUR BID</span> : null}
+            </div>
+          );
+        })}
+      </div>
+      {closed.length ? (
+        <p className="good">
+          Closed and waiting for you:{" "}
+          {closed
+            .map((bid) => speciesById(auctionLot(world.seed, bid.n).speciesId).name)
+            .join(", ")}
+          .
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -18,6 +18,8 @@ import { NotesPanel } from "@/components/NotesPanel";
 import { QuestPanel } from "@/components/QuestPanel";
 import { LearnPanel } from "@/components/LearnPanel";
 import { TalkPanel } from "@/components/TalkPanel";
+import { VaultScreen } from "@/components/VaultScreen";
+import { entriesFromRun, mergeEntries, readVault, rosterOf, writeVault } from "@/lib/vault";
 import { HubPanel } from "@/components/HubPanel";
 import { MartPanel } from "@/components/MartPanel";
 import { MainMenu, rememberedTrainerName, rememberTrainerName } from "@/components/MainMenu";
@@ -38,12 +40,16 @@ import {
   flushAutosave,
   normaliseSeed,
   readAutosave,
+  newRunId,
+  readAutosaveRaw,
   scheduleAutosave,
   type SaveFile,
 } from "@/lib/save";
 import { routeLabel } from "@/render/tiles";
 
 interface Session {
+  /** A random name for this run, kept in every save of it. See `SaveFile.run`. */
+  run: string;
   world: World;
   seed: string;
   inputs: Input[];
@@ -169,6 +175,8 @@ export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
   const [autosave, setAutosave] = useState<SaveFile | null>(null);
   const [pvp, setPvp] = useState(false);
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [vaultNote, setVaultNote] = useState<string | null>(null);
   const [cheats, setCheats] = useState(false);
   /**
    * The evolution notice whose reveal has already been sat through.
@@ -190,14 +198,14 @@ export default function Page() {
   // so the autosave is looked up once the page is actually in a browser.
   useEffect(() => setAutosave(readAutosave()), []);
 
-  const start = useCallback((seed: string, inputs: Input[] = []) => {
+  const start = useCallback((seed: string, inputs: Input[] = [], run: string = newRunId()) => {
     const clean = normaliseSeed(seed);
     const world = generateWorld(DEFAULT_WORLD, clean, ALL_SPECIES);
     try {
-      setSession({ world, seed: clean, inputs, state: reduce(world, inputs) });
+      setSession({ run, world, seed: clean, inputs, state: reduce(world, inputs) });
     } catch {
       // A log that will not replay is a corrupt save, not a playable one.
-      setSession({ world, seed: clean, inputs: [], state: initialState(world) });
+      setSession({ run, world, seed: clean, inputs: [], state: initialState(world) });
     }
   }, []);
 
@@ -258,7 +266,9 @@ export default function Page() {
    */
   useEffect(() => {
     if (!session) return;
-    scheduleAutosave(session.seed, session.inputs);
+    // The roster rides along so the vault can read this run's creatures even
+    // after a later engine can no longer replay its log.
+    scheduleAutosave(session.seed, session.inputs, rosterOf(session.state), session.run);
   }, [session]);
 
   useEffect(() => {
@@ -488,10 +498,30 @@ export default function Page() {
     return `${special} of ${APPEARANCE_COUNT - 1}`;
   }, [state]);
 
+  if ((!session || !state) && vaultOpen) {
+    return (
+      <main className="shell">
+        <VaultScreen
+          autosave={readAutosaveRaw()}
+          onExit={() => setVaultOpen(false)}
+          onBegin={(seed, trainer, creature) => {
+            clearAutosave();
+            setVaultOpen(false);
+            start(seed, [
+              { t: "trainer", name: trainer },
+              { t: "vaultStart", creature },
+            ]);
+          }}
+        />
+      </main>
+    );
+  }
+
   if (!session || !state) {
     return (
       <main className="shell">
         <MainMenu
+          onVault={() => setVaultOpen(true)}
           autosave={autosave}
           onNew={(seed, trainer) => {
             clearAutosave();
@@ -499,7 +529,7 @@ export default function Page() {
             // everything else and replays onto every creature caught.
             start(seed, [{ t: "trainer", name: trainer }]);
           }}
-          onLoad={(save) => start(save.seed, save.inputs)}
+          onLoad={(save) => start(save.seed, save.inputs, save.run)}
         />
       </main>
     );
@@ -694,6 +724,17 @@ export default function Page() {
               Sold {state.notice.count} x {item(state.notice.item).name}.
             </p>
           ) : null}
+          {state.notice?.t === "foraged" ? (
+            <p className="good">
+              {state.notice.finds
+                .map((find) => {
+                  const who = state.party.find((one) => one.uid === find.uid);
+                  const name = who ? (who.nickname ?? speciesById(who.speciesId).name) : "Someone";
+                  return `${name} found a ${item(find.item).name}.`;
+                })
+                .join(" ")}
+            </p>
+          ) : null}
           {state.notice?.t === "picked" ? (
             <p className="good">Picked up a {item(state.notice.item).name}.</p>
           ) : null}
@@ -727,6 +768,46 @@ export default function Page() {
           ) : null}
           {state.notice?.t === "healed" ? (
             <p className="good">{state.notice.by} patched everyone up.</p>
+          ) : null}
+          {state.notice?.t === "swindled" ? (
+            <p className="error">
+              You open the ball. It is not a {state.notice.promised}. It is a {state.notice.got}, and somebody has
+              written &ldquo;{state.notice.promised.toUpperCase()}&rdquo; on it in marker. When you look up,{" "}
+              {state.notice.by} is smiling. Your {state.notice.given} is already gone.
+            </p>
+          ) : null}
+          {state.notice?.t === "workshopLeft" ? (
+            <p className="good">
+              {state.notice.name} got to work{" "}
+              {{ ice: "churning ice cream", fire: "roasting chickens", water: "watering the plants" }[state.notice.station]}.
+            </p>
+          ) : null}
+          {state.notice?.t === "workshopTaken" ? (
+            <p className="good">
+              {state.notice.name} came back from the workshop
+              {state.notice.levels > 0 ? `, ${state.notice.levels} level${state.notice.levels === 1 ? "" : "s"} up` : ""}
+              {state.notice.boxed ? " and went to the box" : ""}.
+            </p>
+          ) : null}
+          {state.notice?.t === "bidPlaced" ? (
+            <p className="good">
+              Bid ¤{state.notice.price.toLocaleString()} on the {speciesById(state.notice.speciesId).name}. The money is
+              held until the lot closes.
+            </p>
+          ) : null}
+          {state.notice?.t === "bidsSettled" ? (
+            <p className={state.notice.won.length ? "good" : "muted"}>
+              {state.notice.won.length
+                ? `The hammer came down your way: ${state.notice.won.map((id) => speciesById(id).name).join(", ")} ${state.notice.won.length === 1 ? "is" : "are"} yours${state.notice.boxed ? " (sent to the box)" : ""}.`
+                : "Outbid on every closed lot."}
+              {state.notice.refunded > 0 ? ` ¤${state.notice.refunded.toLocaleString()} came back to you.` : ""}
+            </p>
+          ) : null}
+          {state.notice?.t === "pawned" ? (
+            <p className="good">
+              Sold {state.notice.name} (Lv{state.notice.level}) to the pawnbroker for ¤
+              {state.notice.money.toLocaleString()}.
+            </p>
           ) : null}
           {state.notice?.t === "swapped" ? (
             <p className="good">
@@ -783,6 +864,13 @@ export default function Page() {
               {state.notice.on} reached level 40, and you were given an Exp. Share! Give it to a
               creature from the Bag: it earns half the experience of every battle your team wins,
               even without fighting.
+            </p>
+          ) : null}
+          {state.notice?.t === "foundEgg" ? (
+            <p className={state.notice.taken ? "good" : "muted"}>
+              {state.notice.taken
+                ? "You found an egg lying on the ground! Keep walking with it and see what hatches."
+                : "There is an egg here, but you have no room to carry it. Make space in your party and come back."}
             </p>
           ) : null}
           {state.notice?.t === "eggTaken" ? (
@@ -975,9 +1063,29 @@ export default function Page() {
 
       <section className="panel">
         <div className="row">
-          <button type="button" className="ghost" onClick={() => downloadSave(session.seed, session.inputs)}>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => downloadSave(session.seed, session.inputs, rosterOf(state), session.run)}
+          >
             Save to file
           </button>
+          <button
+            type="button"
+            className="ghost"
+            title="Put every creature this run owns into the vault. A later add updates them."
+            onClick={() => {
+              const merged = mergeEntries(readVault(), entriesFromRun(session.seed, session.inputs, state, session.run));
+              setVaultNote(
+                writeVault(merged.vault)
+                  ? `Vault: ${merged.added} added, ${merged.updated} updated.`
+                  : "This browser would not store the vault.",
+              );
+            }}
+          >
+            Add this run to the vault
+          </button>
+          {vaultNote ? <span className="muted">{vaultNote}</span> : null}
           <button
             type="button"
             className="ghost"

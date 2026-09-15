@@ -1820,3 +1820,8 @@ button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .poisonFlash { animation-duration: 1ms; }
 }
+
+/* The auction board: six lots in a grid. */
+.auctionBoard { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; }
+.auctionLot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); text-align: center; font-size: 0.85rem; }
+.auctionLot.bidOn { border-color: var(--accent); }

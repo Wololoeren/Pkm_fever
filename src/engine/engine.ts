@@ -54,11 +54,14 @@ import {
   forgottenMoves,
   MAX_LEVEL,
   MOVE_SLOTS,
+  levelFromExp,
 } from "./progression";
-import { pickAbilities, rollAbilities } from "./abilities";
+import { BIOMES } from "./biomes";
+import { bidWins, board, lot as auctionLot, lotCreature } from "./auction";
+import { abilitiesOf, FORAGE_EVERY, isAbility, MAX_ABILITIES, pickAbilities, rollAbilities } from "./abilities";
 import { isBracketSize, type BracketSize } from "./bracket";
 import { cheatPrizeOffer, prizeOffer } from "./prize";
-import { heldEffects, holdOf } from "./carry";
+import { heldEffects, holdOf, rollHeld, STARTER_HELD_ITEMS, STARTER_HELD_PER_MILLE } from "./carry";
 import {
   awayFrom,
   CRITTER_TAG,
@@ -68,7 +71,7 @@ import {
   standingOn,
   type CritterSpec,
 } from "./critters";
-import { alignPp, fullPp, ppLeft, restorePp, spendPp } from "./pp";
+import { alignPp, fullPp, maxPp, ppLeft, restorePp, spendPp } from "./pp";
 import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
 import {
   isQuest,
@@ -103,6 +106,8 @@ import {
   trainerAt,
   wildAt,
   type World,
+  foundEggCreature,
+  FOUND_EGG_STEPS,
 } from "./world";
 import {
   clearedBy,
@@ -168,6 +173,12 @@ export type Input =
   | { t: "pickStarter"; index: number }
   /** The player's trainer name. Given once, normally before the starter. */
   | { t: "trainer"; name: string }
+  /**
+   * A Vault Adventure: the run begins with a copy of a creature from the
+   * player's vault instead of a starter pick. Carried whole, like a trade,
+   * and rebuilt here — see `vaultStart`.
+   */
+  | { t: "vaultStart"; creature: Individual }
   | { t: "move"; dir: Direction }
   | { t: "fight"; moveIndex: number }
   /** Nothing left to fight with. Legal only when that is actually true. */
@@ -241,6 +252,16 @@ export type Input =
    * not undoable. The same guard, for the same reason.
    */
   | { t: "shred"; index: number; confirm: number }
+  /** Selling one to the pawnbroker. `confirm` is the uid, the same safety catch. */
+  | { t: "pawn"; index: number; confirm: number }
+  /** A bid on lot `n` at the auction house, paid now and held until it closes. */
+  | { t: "bid"; n: number }
+  /** Settling every closed lot you bid on: the creature, or your money back. */
+  | { t: "collectBids" }
+  /** Leaving a party member at one of the workshop's three jobs. */
+  | { t: "workshopLeave"; station: WorkshopStation; index: number; confirm: number }
+  /** Fetching it back. */
+  | { t: "workshopTake"; station: WorkshopStation }
   /**
    * Handing one to the lapidary, for a stone of its type.
    *
@@ -452,6 +473,8 @@ export type Notice =
   | { t: "found"; item: BreedingItem }
   /** An egg went into the bag, and how long it will take. */
   | { t: "eggTaken"; steps: number }
+  /** An egg lying on the ground: picked up, or left there for want of room. */
+  | { t: "foundEgg"; taken: boolean }
   | { t: "hatched"; speciesId: string; variantId: string; boxed: boolean }
   /** The Exp. Share, handed over because `on` reached level 40. */
   | { t: "expShare"; on: string }
@@ -465,6 +488,17 @@ export type Notice =
   | { t: "printFailed"; item: string }
   /** One handed to the shredder, and what it came to. */
   | { t: "shredded"; name: string; level: number; candy: number }
+  /** One sold to the pawnbroker, and what it fetched. */
+  | { t: "pawned"; name: string; level: number; money: number }
+  /** Left at the workshop, or fetched back and how far it came along. */
+  | { t: "workshopLeft"; name: string; station: WorkshopStation }
+  | { t: "workshopTaken"; name: string; levels: number; boxed: boolean }
+  /** A bid placed. */
+  | { t: "bidPlaced"; speciesId: string; price: number }
+  /** Closed lots settled: what was won, and how much came back. */
+  | { t: "bidsSettled"; won: string[]; refunded: number; boxed: boolean }
+  /** A trade that was not the trade you agreed to. */
+  | { t: "swindled"; by: string; given: string; promised: string; got: string }
   /** And one handed to the lapidary. */
   | { t: "cut"; name: string; item: string }
   /** Off the anvil: which nature it was, which it is, and what it cost. */
@@ -480,6 +514,8 @@ export type Notice =
   | { t: "bought"; item: string; count: number }
   | { t: "sold"; item: string; count: number }
   | { t: "picked"; item: string }
+  /** Abilities that find things on the walk turned these up. */
+  | { t: "foraged"; finds: { uid: number; item: string }[] }
   | { t: "gift"; from: string; item: string }
   | { t: "healed"; by: string }
   | { t: "swapped"; given: string; got: string }
@@ -623,6 +659,16 @@ export interface GameState {
   trainerName: string | null;
   /** Steps taken on the map, counting towards the next poison tick. */
   poisonWalk: number;
+  /** Steps taken on the map, counting towards the next forage find. */
+  forageWalk: number;
+  /** Every step ever taken on the map. The pawnbroker's clock. */
+  stepsTaken: number;
+  /** `stepsTaken` when the pawnbroker last bought one, or null before the first. */
+  pawnedAt: number | null;
+  /** Bids held by the auction house, by lot number, with what was paid. */
+  bids: { n: number; price: number }[];
+  /** Who is working at the workshop, and the level each arrived at. */
+  workshop: Partial<Record<WorkshopStation, { creature: Individual; fromLevel: number }>>;
   /** The tick poison last hurt somebody out of battle, so the screen can flash. */
   poisonedAt: number | null;
   nextUid: number;
@@ -950,6 +996,11 @@ export function initialState(world: World): GameState {
     expShareGiven: false,
     trainerName: null,
     poisonWalk: 0,
+    forageWalk: 0,
+    stepsTaken: 0,
+    pawnedAt: null,
+    bids: [],
+    workshop: {},
     poisonedAt: null,
     nextUid: 1,
     bag: { pokeball: STARTING_BALLS },
@@ -1046,6 +1097,12 @@ export function atFullHealth(individual: Individual): Individual {
  * heals one creature heals one creature; this is what "you are fine now"
  * means, and power points come back only here.
  */
+/** Whether a Center would change anything about this one: health, a condition, or a move with uses spent. */
+export function needsCentre(individual: Individual): boolean {
+  if (individual.hp < maxHp(individual) || individual.status) return true;
+  return individual.moves.some((moveId, at) => ppLeft(individual, at) < maxPp(moveId));
+}
+
 function restored(individual: Individual): Individual {
   return { ...restorePp(atFullHealth(individual)), status: null, sleepTurns: 0 };
 }
@@ -1059,7 +1116,21 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))))))));
+  return grounds(world, signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))))))));
+}
+
+/**
+ * Tells a battle that has just started what ground it is on — the first type
+ * of the place's biome — for Camouflage and Nature Power. In the funnel, like
+ * `signed`, so no road into a battle can forget it. A place with no biome
+ * (a town) leaves it unset, which the battle reads as Normal.
+ */
+function grounds(world: World, state: GameState): GameState {
+  const battle = state.battle;
+  if (!battle || battle.turn !== 0 || battle.ground !== undefined) return state;
+  const route = world.routes.get(state.route);
+  const type = route ? BIOMES.find((entry) => entry.id === route.biome)?.types[0] : undefined;
+  return type ? { ...state, battle: { ...battle, ground: type } } : state;
 }
 
 /** The longest a trainer name may be. */
@@ -1215,7 +1286,8 @@ export function cleanBoxName(name: string, tab: number): string {
 function boxInput(state: GameState, input: Extract<Input, { t: "addBox" | "renameBox" | "moveToBox" }>): GameState {
   const refusal = boxRefusal(state, input);
   if (refusal) throw new IllegalInput(refusal);
-  const next = { ...state, tick: state.tick + 1, notice: null };
+  // Naming a tab is not a move, for the reason a nickname is not.
+  const next = { ...state, tick: input.t === "renameBox" ? state.tick : state.tick + 1, notice: null };
   switch (input.t) {
     case "addBox":
       return { ...next, boxNames: [...state.boxNames, defaultBoxName(state.boxNames.length)] };
@@ -1403,6 +1475,8 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
   switch (input.t) {
     case "pickStarter":
       return pickStarter(world, state, input.index);
+    case "vaultStart":
+      return vaultStart(state, input.creature);
     case "move":
       return move(world, state, input.dir);
     case "fight":
@@ -1447,7 +1521,9 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
     case "trainer": {
       const refusal = trainerRefusal(state, input.name);
       if (refusal) throw new IllegalInput(refusal);
-      return { ...state, tick: state.tick + 1, trainerName: cleanTrainerName(input.name), notice: null };
+      // Not a move: a name is not what is happening, and it stays out of the
+      // tick for the reason it stays out of the hash.
+      return { ...state, trainerName: cleanTrainerName(input.name), notice: null };
     }
     case "addBox":
     case "renameBox":
@@ -1483,6 +1559,16 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return print3d(world, state, input.chromaId);
     case "shred":
       return shred(world, state, input.index, input.confirm);
+    case "pawn":
+      return pawn(world, state, input.index, input.confirm);
+    case "bid":
+      return placeBid(world, state, input.n);
+    case "collectBids":
+      return collectBids(world, state);
+    case "workshopLeave":
+      return workshopLeave(world, state, input.station, input.index, input.confirm);
+    case "workshopTake":
+      return workshopTake(world, state, input.station);
     case "cut":
       return cut(world, state, input.index, input.confirm);
     case "reforge":
@@ -1805,7 +1891,7 @@ function atDaycare(world: World, state: GameState): boolean {
  * counter does not move, so the UI can say why.
  */
 function walked(world: World, start: GameState): GameState {
-  const before = poisonStep(world, start);
+  const before = workshopStep(forageStep(world, poisonStep(world, { ...start, stepsTaken: start.stepsTaken + 1 })));
   const step = (eggs: Egg[]) => eggs.map((egg) => (egg.steps > 0 ? { ...egg, steps: egg.steps - 1 } : egg));
 
   // Every egg carried is walked, and every egg in an incubator too: the
@@ -1855,6 +1941,32 @@ function poisonStep(world: World, state: GameState): GameState {
     return hp <= 1 ? { ...one, hp, status: null } : { ...one, hp };
   });
   return { ...state, party, poisonWalk: 0, poisonedAt: hurt ? state.tick : state.poisonedAt };
+}
+
+/**
+ * Every `FORAGE_EVERY` steps, each forage ability in the party turns up an
+ * item. Per ability rather than per creature, so two of them find two. Rolled
+ * from the step's tick and the creature's uid, so a replay finds the same.
+ */
+function forageStep(world: World, state: GameState): GameState {
+  const walk = state.forageWalk + 1;
+  if (walk < FORAGE_EVERY) return { ...state, forageWalk: walk };
+
+  const finds: { uid: number; item: string }[] = [];
+  for (const member of state.party) {
+    abilitiesOf(member.abilities).forEach((spec, slot) => {
+      if (spec.effect.t !== "forage" || !spec.effect.items.length) return;
+      const rng = rngFor(world.seed, "forage", state.tick, member.uid, slot);
+      const rare = spec.effect.rare;
+      const item =
+        rare && intBelow(rng, 1000) < rare.perMille ? rare.item : spec.effect.items[intBelow(rng, spec.effect.items.length)];
+      finds.push({ uid: member.uid, item });
+    });
+  }
+  if (!finds.length) return { ...state, forageWalk: 0 };
+
+  const bag = finds.reduce((held, find) => addItem(held, find.item), state.bag);
+  return { ...state, bag, forageWalk: 0, notice: state.notice ?? { t: "foraged", finds } };
 }
 
 /** Setting foot somewhere new for the first time, and what it pays. */
@@ -2504,7 +2616,8 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
       status: null,
       sleepTurns: 0,
       moves: [],
-      heldItem: null,
+      // Its own named roll too, so it cannot shift the rolls above.
+      heldItem: rollHeld(rngFor(world.seed, "starter-held", index), STARTER_HELD_ITEMS, STARTER_HELD_PER_MILLE),
       nickname: null,
       traded: false,
       prize: false,
@@ -2514,6 +2627,72 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
       gender: rollGender(rng),
     }),
   );
+}
+
+/** The level a creature from the vault starts a new run at. */
+export const VAULT_LEVEL = 5;
+
+/**
+ * A creature out of the vault, as it arrives in a new run — or an error if it
+ * could not be one.
+ *
+ * Nothing in it is trusted: the vault lives in a browser and a file, and both
+ * can be edited. So it is rebuilt from the parts this engine can check, and
+ * reset where the rules say: level 5, no effort, moves for level 5, full
+ * health, no condition. What it keeps is what makes it *that* creature —
+ * species, look, nature, gender, IVs (clamped), abilities it really could
+ * have, its held item, its name and who caught it.
+ */
+export function vaultArrival(creature: Individual, uid: number): Individual {
+  const entry = speciesById(creature.speciesId);
+  if (!NATURE_IDS.includes(creature.natureId)) throw new IllegalInput("that nature does not exist");
+  const variantId = variant(creature.variantId).id;
+  const heldItem = creature.heldItem && isItem(creature.heldItem) ? creature.heldItem : null;
+  const abilities = [...new Set((creature.abilities ?? []).filter(isAbility))].slice(0, MAX_ABILITIES).sort();
+  const gender: Gender = creature.gender === "male" || creature.gender === "female" ? creature.gender : "trans";
+
+  return atFullHealth(
+    withMoves({
+      uid,
+      speciesId: entry.id,
+      level: VAULT_LEVEL,
+      exp: expForLevel(VAULT_LEVEL),
+      ivs: clampIvs(creature.ivs),
+      evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+      natureId: creature.natureId,
+      variantId,
+      hp: 0,
+      status: null,
+      sleepTurns: 0,
+      moves: [],
+      pp: [],
+      abilities,
+      heldItem,
+      nickname: typeof creature.nickname === "string" ? cleanNickname(creature.nickname, entry.id) : null,
+      caughtBy: typeof creature.caughtBy === "string" && cleanTrainerName(creature.caughtBy) ? cleanTrainerName(creature.caughtBy) : "Unknown",
+      traded: false,
+      prize: Boolean(creature.prize),
+      // Where it came from travels with it: a creature a cheat once touched
+      // is still marked, whichever run it walks into.
+      cheat: Boolean(creature.cheat),
+      vault: true,
+      parents: null,
+      gender,
+    }),
+  );
+}
+
+function vaultStart(state: GameState, creature: Individual): GameState {
+  if (state.phase !== "starter") throw new IllegalInput("a vault creature can only start a run");
+  const arrival = vaultArrival(creature, state.nextUid);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    phase: "field",
+    party: [arrival],
+    nextUid: state.nextUid + 1,
+    notice: { t: "starter" },
+  };
 }
 
 function pickStarter(world: World, state: GameState, index: number): GameState {
@@ -2614,7 +2793,9 @@ function rename(state: GameState, uid: number, name: string): GameState {
 
   const named = (one: Individual) =>
     one.uid === uid ? { ...one, nickname: cleanNickname(name, one.speciesId) } : one;
-  return { ...state, tick: state.tick + 1, party: state.party.map(named), box: state.box.map(named), notice: null };
+  // Not a move: two players who name things differently are still playing
+  // the same game, so neither the tick nor the hash sees it.
+  return { ...state, party: state.party.map(named), box: state.box.map(named), notice: null };
 }
 
 function reorderParty(state: GameState, from: number, to: number): GameState {
@@ -3891,7 +4072,9 @@ export function offerRefusal(world: World, state: GameState): string | null {
 
     case "heal":
       if (!state.party.length) return "you have nothing to heal";
-      if (state.party.every((one) => one.hp >= maxHp(one) && !one.status)) return "everyone is well";
+      // Spent moves count: a creature at full health with an empty Surf still
+      // needs the Center, and the Center is the only thing that refills it.
+      if (state.party.every((one) => !needsCentre(one))) return "everyone is well";
       return null;
 
     case "quest": {
@@ -3970,6 +4153,22 @@ export function offerRefusal(world: World, state: GameState): string | null {
     case "shred":
       if (!shredReady(state.tick, state.shreddedAt)) {
         return `the machine is still running — ${shredWait(state.tick, state.shreddedAt)} moves`;
+      }
+      if (state.party.length <= 1) return "keep something that can fight";
+      return "they want to know which one, not whether";
+
+    // Which job and which creature, not whether.
+    case "workshop":
+      return "they want to know who goes where, not whether";
+
+    // Which lot, not whether.
+    case "auction":
+      return "they want to know which lot, not whether";
+
+    // Which one, not whether — and only once the last one has been sold on.
+    case "pawn":
+      if (!pawnReady(state.stepsTaken, state.pawnedAt)) {
+        return `he is still selling the last one on — ${pawnWait(state.stepsTaken, state.pawnedAt)} steps`;
       }
       if (state.party.length <= 1) return "keep something that can fight";
       return "they want to know which one, not whether";
@@ -4175,6 +4374,274 @@ function shred(world: World, state: GameState, index: number, confirm: number): 
       level: going.level,
       candy: paid,
     },
+  };
+}
+
+/*
+ * ----------------------------------------------------------- the workshop
+ *
+ * Three jobs, each for one type: an Ice type on the ice-cream churn, a Fire
+ * type roasting chickens, a Water type watering the garden. Whoever is left
+ * there gains one experience point for every step the player takes, anywhere.
+ * It levels as that adds up, but learns nothing new and never evolves while it
+ * works: the moves it would have learned on the way are simply passed by, and
+ * an evolution it has grown into waits for its next level-up out in the world.
+ */
+
+export type WorkshopStation = "ice" | "fire" | "water";
+
+export const WORKSHOP_STATIONS: readonly WorkshopStation[] = ["ice", "fire", "water"];
+
+/** What each job is, for the panel. */
+export const WORKSHOP_JOBS: Record<WorkshopStation, string> = {
+  ice: "making ice cream",
+  fire: "roasting chickens",
+  water: "watering the plants",
+};
+
+/** How much experience a worker gains per step. */
+export const WORKSHOP_EXP_PER_STEP = 1;
+
+/** A worker's step: a point of experience, and a level if that tipped one — nothing else. */
+function worked(creature: Individual): Individual {
+  if (creature.level >= MAX_LEVEL) return creature;
+  const exp = creature.exp + WORKSHOP_EXP_PER_STEP;
+  const level = Math.min(MAX_LEVEL, levelFromExp(exp));
+  if (level === creature.level) return { ...creature, exp };
+  const before = computeStats(speciesById(creature.speciesId), creature).hp;
+  const grown = { ...creature, exp, level };
+  const after = computeStats(speciesById(grown.speciesId), grown).hp;
+  // Health keeps its share, the way a level-up anywhere else does.
+  return { ...grown, hp: before > 0 ? Math.max(1, Math.round((after * creature.hp) / before)) : grown.hp };
+}
+
+function workshopStep(state: GameState): GameState {
+  if (!WORKSHOP_STATIONS.some((station) => state.workshop[station])) return state;
+  const workshop = { ...state.workshop };
+  for (const station of WORKSHOP_STATIONS) {
+    const held = workshop[station];
+    if (held) workshop[station] = { ...held, creature: worked(held.creature) };
+  }
+  return { ...state, workshop };
+}
+
+function atWorkshop(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "workshop") return "there is no workshop here";
+  return null;
+}
+
+/** Why this party member cannot be left at this job, or null. */
+export function workshopLeaveRefusal(
+  world: World,
+  state: GameState,
+  station: WorkshopStation,
+  index: number,
+  confirm: number,
+): string | null {
+  const standing = atWorkshop(world, state);
+  if (standing) return standing;
+  if (state.workshop[station]) return "somebody is already on that job";
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (!speciesById(creature.speciesId).types.includes(station)) return `that job needs a ${station} type`;
+  if (isFainted(creature)) return "it is in no state to work";
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+function workshopLeave(world: World, state: GameState, station: WorkshopStation, index: number, confirm: number): GameState {
+  const refusal = workshopLeaveRefusal(world, state, station, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const creature = state.party[index];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, slot) => slot !== index),
+    workshop: { ...state.workshop, [station]: { creature, fromLevel: creature.level } },
+    notice: { t: "workshopLeft", name: creature.nickname ?? speciesById(creature.speciesId).name, station },
+  };
+}
+
+/** Why there is nobody to fetch from this job, or null. */
+export function workshopTakeRefusal(world: World, state: GameState, station: WorkshopStation): string | null {
+  const standing = atWorkshop(world, state);
+  if (standing) return standing;
+  return state.workshop[station] ? null : "nobody is on that job";
+}
+
+function workshopTake(world: World, state: GameState, station: WorkshopStation): GameState {
+  const refusal = workshopTakeRefusal(world, state, station);
+  if (refusal) throw new IllegalInput(refusal);
+  const held = state.workshop[station]!;
+  const workshop = { ...state.workshop };
+  delete workshop[station];
+  const boxed = partyFull(state);
+  const creature = held.creature;
+  return {
+    ...state,
+    tick: state.tick + 1,
+    workshop,
+    party: boxed ? state.party : [...state.party, creature],
+    box: boxed ? [...state.box, creature] : state.box,
+    notice: {
+      t: "workshopTaken",
+      name: creature.nickname ?? speciesById(creature.speciesId).name,
+      levels: creature.level - held.fromLevel,
+      boxed,
+    },
+  };
+}
+
+/*
+ * ------------------------------------------------------------ the auction
+ *
+ * See `auction.ts` for the board. What lives here is the money: a bid is paid
+ * the moment it is placed and held against the lot, and settling a closed lot
+ * hands over either the creature or every coin of it.
+ */
+
+function atAuctioneer(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "auction") return "they are not running an auction";
+  return null;
+}
+
+/** Why a bid on lot `n` would be refused, or null. */
+export function bidRefusal(world: World, state: GameState, n: number): string | null {
+  const standing = atAuctioneer(world, state);
+  if (standing) return standing;
+  if (!board(world.seed, state.stepsTaken).some((one) => one.n === n)) return "that lot is not on the board";
+  if (state.bids.some((bid) => bid.n === n)) return "you already have a bid on that lot";
+  const price = auctionLot(world.seed, n).price;
+  if (state.money < price) return `that lot costs ¤${price.toLocaleString()}`;
+  return null;
+}
+
+function placeBid(world: World, state: GameState, n: number): GameState {
+  const refusal = bidRefusal(world, state, n);
+  if (refusal) throw new IllegalInput(refusal);
+  const spec = auctionLot(world.seed, n);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money - spec.price,
+    bids: [...state.bids, { n, price: spec.price }].sort((a, b) => a.n - b.n),
+    notice: { t: "bidPlaced", speciesId: spec.speciesId, price: spec.price },
+  };
+}
+
+/** The bids whose lots have closed, and so can be settled. */
+export function closedBids(world: World, state: GameState): { n: number; price: number; won: boolean }[] {
+  return state.bids
+    .filter((bid) => state.stepsTaken >= auctionLot(world.seed, bid.n).closesAt)
+    .map((bid) => ({ ...bid, won: bidWins(world.seed, bid.n) }));
+}
+
+/** Why there is nothing to settle, or null. */
+export function collectRefusalAuction(world: World, state: GameState): string | null {
+  const standing = atAuctioneer(world, state);
+  if (standing) return standing;
+  return closedBids(world, state).length ? null : "none of your lots have closed yet";
+}
+
+function collectBids(world: World, state: GameState): GameState {
+  const refusal = collectRefusalAuction(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+
+  let next: GameState = { ...state, tick: state.tick + 1 };
+  const won: string[] = [];
+  let refunded = 0;
+  let boxed = false;
+  const settled = closedBids(world, state);
+  for (const bid of settled) {
+    if (!bid.won) {
+      refunded += bid.price;
+      continue;
+    }
+    const arrival = atFullHealth(withMoves({ ...lotCreature(world.seed, bid.n), uid: next.nextUid }));
+    const full = partyFull(next);
+    boxed ||= full;
+    next = {
+      ...next,
+      party: full ? next.party : [...next.party, arrival],
+      box: full ? [...next.box, arrival] : next.box,
+      nextUid: next.nextUid + 1,
+    };
+    won.push(arrival.speciesId);
+  }
+  const done = new Set(settled.map((bid) => bid.n));
+  return {
+    ...next,
+    money: next.money + refunded,
+    bids: next.bids.filter((bid) => !done.has(bid.n)),
+    notice: { t: "bidsSettled", won, refunded, boxed },
+  };
+}
+
+/*
+ * ---------------------------------------------------------- the pawnbroker
+ *
+ * A creature in, fifty a level out, and then a long walk before he buys again.
+ * The wait is in steps actually taken rather than moves, because his excuse
+ * is that he has to walk the last one to a buyer.
+ */
+
+/** What a level is worth to him. */
+export const PAWN_PER_LEVEL = 50;
+
+/** How many steps you have to walk before he buys another. */
+export const PAWN_COOLDOWN = 1200;
+
+export function pawnValue(creature: Individual): number {
+  return creature.level * PAWN_PER_LEVEL;
+}
+
+export function pawnReady(stepsTaken: number, pawnedAt: number | null): boolean {
+  return pawnedAt === null || stepsTaken - pawnedAt >= PAWN_COOLDOWN;
+}
+
+export function pawnWait(stepsTaken: number, pawnedAt: number | null): number {
+  if (pawnedAt === null) return 0;
+  return Math.max(0, PAWN_COOLDOWN - (stepsTaken - pawnedAt));
+}
+
+/** Why he will not buy this one, or null. The panel greys the row for exactly this. */
+export function pawnRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "pawn") return "they are not buying creatures";
+  if (!pawnReady(state.stepsTaken, state.pawnedAt)) {
+    return `he is still selling the last one on — ${pawnWait(state.stepsTaken, state.pawnedAt)} steps`;
+  }
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+function pawn(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = pawnRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const going = state.party[index];
+  const paid = pawnValue(going);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, slot) => slot !== index),
+    money: state.money + paid,
+    // He buys the animal, not its pockets.
+    bag: going.heldItem ? addItem(state.bag, going.heldItem) : state.bag,
+    pawnedAt: state.stepsTaken,
+    notice: { t: "pawned", name: going.nickname ?? speciesById(going.speciesId).name, level: going.level, money: paid },
   };
 }
 
@@ -4603,7 +5070,8 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
 
   const person = speakingTo(world, state)!;
   const given = state.party[index];
-  const offer = person.gives!;
+  // A crook hands over something other than what he showed you.
+  const offer = person.delivers ?? person.gives!;
 
   const got = atFullHealth(
     withMoves({
@@ -4648,11 +5116,19 @@ function npcTrade(world: World, state: GameState, index: number): GameState {
     nextUid: state.nextUid + 1,
     helped: [...state.helped, person.id].sort(),
     found: state.found.includes(got.variantId) ? state.found : [...state.found, got.variantId].sort(),
-    notice: {
-      t: "swapped",
-      given: speciesById(given.speciesId).name,
-      got: speciesById(got.speciesId).name,
-    },
+    notice: person.delivers
+      ? {
+          t: "swindled",
+          by: person.name,
+          given: speciesById(given.speciesId).name,
+          promised: speciesById(person.gives!.speciesId).name,
+          got: speciesById(got.speciesId).name,
+        }
+      : {
+          t: "swapped",
+          given: speciesById(given.speciesId).name,
+          got: speciesById(got.speciesId).name,
+        },
   };
 }
 
@@ -5219,6 +5695,18 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   const lying = (world.pickups.get(state.route) ?? []).find(
     (drop) => drop.x === nx && drop.y === ny && !state.taken.includes(drop.id),
   );
+  // An egg rather than an item: it goes where eggs go, and needs a free slot
+  // in the party. With none it stays where it is for another visit.
+  if (lying?.egg) {
+    if (partyFull(moved)) return { ...moved, notice: { t: "foundEgg", taken: false } };
+    const creature = atFullHealth(withMoves(foundEggCreature(world.seed, lying.id, lying.egg.speciesId)));
+    return {
+      ...moved,
+      eggs: [...moved.eggs, { creature, steps: FOUND_EGG_STEPS, total: FOUND_EGG_STEPS }],
+      taken: [...moved.taken, lying.id].sort(),
+      notice: { t: "foundEgg", taken: true },
+    };
+  }
   if (lying) {
     return {
       ...moved,
@@ -5601,11 +6089,9 @@ export function stateHash(state: GameState): string {
       // has spent its Surf cannot hash the same as one that has not.
       creature.moves.map((_, at) => ppLeft(creature, at)).join("/"),
       creature.abilities.join("+"),
-      // Encoded, so a colon or a bar typed into a name cannot fake a boundary.
-      encodeURIComponent(creature.nickname ?? ""),
-      // Not who caught it: a trainer name is who is playing, not what is
-      // happening, and two people on today's seed should be able to compare
-      // hashes whatever they are called.
+      // No names: not a nickname and not who caught it. A name is what the
+      // player calls something, not what is happening, and two people on
+      // today's seed should be able to compare hashes whatever they typed.
     ].join(":");
 
   const counters = (table: Record<string, number>) =>
@@ -5672,9 +6158,18 @@ export function stateHash(state: GameState): string {
     state.rivalVisits,
     state.party.map(individual).join("|"),
     state.box.map(individual).join("|"),
-    state.boxNames.map((name) => encodeURIComponent(name)).join(","),
+    // How many tabs, not what they are called — names stay out of the hash.
+    state.boxNames.length,
     state.expShareGiven ? "1" : "0",
     state.poisonWalk,
+    state.forageWalk,
+    state.stepsTaken,
+    state.pawnedAt ?? "-",
+    state.bids.map((bid) => `${bid.n}@${bid.price}`).join(","),
+    WORKSHOP_STATIONS.map((station) => {
+      const held = state.workshop[station];
+      return held ? `${station}=${individual(held.creature)}^${held.fromLevel}` : "";
+    }).join("|"),
     state.poisonedAt ?? "-",
     Object.keys(state.boxOf)
       .map(Number)

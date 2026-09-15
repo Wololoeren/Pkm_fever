@@ -332,7 +332,7 @@ describe("machines", () => {
     const world = testWorld("TMFLOOR");
     const dropped = [...world.pickups.values()]
       .flat()
-      .filter((drop) => item(drop.item).kind === "tm");
+      .filter((drop) => !drop.egg && item(drop.item).kind === "tm");
     expect(dropped.length).toBeGreaterThan(0);
   });
 
@@ -354,7 +354,7 @@ describe("machines", () => {
       for (const [routeId, drops] of world.pickups) {
         const ring = world.routes.get(routeId)?.ring ?? 0;
         for (const drop of drops) {
-          if (item(drop.item).kind !== "tm") continue;
+          if (drop.egg || item(drop.item).kind !== "tm") continue;
           expect(
             machinesUpTo(ring, rings),
             `${drop.item} is lying about on ring ${ring}`,

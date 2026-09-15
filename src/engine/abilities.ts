@@ -45,7 +45,7 @@ type EffectShape =
   /** Same-type attack bonus becomes this instead of 1.5, in per-mille. */
   | { t: "stab"; mille: number }
   /** Its own attacks are multiplied, under a condition. */
-  | { t: "power"; when: PowerWhen; mille: number; type?: string }
+  | { t: "power"; when: PowerWhen; mille: number; type?: string; move?: string }
   /** Immune to a type, and healed by a share of its own maximum. */
   | { t: "absorb"; type: string; share: number }
   /** Immune to a type, full stop. */
@@ -201,7 +201,26 @@ type EffectShape =
   /** No condition sticks to it in these weathers. */
   | { t: "weatherGuard"; weather: readonly WeatherId[] }
   /** While it is in battle, weather has no effect. */
-  | { t: "calm" };
+  | { t: "calm" }
+  /** Every stage change to it counts double. */
+  | { t: "simple" }
+  // -------------------------------------------------------------------------
+  // Who it is rather than what it does in a turn: a type lost or gained, a
+  // nature felt harder, and something turned up on the walk.
+  // -------------------------------------------------------------------------
+  /** In battle it does not have this type. */
+  | { t: "lack"; type: string }
+  /** In battle it has this type as well as its own. */
+  | { t: "affinity"; type: string }
+  /**
+   * Its nature counts for more, in per-mille of the usual term.
+   *
+   * `plus` scales the raised stat's bonus and `minus` the lowered stat's
+   * cost, so a nature can be felt harder in one direction only.
+   */
+  | { t: "temper"; plus: number; minus: number }
+  /** Every `FORAGE_EVERY` steps walked in the party, it turns up one of these items, each equally likely. */
+  | { t: "forage"; items: readonly string[]; rare?: { item: string; perMille: number } };
 
 /**
  * One shape, plus who it is for.
@@ -231,7 +250,9 @@ export type PowerWhen =
   /** The move is physical. */
   | "physical"
   /** The move is special. */
-  | "special";
+  | "special"
+  /** The move is exactly `move`. The class abilities, each built around one attack. */
+  | "signature";
 
 /** When a `stat` effect applies. */
 export type StatWhen =
@@ -579,6 +600,7 @@ const SINGLES: AbilitySpec[] = [
  * under one name, and a spec carries one.
  */
 const FIELD_ABILITIES: AbilitySpec[] = [
+  { id: "simple", name: "Simple", blurb: "Every stat stage change it receives is doubled: +1 becomes +2 and −1 becomes −2, still capped at ±6. Applies to its own moves and the foe's.", effect: { t: "simple" } },
   { id: "drought", name: "Drought", blurb: "When it enters battle, starts harsh sunlight for 5 turns, unless it is already sunny.", effect: { t: "summon", weather: "sun" } },
   { id: "drizzle", name: "Drizzle", blurb: "When it enters battle, starts rain for 5 turns, unless it is already raining.", effect: { t: "summon", weather: "rain" } },
   { id: "sandstream", name: "Sand Stream", blurb: "When it enters battle, starts a sandstorm for 5 turns, unless one is already blowing.", effect: { t: "summon", weather: "sand" } },
@@ -604,7 +626,160 @@ const FIELD_ABILITIES: AbilitySpec[] = [
   { id: "airlock", name: "Air Lock", blurb: "While it is in battle and not fainted, every effect of the weather is ignored for both sides. The weather's remaining turns still count down.", effect: { t: "calm" } },
 ];
 
-export const ABILITIES: readonly AbilitySpec[] = [...SINGLES, ...FIELD_ABILITIES, ...CORNERED, ...ABSORB, ...WARD];
+/**
+ * The twelve classes: each one built around a single common attack.
+ *
+ * Moves picked from the ones most creatures meet early — 40 to 80 power, and
+ * each learned by dozens of species — so a class ability is something a
+ * player can build around rather than a lottery ticket for one line.
+ */
+const CLASSES: AbilitySpec[] = [
+  ["barbarian", "Barbarian", "bite", "Bite"],
+  ["bard", "Bard", "disarmingvoice", "Disarming Voice"],
+  ["cleric", "Cleric", "dazzlinggleam", "Dazzling Gleam"],
+  ["druid", "Druid", "razorleaf", "Razor Leaf"],
+  ["fighter", "Fighter", "quickattack", "Quick Attack"],
+  ["monk", "Monk", "doublekick", "Double Kick"],
+  ["paladin", "Paladin", "metalclaw", "Metal Claw"],
+  ["ranger", "Ranger", "aerialace", "Aerial Ace"],
+  ["rogue", "Rogue", "feintattack", "Feint Attack"],
+  ["sorcerer", "Sorcerer", "ember", "Ember"],
+  ["warlock", "Warlock", "hex", "Hex"],
+  ["wizard", "Wizard", "swift", "Swift"],
+].map(([id, name, move, moveName]) => ({
+  id: `class-${id}`,
+  name,
+  blurb: `Its ${moveName} does double damage (every hit, for a multi-hit move). No effect on its other moves.`,
+  effect: { t: "power" as const, when: "signature" as const, move, mille: 2000 },
+}));
+
+/**
+ * A type lost, and a type gained, one of each per type.
+ *
+ * Both only in battle: out on the map a Grass type is still a Grass type to
+ * anybody asking for one. Losing every type leaves it typeless — no same-type
+ * bonus, and every attack neutral against it.
+ */
+const LACK: AbilitySpec[] = FAMILY_TYPES.map((type) => ({
+  id: `lack-${type}`,
+  name: `${titleCase(type)} Deficiency`,
+  blurb:
+    `In battle it is not ${titleCase(type)} type: ${titleCase(type)} moves get no same-type bonus from it, and the type chart ignores ${titleCase(type)} when it is hit. ` +
+    `A pure ${titleCase(type)} type becomes typeless. No effect if it is not ${titleCase(type)}.`,
+  effect: { t: "lack" as const, type },
+}));
+
+const AFFINITY: AbilitySpec[] = FAMILY_TYPES.map((type) => ({
+  id: `affinity-${type}`,
+  name: `${titleCase(type)} Affinity`,
+  blurb:
+    `In battle it is also ${titleCase(type)} type: its ${titleCase(type)} moves get the same-type bonus, and it takes and resists hits as a ${titleCase(type)} type too. ` +
+    `No effect if it is already ${titleCase(type)}.`,
+  effect: { t: "affinity" as const, type },
+}));
+
+/** Effort: more of it, and some of it aimed. */
+const EFFORT_STATS: [string, string, StageStat | "hp"][] = [
+  ["marathoner", "Marathoner", "hp"],
+  ["weightlifter", "Weightlifter", "atk"],
+  ["bulwark", "Bulwark Drill", "def"],
+  ["scholar", "Scholar", "spa"],
+  ["stoic", "Stoic", "spd"],
+  ["sprinter", "Sprinter", "spe"],
+];
+const STAT_WORDS: Record<string, string> = { hp: "HP", atk: "Attack", def: "Defence", spa: "Sp. Atk", spd: "Sp. Def", spe: "Speed" };
+const CAPS = "The limits of 252 per stat and 510 in total still apply.";
+
+const EFFORT: AbilitySpec[] = [
+  { id: "diligent", name: "Diligent", blurb: `The EVs it earns from each defeated foe are multiplied by 1.5 (rounded down). ${CAPS}`, effect: { t: "regimen", mille: 1500 } },
+  { id: "hardworker", name: "Hard Worker", blurb: `The EVs it earns from each defeated foe are doubled. ${CAPS}`, effect: { t: "regimen", mille: 2000 } },
+  { id: "workaholic", name: "Workaholic", blurb: `The EVs it earns from each defeated foe are tripled. ${CAPS}`, effect: { t: "regimen", mille: 3000 } },
+  ...EFFORT_STATS.map(([id, name, stat]) => ({
+    id,
+    name,
+    blurb: `All the EVs it earns from each defeated foe go into ${STAT_WORDS[stat]}, doubled, whatever the foe would normally teach. A held Macho Brace or Power item that picks a stat overrides which stat. ${CAPS}`,
+    effect: { t: "regimen" as const, mille: 2000, stat },
+  })),
+];
+
+/** Natures, felt harder. */
+const NATURE_NOTE = "A neutral nature is unaffected.";
+const TEMPER: AbilitySpec[] = [
+  { id: "strongwilled", name: "Strong-Willed", blurb: `Its nature's bonus to the raised stat is doubled (about +20% instead of +10%). The lowered stat is lowered as usual. ${NATURE_NOTE}`, effect: { t: "temper", plus: 2000, minus: 1000 } },
+  { id: "fervent", name: "Fervent", blurb: `Its nature's bonus to the raised stat is tripled (about +30% instead of +10%). The lowered stat is lowered as usual. ${NATURE_NOTE}`, effect: { t: "temper", plus: 3000, minus: 1000 } },
+  { id: "headstrong", name: "Headstrong", blurb: `Its nature counts double both ways: the raised stat about +20% and the lowered stat about −20%, instead of 10% each. ${NATURE_NOTE}`, effect: { t: "temper", plus: 2000, minus: 2000 } },
+  { id: "extremist", name: "Extremist", blurb: `Its nature counts triple both ways: the raised stat about +30% and the lowered stat about −30%, instead of 10% each. ${NATURE_NOTE}`, effect: { t: "temper", plus: 3000, minus: 3000 } },
+];
+
+/** How many steps walked between one find and the next. */
+export const FORAGE_EVERY = 500;
+
+/** Something turned up on the walk. */
+const FORAGE_NOTE = `Every ${FORAGE_EVERY} steps you walk with it in your party, it finds one item, picked at random with equal odds from:`;
+const FORAGE: AbilitySpec[] = [
+  ["scavenger", "Scavenger", ["potion", "superpotion", "pokeball", "greatball", "repel", "superrepel", "escaperope", "fullheal", "revive", "ultraball"], "Potion, Super Potion, Poké Ball, Great Ball, Repel, Super Repel, Escape Rope, Full Heal, Revive, Ultra Ball"],
+  ["berrypicker", "Berry Picker", ["berry-oran", "berry-sitrus", "berry-figy", "berry-wiki", "berry-mago", "berry-aguav", "berry-iapapa", "berry-cheri", "berry-chesto", "berry-pecha", "berry-rawst", "berry-aspear", "berry-lum"], "Oran, Sitrus, Figy, Wiki, Mago, Aguav, Iapapa, Cheri, Chesto, Pecha, Rawst, Aspear and Lum Berries"],
+  ["ballcollector", "Ball Collector", ["pokeball", "greatball", "ultraball", "quickball", "timerball", "netball", "nestball", "levelball", "fastball", "diveball"], "Poké, Great, Ultra, Quick, Timer, Net, Nest, Level, Fast and Dive Balls"],
+  ["herbalist", "Herbalist", ["potion", "superpotion", "hyperpotion", "fullheal", "revive"], "Potion, Super Potion, Hyper Potion, Full Heal, Revive"],
+  ["treasurehunter", "Treasure Hunter", ["nugget", "pearl"], "Nugget, Pearl"],
+  ["rockhound", "Rockhound", ["stone-leafstone", "stone-firestone", "stone-waterstone", "stone-thunderstone", "stone-icestone", "stone-moonstone", "stone-sunstone", "stone-duskstone", "stone-dawnstone", "stone-shinystone"], "Leaf, Fire, Water, Thunder, Ice, Moon, Sun, Dusk, Dawn and Shiny Stones"],
+  ["gymrat", "Gym Rat", ["hpup", "protein", "iron", "calcium", "zinc", "carbos"], "HP Up, Protein, Iron, Calcium, Zinc, Carbos"],
+].map(([id, name, items, listed]) => {
+  // Ball Collector's jackpot: rolled first, and the ordinary list only if it misses.
+  const rare = id === "ballcollector" ? { item: "masterball", perMille: 5 } : undefined;
+  return {
+    id: id as string,
+    name: name as string,
+    blurb:
+      `${FORAGE_NOTE} ${listed as string}.` +
+      (rare ? " Each find has a 0.5% chance to be a Master Ball instead." : "") +
+      " Eggs and creatures in the box find nothing.",
+    effect: { t: "forage" as const, items: items as string[], ...(rare ? { rare } : {}) },
+  };
+});
+
+export const ABILITIES: readonly AbilitySpec[] = [
+  ...SINGLES,
+  ...FIELD_ABILITIES,
+  ...CORNERED,
+  ...ABSORB,
+  ...WARD,
+  ...CLASSES,
+  ...EFFORT,
+  ...TEMPER,
+  ...FORAGE,
+  ...LACK,
+  ...AFFINITY,
+];
+
+/**
+ * The types it has in battle: its own, less any it lacks, plus any it has an
+ * affinity for, in that order. A move that sets types (Soak and the rest)
+ * replaces this for as long as it lasts.
+ */
+export function typesWith(abilityIds: readonly string[], own: readonly string[]): readonly string[] {
+  const specs = abilitiesOf(abilityIds);
+  const lacking = new Set(specs.flatMap((spec) => (spec.effect.t === "lack" ? [spec.effect.type] : [])));
+  const adding = specs.flatMap((spec) => (spec.effect.t === "affinity" ? [spec.effect.type] : []));
+  if (!lacking.size && !adding.length) return own;
+  const out = own.filter((type) => !lacking.has(type));
+  for (const type of adding) if (!out.includes(type)) out.push(type);
+  return out;
+}
+
+/**
+ * The nature term for one stat, as its abilities scale it. `term` is what the
+ * nature alone gives (+24, −24 or 0).
+ */
+export function temperedNature(abilityIds: readonly string[], term: number): number {
+  if (term === 0) return 0;
+  let out = term;
+  for (const spec of abilitiesOf(abilityIds)) {
+    if (spec.effect.t !== "temper") continue;
+    out = Math.trunc((out * (term > 0 ? spec.effect.plus : spec.effect.minus)) / 1000);
+  }
+  return out;
+}
 
 const BY_ID = new Map(ABILITIES.map((entry) => [entry.id, entry]));
 

@@ -88,6 +88,14 @@ export interface Verification {
    * one and not the other.
    */
   prizes: { at: number; speciesId: string; name: string; level: number; variantId: string }[];
+  /**
+   * The creature a Vault Adventure began with, if this run was one.
+   *
+   * The same kind of hole as a trade: it came out of another run, carried
+   * whole in the input, and was rebuilt at level 5 — so it proves nothing
+   * about how it was raised.
+   */
+  vaultStart: { speciesId: string; name: string; variantId: string } | null;
   savedAt: string;
   party: {
     speciesId: string;
@@ -106,6 +114,8 @@ export interface Verification {
     traded: boolean;
     /** Whether this one was won in a bracket rather than raised. */
     prize: boolean;
+    /** Whether this run began with it, copied out of the player's vault. */
+    vault: boolean;
     /**
      * Whether a testing shortcut made or altered this one.
      *
@@ -202,6 +212,16 @@ export function verifySave(save: SaveFile): Verification {
     cheated: state.cheated,
     trades,
     prizes,
+    vaultStart: (() => {
+      const first = save.inputs.find((input) => input.t === "vaultStart");
+      if (!first || first.t !== "vaultStart") return null;
+      // Read off the input, which a broken log may have filled with nonsense.
+      try {
+        return { speciesId: first.creature.speciesId, name: nameOf(first.creature), variantId: first.creature.variantId };
+      } catch {
+        return null;
+      }
+    })(),
     savedAt: save.savedAt,
     party: state.party.map((creature) => ({
       speciesId: creature.speciesId,
@@ -210,6 +230,7 @@ export function verifySave(save: SaveFile): Verification {
       variantId: creature.variantId,
       traded: creature.traded,
       prize: creature.prize,
+      vault: Boolean(creature.vault),
       cheat: creature.cheat,
     })),
     roster: state.party,

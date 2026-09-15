@@ -10,7 +10,7 @@ import {
 } from "./dex";
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
-import { abilitiesOf, effectApplies, type AbilityEffect } from "./abilities";
+import { abilitiesOf, effectApplies, typesWith, type AbilityEffect } from "./abilities";
 import { heldEffects, isConsumedOnUse } from "./carry";
 import { item as itemSpec } from "./items";
 import { canStillEvolve } from "./progression";
@@ -18,8 +18,10 @@ import { hasVariableDamage, powerOfBlow, variableDamage, type DamageContext } fr
 import {
   actsOnSomething,
   extraEffects,
+  HAZARD_LAYERS,
   UNCALLABLE,
   type AimStat,
+  type HazardId,
   type MoveEffect,
   type SideConditionId,
 } from "./statusmoves";
@@ -34,6 +36,7 @@ import {
   SAND_PROOF,
   WEATHER_TYPE,
   type Field,
+  type RoomId,
   type SportId,
   type TerrainId,
   type WeatherId,
@@ -187,7 +190,7 @@ export interface Volatiles {
    * differs: a charge releases, a rampage confuses, and a roll simply stops.
    */
   committed?: string;
-  commitment?: "charge" | "rage" | "roll";
+  commitment?: "charge" | "rage" | "roll" | "uproar";
   /** Turns of `committed` still to run. A charge is always one. */
   commitTurns?: number;
   /**
@@ -249,6 +252,77 @@ export interface Volatiles {
    * can do the same.
    */
   fresh?: boolean;
+
+  /*
+   * ------------------------------------------------------------------
+   * The last of the deferred moves: restriction, decoys, borrowed abilities
+   * and items, and the counters a handful of attacks keep.
+   * ------------------------------------------------------------------
+   */
+
+  /** Substitute: the decoy's health. Hits land on it until it breaks. */
+  substitute?: number;
+  /** Taunt: turns left with no status moves. */
+  taunt?: number;
+  /** Disable: the move refused, and for how many more turns. */
+  disabled?: string;
+  disableTurns?: number;
+  /** Encore: the one move it may use, and for how many more turns. */
+  encore?: string;
+  encoreTurns?: number;
+  /** Torment: never the same move twice in a row. */
+  tormented?: boolean;
+  /** Imprison: the other side cannot use any move this one knows. */
+  imprisoning?: boolean;
+  /** Heal Block: turns left with no healing. */
+  healBlock?: number;
+  /** Grudge: the move that knocks it out loses every use. */
+  grudge?: boolean;
+  /** Powder: a Fire move this turn blows up in its face. */
+  powdered?: boolean;
+  /** Electrify: its move this turn is Electric. */
+  electrified?: boolean;
+  /** Octolock: it cannot leave, and loses a stage of each guard every turn. */
+  octolocked?: boolean;
+  /** Curse, from a Ghost: a quarter of its health every turn. */
+  cursed?: boolean;
+  /** Quick Guard, Wide Guard, Crafty Shield, Mat Block: what it is guarding against this turn. */
+  guard?: "quick" | "wide" | "crafty" | "mat";
+  /** Snatch: waiting to take the other side's next self-targeting move this turn. */
+  snatching?: boolean;
+  /** Magic Coat: status moves aimed at it this turn go back where they came from. */
+  coated?: boolean;
+  /** Mimic: which slot Mimic was in, and the uses it had, to put back. */
+  mimicked?: { slot: number; pp: number };
+  /** Embargo: turns left with its held item switched off. */
+  embargo?: number;
+  /**
+   * A held item switched off by Embargo or Magic Room, kept here so it can be
+   * handed back. While it is here the creature holds nothing as far as any
+   * effect is concerned.
+   */
+  muffled?: string;
+  /**
+   * Its abilities before a move rewrote them — Worry Seed, Gastro Acid and
+   * the rest — put back when it leaves the field or the battle ends.
+   */
+  abilitiesWas?: readonly string[];
+  /** Fury Cutter: consecutive hits so far, which is what doubles it. */
+  cutter?: number;
+  /** Echoed Voice: consecutive turns it has been used. */
+  echoes?: number;
+  /** Its last move failed, which Stomping Tantrum and Temper Flare punish. */
+  stumbled?: boolean;
+  /** Rage: every hit it takes raises its Attack, until it uses something else. */
+  enraged?: boolean;
+  /** Glaive Rush: until the end of next turn, everything hits it, for double. */
+  exposed?: number;
+  /** Smack Down, Thousand Arrows: knocked out of the air and grounded. */
+  smacked?: boolean;
+  /** Salt Cure: an eighth a turn, a quarter for Water and Steel. */
+  salted?: boolean;
+  /** Syrup Bomb: turns left losing a stage of Speed. */
+  syrup?: number;
 }
 
 export type BattleOutcome =
@@ -340,7 +414,43 @@ export type VolatileKind =
   | "raging"
   /** Taking it, and giving it back twice over. */
   | "biding"
-  | "unleashed";
+  | "unleashed"
+  | "decoy"
+  | "decoyhit"
+  | "decoybroke"
+  | "taunted"
+  | "disabled"
+  | "encored"
+  | "tormented"
+  | "imprisoning"
+  | "healblocked"
+  | "grudging"
+  | "grudged"
+  | "powdered"
+  | "exploded"
+  | "electrified"
+  | "octolocked"
+  | "cursed"
+  | "curseBite"
+  | "guarding"
+  | "snatching"
+  | "snatched"
+  | "coated"
+  | "bounced"
+  | "mimicked"
+  | "embargoed"
+  | "abilityChanged"
+  | "passed"
+  | "camouflaged"
+  | "enraged"
+  | "exposed"
+  | "smacked"
+  | "salted"
+  | "saltBite"
+  | "syrupy"
+  | "restricted"
+  | "uproar"
+  | "worn";
 
 export type BattleEvent =
   | { t: "use"; side: SideIndex; moveId: string }
@@ -405,8 +515,21 @@ export type BattleEvent =
   | { t: "revived"; side: SideIndex; speciesId: string }
   /** Spite: uses taken off a move. `side` is whose move. */
   | { t: "spite"; side: SideIndex; moveId: string; amount: number }
-  /** Weather, terrain or a sport starting, or ending. */
-  | { t: "field"; kind: "weather" | "terrain" | "sport"; id: string; over: boolean }
+  /** Weather, terrain, a sport or a room starting, or ending. */
+  | { t: "field"; kind: "weather" | "terrain" | "sport" | "room"; id: string; over: boolean }
+  /** A hazard laid on a side, now this many layers deep; or swept away at nought. */
+  | { t: "hazard"; side: SideIndex; id: HazardId; layers: number }
+  /** A hazard biting whoever just stepped onto it. `amount` is zero for one that does not hurt. */
+  | { t: "hazardHit"; side: SideIndex; id: HazardId; amount: number }
+  /**
+   * An item changing hands, or leaving them. `side` is who it happened to.
+   */
+  | {
+      t: "itemMoved";
+      side: SideIndex;
+      itemId: string;
+      how: "stolen" | "swapped" | "given" | "knocked" | "burnt" | "recycled" | "eaten" | "muffled" | "unmuffled";
+    }
   /** Sand or hail biting. */
   | { t: "weathered"; side: SideIndex; weather: WeatherId; amount: number }
   | { t: "heal"; side: SideIndex; amount: number }
@@ -511,6 +634,23 @@ export interface Combatant {
    * — is exactly what happens.
    */
   future?: { turns: number; moveId: string; amount: number; quarters: number };
+  /** Stealth Rock, Spikes, Toxic Spikes and Sticky Web on this side, by layers. */
+  hazards?: Partial<Record<HazardId, number>>;
+  /**
+   * The last item each team member used up, by team index — what Recycle
+   * brings back. On the side because it survives a switch.
+   */
+  spent?: Record<number, string>;
+  /** How many times each team member has been hit, by team index. Rage Fist. */
+  beaten?: Record<number, number>;
+  /**
+   * What each team member was holding before a Trick, Thief or Bestow moved
+   * items around, by team index — handed back when a battle that is not in
+   * the wild ends. Knocked-off items are in `knocked` and come back from
+   * every battle.
+   */
+  lent?: Record<number, string | null>;
+  knocked?: Record<number, string>;
 }
 
 export interface BattleState {
@@ -542,6 +682,11 @@ export interface BattleState {
    * with no weather in it hashes as it did before the field existed.
    */
   field?: Field;
+  /**
+   * The type of the ground the battle is on, for Camouflage and Nature Power.
+   * Set by whoever starts the battle from where it is; absent means Normal.
+   */
+  ground?: string;
   outcome: BattleOutcome | null;
   /** Narration for the turn just resolved. Derived from everything else, so
    * stateHash leaves it out. */
@@ -736,7 +881,10 @@ function usedItem(turn: Turn, side: SideIndex, kind: AbilityEffect["t"]): void {
   if (!itemId) return;
 
   const spent = isConsumedOnUse(itemId);
-  if (spent) setActive(turn, side, { ...active(turn, side), heldItem: null });
+  if (spent) {
+    setActive(turn, side, { ...active(turn, side), heldItem: null });
+    rememberSpent(turn, side, itemId);
+  }
   turn.events.push({ t: "item", side, itemId, spent });
 }
 
@@ -763,7 +911,13 @@ function typesAgainst(
   const seen =
     (defending.seen === "ghost" && (move.type === "normal" || move.type === "fighting")) ||
     (defending.seen === "dark" && move.type === "psychic");
-  const types = defending.types ?? speciesById(defender.speciesId).types;
+  let types = defending.types ?? typesWith(defender.abilities, speciesById(defender.speciesId).types);
+  // Knocked out of the air (or held down by Gravity, which the callers fold
+  // into `smacked`): a Ground move reaches a Flying type. Thousand Arrows
+  // reaches one regardless.
+  if (move.type === "ground" && (defending.smacked || move.id === "thousandarrows")) {
+    types = types.filter((type) => type !== "flying");
+  }
   if (reaching || seen) {
     const through = defending.seen === "dark" && seen ? "dark" : "ghost";
     return types.filter((type) => type !== through);
@@ -780,7 +934,10 @@ function typesAgainst(
  * in one place and not another.
  */
 function typesOf(turn: Turn, side: SideIndex): readonly string[] {
-  return volatiles(turn, side).types ?? speciesById(active(turn, side).speciesId).types;
+  // A Deficiency or an Affinity changes the species' types; a move that sets
+  // types replaces the lot.
+  const standing = active(turn, side);
+  return volatiles(turn, side).types ?? typesWith(standing.abilities, speciesById(standing.speciesId).types);
 }
 
 /**
@@ -792,6 +949,8 @@ function typesOf(turn: Turn, side: SideIndex): readonly string[] {
  * could reason about.
  */
 function grounded(turn: Turn, side: SideIndex): boolean {
+  // Gravity and Smack Down pull everything down, whatever keeps it up.
+  if (pulledDown(turn, side)) return true;
   if (typesOf(turn, side).includes("flying")) return false;
   if ((volatiles(turn, side).afloat ?? 0) > 0) return false;
   return !effects(active(turn, side), "immune").some((effect) => effect.type === "ground");
@@ -829,6 +988,7 @@ function setField(turn: Turn, next: Field): void {
   if (next.weather) live.weather = next.weather;
   if (next.terrain) live.terrain = next.terrain;
   if (next.sport) live.sport = next.sport;
+  if (next.rooms && Object.keys(next.rooms).length) live.rooms = next.rooms;
   turn.battle.field = Object.keys(live).length ? live : undefined;
 }
 
@@ -857,6 +1017,16 @@ function ageField(turn: Turn): void {
     }
   }
   setField(turn, next);
+
+  for (const [id, left] of Object.entries(field.rooms ?? {}) as [RoomId, number][]) {
+    if (left > 1) {
+      setRoom(turn, id, left - 1);
+      continue;
+    }
+    setRoom(turn, id, 0);
+    turn.events.push({ t: "field", kind: "room", id, over: true });
+    if (id === "magicroom") for (const side of [0, 1] as SideIndex[]) unmuffle(turn, side);
+  }
 }
 
 /**
@@ -1226,6 +1396,14 @@ interface Turn {
    * fact a move needs that only the turn knows: what the *other* side chose.
    */
   pursuing?: SideIndex;
+  /** Whether each side had a stat lowered this turn. Lash Out asks. */
+  lowered: [boolean, boolean];
+  /** Whether each side's move this turn landed on a substitute rather than on the creature. */
+  hitSub: [boolean, boolean];
+  /** Ion Deluge: Normal moves are Electric for the rest of this turn. */
+  ionDeluge?: boolean;
+  /** Me First: this side's called move is half again as strong. */
+  meFirst?: SideIndex;
 }
 
 function active(turn: Turn, side: SideIndex): Individual {
@@ -1334,6 +1512,18 @@ function landDamage(
   quarters: number,
   crit: boolean,
 ): number {
+  // A substitute stands in front of the blow and takes all of it, and nothing
+  // that hangs off a hit reaches the creature behind it.
+  if (subBlocks(turn, side, move)) {
+    const decoy = volatiles(turn, other(side)).substitute ?? 0;
+    const absorbed = Math.min(decoy, wanted);
+    const left = decoy - absorbed;
+    mergeVolatiles(turn, other(side), { substitute: left > 0 ? left : undefined });
+    turn.hitSub[side] = true;
+    turn.events.push({ t: "volatile", side: other(side), which: left > 0 ? "decoyhit" : "decoybroke" });
+    return absorbed;
+  }
+
   const defender = active(turn, other(side));
   const attacker = active(turn, side);
 
@@ -1387,6 +1577,18 @@ function landDamage(
     turn.events.push({ t: "volatile", side, which: "avenged" });
   }
 
+  // Grudge: the move that did it loses every use it had left.
+  if (isFainted(active(turn, other(side))) && volatiles(turn, other(side)).grudge) {
+    const user = active(turn, side);
+    const slot = user.moves.indexOf(move.id);
+    if (slot >= 0 && user.pp[slot] > 0) {
+      const pp = [...user.pp];
+      pp[slot] = 0;
+      setActive(turn, side, { ...user, pp });
+      turn.events.push({ t: "volatile", side, which: "grudged" });
+    }
+  }
+
   // The resist berry that took the edge off this one, spent now the blow is
   // known to have landed.
   if (quarters > 4) {
@@ -1401,7 +1603,7 @@ function landDamage(
   for (const effect of effects(attacker, "siphon")) {
     const back = Math.max(1, Math.floor(dealt / effect.share));
     const room = maxHp(attacker) - active(turn, side).hp;
-    if (room <= 0 || dealt <= 0) continue;
+    if (room <= 0 || dealt <= 0 || healBlocked(turn, side)) continue;
     setActive(turn, side, { ...active(turn, side), hp: active(turn, side).hp + Math.min(room, back) });
     usedItem(turn, side, "siphon");
   }
@@ -1434,7 +1636,7 @@ function landDamage(
       const hurt = active(turn, other(side));
       const back = Math.max(1, Math.floor(maxHp(hurt) / effect.share));
       const room = maxHp(hurt) - hurt.hp;
-      if (room <= 0) continue;
+      if (room <= 0 || healBlocked(turn, other(side))) continue;
       setActive(turn, other(side), { ...hurt, hp: hurt.hp + Math.min(room, back) });
       turn.events.push({ t: "heal", side: other(side), amount: Math.min(room, back) });
       usedItem(turn, other(side), "solace");
@@ -1456,6 +1658,16 @@ function landDamage(
   if (move.category === "physical") turn.taken[other(side)].physical += dealt;
   else turn.taken[other(side)].special += dealt;
 
+  // Rage Fist counts the hits, and Rage answers each one with Attack.
+  if (dealt > 0) {
+    const hurt = turn.battle.sides[other(side)];
+    hurt.beaten = { ...(hurt.beaten ?? {}), [hurt.active]: (hurt.beaten?.[hurt.active] ?? 0) + 1 };
+    if (volatiles(turn, other(side)).enraged && !isFainted(active(turn, other(side)))) {
+      turn.events.push({ t: "volatile", side: other(side), which: "enraged" });
+      applyBoosts(turn, other(side), { atk: 1 });
+    }
+  }
+
   // Moxie: the spoils of a knockout.
   if (isFainted(active(turn, other(side)))) {
     for (const effect of effects(attacker, "spoils")) {
@@ -1476,6 +1688,7 @@ function applyDamage(turn: Turn, side: SideIndex, amount: number): number {
 }
 
 function applyHeal(turn: Turn, side: SideIndex, amount: number): number {
+  if (healBlocked(turn, side)) return 0;
   const target = active(turn, side);
   const healed = Math.max(0, Math.min(maxHp(target) - target.hp, amount));
   if (healed > 0) setActive(turn, side, { ...target, hp: target.hp + healed });
@@ -1492,6 +1705,8 @@ function applyStatus(turn: Turn, side: SideIndex, status: StatusId, tag: string)
   }
   const target = active(turn, side);
   if (target.status || isFainted(target)) return false;
+  // An uproar keeps everybody awake.
+  if (status === "slp" && ([0, 1] as SideIndex[]).some((at) => volatiles(turn, at).commitment === "uproar")) return false;
 
   // Misty Terrain refuses every condition on the ground, Electric Terrain
   // refuses sleep there, and Leaf Guard refuses everything in the sun. Here,
@@ -1545,8 +1760,10 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = fals
   }
 
   const stages = { ...turn.battle.sides[side].stages };
+  // Simple doubles whatever arrives.
+  const doubled = has(target, "simple") ? 2 : 1;
   for (const stat of Object.keys(boosts) as StageStat[]) {
-    const delta = boosts[stat] ?? 0;
+    const delta = (boosts[stat] ?? 0) * doubled;
     if (byOther && delta < 0 && held.has(stat)) {
       const named = whichAbility(target, "hold");
       if (named) turn.events.push({ t: "ability", side, abilityId: named });
@@ -1555,6 +1772,7 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = fals
     const next = Math.max(-6, Math.min(6, stages[stat] + delta));
     if (next === stages[stat]) continue;
     stages[stat] = next;
+    if (delta < 0) turn.lowered[side] = true;
     turn.events.push({ t: "boost", side, stat, delta });
   }
   turn.battle.sides[side].stages = stages;
@@ -1568,6 +1786,352 @@ function applyBoosts(turn: Turn, side: SideIndex, boosts: Boosts, byOther = fals
  * be a build problem for no gain. So the one place that knows about stages and
  * maximum health fills in the form.
  */
+
+
+/* ------------------------------------------------------------------ rooms
+ *
+ * Gravity, Trick Room, Wonder Room, Magic Room and Fairy Lock. A map on the
+ * field rather than a slot, because more than one can be up at once.
+ */
+
+function roomUp(turn: Turn, id: RoomId): boolean {
+  return (turn.battle.field?.rooms?.[id] ?? 0) > 0;
+}
+
+function setRoom(turn: Turn, id: RoomId, turns: number): void {
+  const field = turn.battle.field ?? {};
+  const rooms = { ...(field.rooms ?? {}) };
+  if (turns > 0) rooms[id] = turns;
+  else delete rooms[id];
+  setField(turn, { ...field, rooms: Object.keys(rooms).length ? rooms : undefined });
+}
+
+/** Gravity or a Smack Down: whatever it is, it is on the ground. */
+function pulledDown(turn: Turn, side: SideIndex): boolean {
+  return roomUp(turn, "gravity") || Boolean(volatiles(turn, side).smacked);
+}
+
+/** A side's volatiles as an attacker's type chart should read them: grounded, if it is. */
+function seenAs(turn: Turn, side: SideIndex): Volatiles {
+  const held = volatiles(turn, side);
+  return pulledDown(turn, side) && !held.smacked ? { ...held, smacked: true } : held;
+}
+
+/**
+ * Wonder Room: a physical blow meets Sp. Def and a special one meets Defence.
+ * The number swaps; the stages stay with their own stat.
+ */
+function wonderStats(turn: Turn, side: SideIndex, stat: StageStat): Partial<Record<StageStat, number>> | undefined {
+  const own = volatiles(turn, side).stats;
+  if (!roomUp(turn, "wonderroom") || (stat !== "def" && stat !== "spd")) return own;
+  const creature = active(turn, side);
+  const swapped = stat === "def" ? "spd" : "def";
+  const value = own?.[swapped] ?? computeStats(speciesById(creature.speciesId), creature)[swapped];
+  return { ...(own ?? {}), [stat]: value };
+}
+
+/** Status moves Snatch cannot take: the shields, the guards and the callers. */
+const UNSNATCHABLE: ReadonlySet<string> = new Set([
+  "snatch", "magiccoat", "protect", "detect", "endure", "kingsshield", "spikyshield", "banefulbunker",
+  "burningbulwark", "obstruct", "silktrap", "quickguard", "wideguard", "craftyshield", "matblock",
+  "metronome", "sleeptalk", "assist", "copycat", "mirrormove", "destinybond", "grudge", "imprison",
+  "transform", "bide",
+]);
+
+/* ------------------------------------------------------------------ items
+ *
+ * A held item switched off by Embargo or Magic Room is moved into `muffled`,
+ * so every effect that reads `heldItem` sees nothing without having to be
+ * told. The few moves that care what is really in its hand ask `heldOf`.
+ */
+
+function heldOf(turn: Turn, side: SideIndex): string | null {
+  return active(turn, side).heldItem ?? volatiles(turn, side).muffled ?? null;
+}
+
+/** Puts an item in its hand — or in the muffled slot, if items are switched off for it. */
+function setHeld(turn: Turn, side: SideIndex, itemId: string | null): void {
+  if (volatiles(turn, side).muffled !== undefined || itemsOff(turn, side)) {
+    setActive(turn, side, { ...active(turn, side), heldItem: null });
+    mergeVolatiles(turn, side, { muffled: itemId ?? undefined });
+    return;
+  }
+  setActive(turn, side, { ...active(turn, side), heldItem: itemId });
+}
+
+function itemsOff(turn: Turn, side: SideIndex): boolean {
+  return roomUp(turn, "magicroom") || (volatiles(turn, side).embargo ?? 0) > 0;
+}
+
+function muffle(turn: Turn, side: SideIndex): void {
+  const creature = active(turn, side);
+  if (!creature.heldItem || isFainted(creature)) return;
+  mergeVolatiles(turn, side, { muffled: creature.heldItem });
+  setActive(turn, side, { ...creature, heldItem: null });
+  turn.events.push({ t: "itemMoved", side, itemId: creature.heldItem, how: "muffled" });
+}
+
+/** Hands a muffled item back, unless something is still switching it off. */
+function unmuffle(turn: Turn, side: SideIndex, force = false): void {
+  const kept = volatiles(turn, side).muffled;
+  if (kept === undefined || (!force && itemsOff(turn, side))) return;
+  mergeVolatiles(turn, side, { muffled: undefined });
+  setActive(turn, side, { ...active(turn, side), heldItem: kept });
+  if (!force) turn.events.push({ t: "itemMoved", side, itemId: kept, how: "unmuffled" });
+}
+
+/**
+ * Remembers what this creature held before a move moved its item, so a
+ * battle that is not in the wild can hand it back. The first time only.
+ */
+function lend(turn: Turn, side: SideIndex): void {
+  if (turn.rules.catchable) return;
+  const combatant = turn.battle.sides[side];
+  const lent = { ...(combatant.lent ?? {}) };
+  if (combatant.active in lent) return;
+  lent[combatant.active] = heldOf(turn, side);
+  combatant.lent = lent;
+}
+
+/** The end of a battle: knocked-off items back, and borrowed ones returned. */
+function returnItems(turn: Turn): void {
+  for (const side of [0, 1] as SideIndex[]) {
+    const combatant = turn.battle.sides[side];
+    if (!combatant.knocked && !combatant.lent) continue;
+    combatant.team = combatant.team.map((one, at) => {
+      let heldItem = one.heldItem;
+      if (combatant.knocked && at in combatant.knocked && !heldItem) heldItem = combatant.knocked[at];
+      if (combatant.lent && at in combatant.lent) heldItem = combatant.lent[at];
+      return heldItem === one.heldItem ? one : { ...one, heldItem };
+    });
+    combatant.knocked = undefined;
+    combatant.lent = undefined;
+  }
+}
+
+/**
+ * A held berry, eaten now whatever it was waiting for: Stuff Cheeks and
+ * Teatime. Its mending, its stage and its cure all happen; a berry that
+ * only answers a hit does nothing but go.
+ */
+function eatNow(turn: Turn, side: SideIndex): boolean {
+  const creature = active(turn, side);
+  const itemId = creature.heldItem;
+  if (!itemId || !itemId.startsWith("berry-") || isFainted(creature)) return false;
+  for (const effect of heldEffects(itemId)) {
+    const now = active(turn, side);
+    if (effect.t === "snack" && !healBlocked(turn, side)) {
+      const back = effect.amount ?? Math.max(1, Math.floor(maxHp(now) / (effect.share ?? 4)));
+      const mended = applyHeal(turn, side, back);
+      if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
+    } else if (effect.t === "pinch") {
+      applyBoosts(turn, side, { [effect.stat]: effect.delta });
+    } else if (effect.t === "cure" && now.status && (!effect.status || effect.status === now.status)) {
+      setActive(turn, side, { ...now, status: null, sleepTurns: 0 });
+      turn.events.push({ t: "volatile", side, which: "snapped" });
+    }
+  }
+  setActive(turn, side, { ...active(turn, side), heldItem: null });
+  rememberSpent(turn, side, itemId);
+  turn.events.push({ t: "itemMoved", side, itemId, how: "eaten" });
+  return true;
+}
+
+function rememberSpent(turn: Turn, side: SideIndex, itemId: string): void {
+  const combatant = turn.battle.sides[side];
+  combatant.spent = { ...(combatant.spent ?? {}), [combatant.active]: itemId };
+}
+
+/* ------------------------------------------------------------- abilities */
+
+/** What it could do before any move rewrote it, Transform included. */
+function ownAbilities(turn: Turn, side: SideIndex): readonly string[] {
+  const held = volatiles(turn, side);
+  return held.transformed?.abilities ?? held.abilitiesWas ?? active(turn, side).abilities;
+}
+
+/** Rewrites its abilities for as long as it stays in, keeping the originals to put back. */
+function setAbilities(turn: Turn, side: SideIndex, abilities: readonly string[]): void {
+  if (volatiles(turn, side).abilitiesWas === undefined) {
+    mergeVolatiles(turn, side, { abilitiesWas: [...ownAbilities(turn, side)] });
+  }
+  setActive(turn, side, { ...active(turn, side), abilities: [...abilities] });
+  turn.events.push({ t: "volatile", side, which: "abilityChanged" });
+}
+
+/* -------------------------------------------------------------- blocking */
+
+/** Heal Block: nothing mends it. */
+function healBlocked(turn: Turn, side: SideIndex): boolean {
+  return (volatiles(turn, side).healBlock ?? 0) > 0;
+}
+
+/** The move targets the creature opposite, rather than the user, a side or the field. */
+function aimedAtFoe(move: MoveEntry): boolean {
+  return !["self", "allySide", "foeSide", "all", "allies", "allyTeam", "adjacentAlly", "adjacentAllyOrSelf"].includes(
+    move.target,
+  );
+}
+
+/** Whether a substitute on the other side stands in front of this move. */
+function subBlocks(turn: Turn, side: SideIndex, move: MoveEntry): boolean {
+  if ((volatiles(turn, other(side)).substitute ?? 0) <= 0) return false;
+  return aimedAtFoe(move) && !hasFlag(move, "bypasssub") && move.id !== STRUGGLE;
+}
+
+/** Why a guard on the other side stops this move this turn, if it does. */
+function guardBlocks(turn: Turn, side: SideIndex, move: MoveEntry): boolean {
+  const guard = volatiles(turn, other(side)).guard;
+  if (!guard || !aimedAtFoe(move)) return false;
+  switch (guard) {
+    case "quick":
+      return priorityOf(turn, side, move.id) > 0;
+    case "wide":
+      return move.target === "allAdjacentFoes" || move.target === "allAdjacent";
+    case "crafty":
+      return move.category === "status";
+    case "mat":
+      return move.category !== "status";
+  }
+}
+
+/**
+ * Why this side may not use this move right now, or null.
+ *
+ * Taunt, Disable, Encore, Torment, Imprison, Heal Block and Gravity, asked
+ * of the battle state alone so the menu and the engine give the same answer.
+ */
+function restriction(state: BattleState, side: SideIndex, moveId: string): string | null {
+  const held = state.sides[side].volatiles ?? {};
+  const move = moveById(moveId);
+  if (moveId === STRUGGLE) return null;
+  if ((held.taunt ?? 0) > 0 && move.category === "status") return "it is taunted and will only attack";
+  if (held.disabled === moveId && (held.disableTurns ?? 0) > 0) return `${move.name} is disabled`;
+  if (held.encore && (held.encoreTurns ?? 0) > 0 && held.encore !== moveId) {
+    return `it is caught in an encore of ${moveById(held.encore).name}`;
+  }
+  if (held.tormented && state.sides[side].lastMove === moveId) return "it is tormented and cannot use that twice in a row";
+  const foe = state.sides[other(side)];
+  if (foe.volatiles?.imprisoning && foe.team[foe.active] && foe.team[foe.active].moves.includes(moveId)) {
+    return `${move.name} is sealed by the foe's Imprison`;
+  }
+  if ((held.healBlock ?? 0) > 0 && hasFlag(move, "heal")) return "it cannot heal right now";
+  if ((state.field?.rooms?.gravity ?? 0) > 0 && hasFlag(move, "gravity")) return "Gravity is too strong for that";
+  return null;
+}
+
+/* ---------------------------------------------------------------- hazards */
+
+/** Whatever is lying on this side's ground, biting whoever just arrived. */
+function applyHazards(turn: Turn, side: SideIndex): void {
+  const hazards = turn.battle.sides[side].hazards;
+  if (!hazards || isFainted(active(turn, side))) return;
+
+  if (hazards.stealthrock) {
+    const quarters = effectiveness("rock", typesOf(turn, side));
+    if (quarters > 0) {
+      const creature = active(turn, side);
+      const taken = applyDamage(turn, side, Math.max(1, Math.floor((maxHp(creature) * quarters) / 32)));
+      turn.events.push({ t: "hazardHit", side, id: "stealthrock", amount: taken });
+    }
+  }
+  if (isFainted(active(turn, side)) || !grounded(turn, side)) return;
+
+  const spikes = hazards.spikes ?? 0;
+  if (spikes > 0) {
+    const creature = active(turn, side);
+    const share = spikes >= 3 ? 4 : spikes === 2 ? 6 : 8;
+    const taken = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(creature) / share)));
+    turn.events.push({ t: "hazardHit", side, id: "spikes", amount: taken });
+  }
+  if (isFainted(active(turn, side))) return;
+
+  if (hazards.toxicspikes) {
+    if (typesOf(turn, side).includes("poison")) {
+      // A grounded Poison type soaks them up.
+      const next = { ...hazards };
+      delete next.toxicspikes;
+      turn.battle.sides[side].hazards = Object.keys(next).length ? next : undefined;
+      turn.events.push({ t: "hazard", side, id: "toxicspikes", layers: 0 });
+    } else {
+      turn.events.push({ t: "hazardHit", side, id: "toxicspikes", amount: 0 });
+      applyStatus(turn, side, "psn", `${side}-toxicspikes`);
+    }
+  }
+  if (hazards.stickyweb) {
+    turn.events.push({ t: "hazardHit", side, id: "stickyweb", amount: 0 });
+    applyBoosts(turn, side, { spe: -1 }, true);
+  }
+}
+
+/** Every hazard off a side, out loud. */
+function sweepHazards(turn: Turn, side: SideIndex): boolean {
+  const hazards = turn.battle.sides[side].hazards;
+  if (!hazards) return false;
+  for (const id of Object.keys(hazards) as HazardId[]) turn.events.push({ t: "hazard", side, id, layers: 0 });
+  turn.battle.sides[side].hazards = undefined;
+  return true;
+}
+
+/** The type of the ground, for Camouflage and Nature Power: the terrain's if there is one. */
+function groundType(turn: Turn): string {
+  const terrain = terrainNow(turn);
+  if (terrain) return TERRAIN_TYPE[terrain];
+  return turn.battle.ground ?? "normal";
+}
+
+/** What Nature Power becomes on each kind of ground. */
+const NATURE_POWER: Record<string, string> = {
+  normal: "triattack",
+  grass: "energyball",
+  water: "hydropump",
+  fire: "lavaplume",
+  ice: "icebeam",
+  rock: "powergem",
+  ground: "earthpower",
+  electric: "thunderbolt",
+  poison: "sludgebomb",
+  bug: "bugbuzz",
+  ghost: "shadowball",
+  dark: "darkpulse",
+  psychic: "psychic",
+  fairy: "moonblast",
+  flying: "airslash",
+  steel: "flashcannon",
+  dragon: "dragonpulse",
+  fighting: "aurasphere",
+};
+
+/** What Baton Pass carries across. Stages, the ladders, and these. */
+const PASSED: readonly (keyof Volatiles)[] = [
+  "confusion",
+  "crit",
+  "seeded",
+  "rooted",
+  "trapped",
+  "substitute",
+  "perish",
+  "afloat",
+  "cursed",
+  "healBlock",
+  "embargo",
+  "sure",
+  "stats",
+];
+
+/**
+ * Leaves for the first healthy creature in reserve, carrying what `carry`
+ * says onto it before it arrives. False with nobody to go to.
+ */
+function leaveCarrying(turn: Turn, side: SideIndex, carry: { stages?: Stages; aim?: AimStages; volatiles?: Volatiles }): boolean {
+  if (turn.rules.catchable && side === 1) return false;
+  const combatant = turn.battle.sides[side];
+  const next = combatant.team.findIndex((one, at) => at !== combatant.active && !isFainted(one));
+  if (next < 0) return false;
+  switchTo(turn, side, next, carry);
+  turn.events.push({ t: "volatile", side, which: "passed" });
+  return true;
+}
 
 /* ------------------------------------------------------------------ volatiles
  *
@@ -1835,6 +2399,7 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       // Refuses at full health with nothing to cure, because sleeping for two
       // turns to gain nothing is a trap rather than a decision.
       if (user.hp >= maxHp(user) && !user.status) return false;
+      if (healBlocked(turn, side)) return false;
       const mended = maxHp(user) - user.hp;
       setActive(turn, side, { ...user, hp: maxHp(user), status: "slp", sleepTurns: REST_TURNS });
       if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
@@ -1987,7 +2552,7 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
             ivs: { ...user.ivs },
             evs: { ...user.evs },
             natureId: user.natureId,
-            abilities: [...user.abilities],
+            abilities: [...(volatiles(turn, side).abilitiesWas ?? user.abilities)],
             moves: [...user.moves],
             pp: [...user.pp],
           },
@@ -2422,6 +2987,390 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       return true;
     }
 
+    case "room": {
+      const id = effect.id;
+      if (id === "fairylock") {
+        if (roomUp(turn, id)) return false;
+        // Two, so it holds through the turn after this one.
+        setRoom(turn, id, 2);
+        turn.events.push({ t: "field", kind: "room", id, over: false });
+        return true;
+      }
+      if (roomUp(turn, id)) {
+        // Gravity fails; the three rooms are twisted back by using them again.
+        if (id === "gravity") return false;
+        setRoom(turn, id, 0);
+        turn.events.push({ t: "field", kind: "room", id, over: true });
+        if (id === "magicroom") for (const at of [0, 1] as SideIndex[]) unmuffle(turn, at);
+        return true;
+      }
+      setRoom(turn, id, FIELD_TURNS);
+      turn.events.push({ t: "field", kind: "room", id, over: false });
+      if (id === "magicroom") for (const at of [0, 1] as SideIndex[]) muffle(turn, at);
+      if (id === "gravity") {
+        // Everything comes down: floating ends, and whatever is up in the sky
+        // mid-Fly is pulled out of it.
+        for (const at of [0, 1] as SideIndex[]) {
+          const held = volatiles(turn, at);
+          if (held.afloat) mergeVolatiles(turn, at, { afloat: undefined });
+          if (held.hidden === "sky") {
+            mergeVolatiles(turn, at, { hidden: undefined, committed: undefined, commitment: undefined, commitTurns: undefined });
+          }
+        }
+      }
+      return true;
+    }
+
+    case "ionDeluge": {
+      if (turn.ionDeluge) return false;
+      turn.ionDeluge = true;
+      turn.events.push({ t: "volatile", side, which: "electrified" });
+      return true;
+    }
+
+    case "courtChange": {
+      const [a, b] = turn.battle.sides;
+      if (!a.screens && !b.screens && !a.hazards && !b.hazards) return false;
+      [a.screens, b.screens] = [b.screens, a.screens];
+      [a.hazards, b.hazards] = [b.hazards, a.hazards];
+      turn.events.push({ t: "volatile", side, which: "swapped" });
+      return true;
+    }
+
+    case "camouflage": {
+      const type = groundType(turn);
+      const mine = typesOf(turn, side);
+      if (mine.length === 1 && mine[0] === type) return false;
+      mergeVolatiles(turn, side, { types: [type] });
+      turn.events.push({ t: "volatile", side, which: "camouflaged" });
+      return true;
+    }
+
+    case "ability": {
+      const user = active(turn, side);
+      const target = active(turn, foe);
+      const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, at) => id === b[at]);
+      switch (effect.how) {
+        case "worry": {
+          if (same(target.abilities, ["insomnia"])) return false;
+          setAbilities(turn, foe, ["insomnia"]);
+          const now = active(turn, foe);
+          if (now.status === "slp") {
+            setActive(turn, foe, { ...now, status: null, sleepTurns: 0 });
+            turn.events.push({ t: "woke", side: foe });
+          }
+          return true;
+        }
+        case "gastro":
+          if (!target.abilities.length) return false;
+          setAbilities(turn, foe, []);
+          return true;
+        case "entrain":
+          if (!user.abilities.length || same(user.abilities, target.abilities)) return false;
+          setAbilities(turn, foe, user.abilities);
+          return true;
+        case "copy":
+          if (!target.abilities.length || same(user.abilities, target.abilities)) return false;
+          setAbilities(turn, side, target.abilities);
+          return true;
+        case "swap": {
+          if (same(user.abilities, target.abilities)) return false;
+          const mine = [...user.abilities];
+          setAbilities(turn, side, target.abilities);
+          setAbilities(turn, foe, mine);
+          return true;
+        }
+        case "simple":
+          if (same(target.abilities, ["simple"])) return false;
+          setAbilities(turn, foe, ["simple"]);
+          return true;
+      }
+      return false;
+    }
+
+    case "batonPass": {
+      const combatant = turn.battle.sides[side];
+      const held = volatiles(turn, side);
+      const carried: Volatiles = {};
+      for (const key of PASSED) {
+        if (held[key] !== undefined) (carried as Record<string, unknown>)[key] = held[key];
+      }
+      // A trap that is not a root does not follow the one it held.
+      if (carried.trapped && !carried.rooted) delete carried.trapped;
+      return leaveCarrying(turn, side, {
+        stages: { ...combatant.stages },
+        aim: combatant.aim ? { ...combatant.aim } : undefined,
+        volatiles: carried,
+      });
+    }
+
+    case "shedTail": {
+      const user = active(turn, side);
+      const cost = Math.ceil(maxHp(user) / 2);
+      const combatant = turn.battle.sides[side];
+      if (user.hp <= cost) return false;
+      if (!combatant.team.some((one, at) => at !== combatant.active && !isFainted(one))) return false;
+      if (turn.rules.catchable && side === 1) return false;
+      const decoy = Math.max(1, Math.floor(maxHp(user) / 4));
+      applyDamage(turn, side, cost);
+      turn.events.push({ t: "recoil", side, amount: cost });
+      return leaveCarrying(turn, side, { volatiles: { substitute: decoy } });
+    }
+
+    case "partingShot": {
+      const before = { ...turn.battle.sides[foe].stages };
+      applyBoosts(turn, foe, { atk: -1, spa: -1 }, true);
+      const after = turn.battle.sides[foe].stages;
+      const dropped = after.atk !== before.atk || after.spa !== before.spa;
+      const left = leaveCarrying(turn, side, {});
+      return dropped || left;
+    }
+
+    case "hazard": {
+      const combatant = turn.battle.sides[foe];
+      const layers = combatant.hazards?.[effect.id] ?? 0;
+      if (layers >= HAZARD_LAYERS[effect.id]) return false;
+      combatant.hazards = { ...(combatant.hazards ?? {}), [effect.id]: layers + 1 };
+      turn.events.push({ t: "hazard", side: foe, id: effect.id, layers: layers + 1 });
+      return true;
+    }
+
+    case "defog": {
+      let did = applyMoveEffect(turn, side, { t: "aim", which: "evasion", delta: -1, onSelf: false });
+      const screens = turn.battle.sides[foe].screens;
+      for (const id of ["reflect", "lightscreen", "mist", "safeguard"] as SideConditionId[]) {
+        if (!screens?.[id]) continue;
+        const next = { ...turn.battle.sides[foe].screens };
+        delete next[id];
+        turn.battle.sides[foe].screens = Object.keys(next).length ? next : undefined;
+        did = true;
+      }
+      if (sweepHazards(turn, 0)) did = true;
+      if (sweepHazards(turn, 1)) did = true;
+      return did;
+    }
+
+    case "tidyUp": {
+      for (const at of [0, 1] as SideIndex[]) {
+        sweepHazards(turn, at);
+        if (volatiles(turn, at).substitute) {
+          mergeVolatiles(turn, at, { substitute: undefined });
+          turn.events.push({ t: "volatile", side: at, which: "decoybroke" });
+        }
+      }
+      applyBoosts(turn, side, { atk: 1, spe: 1 });
+      return true;
+    }
+
+    case "meFirst": {
+      const theirs = turn.chosen?.[foe] ?? null;
+      if (!theirs || turn.used[foe] !== null) return false;
+      const move = moveById(theirs);
+      const barred = ["counter", "mirrorcoat", "metalburst", "covet", "thief", "focuspunch", "beakblast", "shelltrap"];
+      if (move.category === "status" || UNCALLABLE.has(theirs) || barred.includes(theirs)) return false;
+      turn.meFirst = side;
+      executeMove(turn, side, theirs, 1);
+      turn.meFirst = undefined;
+      return true;
+    }
+
+    case "naturePower": {
+      const called = NATURE_POWER[groundType(turn)] ?? "triattack";
+      executeMove(turn, side, called, 1);
+      return true;
+    }
+
+    case "snatch": {
+      mergeVolatiles(turn, side, { snatching: true });
+      turn.events.push({ t: "volatile", side, which: "snatching" });
+      return true;
+    }
+
+    case "magicCoat": {
+      mergeVolatiles(turn, side, { coated: true });
+      turn.events.push({ t: "volatile", side, which: "coated" });
+      return true;
+    }
+
+    case "mimic": {
+      const user = active(turn, side);
+      const learn = turn.battle.sides[foe].lastMove;
+      const slot = user.moves.indexOf("mimic");
+      if (!learn || slot < 0 || user.moves.includes(learn) || UNCALLABLE.has(learn) || learn === SKETCH) return false;
+      const moves = [...user.moves];
+      const pp = [...user.pp];
+      if (!volatiles(turn, side).mimicked) mergeVolatiles(turn, side, { mimicked: { slot, pp: pp[slot] } });
+      moves[slot] = learn;
+      pp[slot] = Math.min(5, moveById(learn).pp);
+      setActive(turn, side, { ...user, moves, pp });
+      turn.events.push({ t: "volatile", side, which: "mimicked" });
+      return true;
+    }
+
+    case "embargo": {
+      if ((volatiles(turn, foe).embargo ?? 0) > 0) return false;
+      mergeVolatiles(turn, foe, { embargo: 5 });
+      turn.events.push({ t: "volatile", side: foe, which: "embargoed" });
+      muffle(turn, foe);
+      return true;
+    }
+
+    case "recycle": {
+      const combatant = turn.battle.sides[side];
+      const back = combatant.spent?.[combatant.active];
+      if (!back || heldOf(turn, side)) return false;
+      const spent = { ...combatant.spent };
+      delete spent[combatant.active];
+      combatant.spent = Object.keys(spent).length ? spent : undefined;
+      setHeld(turn, side, back);
+      turn.events.push({ t: "itemMoved", side, itemId: back, how: "recycled" });
+      return true;
+    }
+
+    case "trick": {
+      const mine = heldOf(turn, side);
+      const theirs = heldOf(turn, foe);
+      if (!mine && !theirs) return false;
+      lend(turn, side);
+      lend(turn, foe);
+      setHeld(turn, side, theirs);
+      setHeld(turn, foe, mine);
+      if (theirs) turn.events.push({ t: "itemMoved", side, itemId: theirs, how: "swapped" });
+      if (mine) turn.events.push({ t: "itemMoved", side: foe, itemId: mine, how: "swapped" });
+      return true;
+    }
+
+    case "bestow": {
+      const mine = heldOf(turn, side);
+      if (!mine || heldOf(turn, foe)) return false;
+      lend(turn, side);
+      lend(turn, foe);
+      setHeld(turn, side, null);
+      setHeld(turn, foe, mine);
+      turn.events.push({ t: "itemMoved", side: foe, itemId: mine, how: "given" });
+      return true;
+    }
+
+    case "eatBerry": {
+      const ate = eatNow(turn, side);
+      let did = ate;
+      if (effect.both && eatNow(turn, foe)) did = true;
+      if (!effect.both && !ate) return false;
+      if (effect.boosts) applyBoosts(turn, side, effect.boosts);
+      return did;
+    }
+
+    case "taunt": {
+      if ((volatiles(turn, foe).taunt ?? 0) > 0) return false;
+      mergeVolatiles(turn, foe, { taunt: 3 });
+      turn.events.push({ t: "volatile", side: foe, which: "taunted" });
+      return true;
+    }
+
+    case "disable": {
+      const last = turn.battle.sides[foe].lastMove;
+      if (!last || last === STRUGGLE || !active(turn, foe).moves.includes(last)) return false;
+      if ((volatiles(turn, foe).disableTurns ?? 0) > 0) return false;
+      mergeVolatiles(turn, foe, { disabled: last, disableTurns: 4 });
+      turn.events.push({ t: "volatile", side: foe, which: "disabled" });
+      return true;
+    }
+
+    case "encore": {
+      const last = turn.battle.sides[foe].lastMove;
+      const target = active(turn, foe);
+      const slot = last ? target.moves.indexOf(last) : -1;
+      const barred = ["encore", "mimic", "transform", "sketch", "mirrormove", "struggle"];
+      if (!last || slot < 0 || !hasPp(target, slot) || barred.includes(last)) return false;
+      if ((volatiles(turn, foe).encoreTurns ?? 0) > 0 || forcedMove(turn.battle, foe)) return false;
+      mergeVolatiles(turn, foe, { encore: last, encoreTurns: 3 });
+      turn.events.push({ t: "volatile", side: foe, which: "encored" });
+      return true;
+    }
+
+    case "imprison": {
+      if (volatiles(turn, side).imprisoning) return false;
+      mergeVolatiles(turn, side, { imprisoning: true });
+      turn.events.push({ t: "volatile", side, which: "imprisoning" });
+      return true;
+    }
+
+    case "torment": {
+      if (volatiles(turn, foe).tormented) return false;
+      mergeVolatiles(turn, foe, { tormented: true });
+      turn.events.push({ t: "volatile", side: foe, which: "tormented" });
+      return true;
+    }
+
+    case "healBlock": {
+      if (healBlocked(turn, foe)) return false;
+      mergeVolatiles(turn, foe, { healBlock: effect.turns });
+      turn.events.push({ t: "volatile", side: foe, which: "healblocked" });
+      return true;
+    }
+
+    case "grudge": {
+      mergeVolatiles(turn, side, { grudge: true });
+      turn.events.push({ t: "volatile", side, which: "grudging" });
+      return true;
+    }
+
+    case "substitute": {
+      const user = active(turn, side);
+      const cost = Math.max(1, Math.floor(maxHp(user) / 4));
+      if ((volatiles(turn, side).substitute ?? 0) > 0 || user.hp <= cost) return false;
+      applyDamage(turn, side, cost);
+      turn.events.push({ t: "recoil", side, amount: cost });
+      mergeVolatiles(turn, side, { substitute: cost });
+      turn.events.push({ t: "volatile", side, which: "decoy" });
+      return true;
+    }
+
+    case "powder": {
+      if (volatiles(turn, foe).powdered) return false;
+      mergeVolatiles(turn, foe, { powdered: true });
+      turn.events.push({ t: "volatile", side: foe, which: "powdered" });
+      return true;
+    }
+
+    case "electrify": {
+      if (turn.used[foe] !== null || volatiles(turn, foe).electrified) return false;
+      mergeVolatiles(turn, foe, { electrified: true });
+      turn.events.push({ t: "volatile", side: foe, which: "electrified" });
+      return true;
+    }
+
+    case "octolock": {
+      if (volatiles(turn, foe).octolocked) return false;
+      mergeVolatiles(turn, foe, { octolocked: true });
+      turn.events.push({ t: "volatile", side: foe, which: "octolocked" });
+      return true;
+    }
+
+    case "curse": {
+      if (!typesOf(turn, side).includes("ghost")) {
+        const before = { ...turn.battle.sides[side].stages };
+        applyBoosts(turn, side, { atk: 1, def: 1, spe: -1 });
+        const after = turn.battle.sides[side].stages;
+        return (["atk", "def", "spe"] as StageStat[]).some((stat) => after[stat] !== before[stat]);
+      }
+      if (volatiles(turn, foe).cursed) return false;
+      const user = active(turn, side);
+      const cost = Math.max(1, Math.floor(maxHp(user) / 2));
+      applyDamage(turn, side, cost);
+      turn.events.push({ t: "recoil", side, amount: cost });
+      mergeVolatiles(turn, foe, { cursed: true });
+      turn.events.push({ t: "volatile", side: foe, which: "cursed" });
+      return true;
+    }
+
+    case "guard": {
+      if (effect.kind === "mat" && !volatiles(turn, side).fresh) return false;
+      mergeVolatiles(turn, side, { guard: effect.kind });
+      turn.events.push({ t: "volatile", side, which: "guarding" });
+      return true;
+    }
+
     case "nothing":
       // Splash. It is supposed to do this.
       return false;
@@ -2562,6 +3511,25 @@ function tickVolatiles(turn: Turn, side: SideIndex): void {
     if (left === 0) turn.events.push({ t: "volatile", side, which: "freed" });
   }
 
+  // Curse and Salt Cure: a share of maximum health every turn.
+  if (volatiles(turn, side).cursed && !isFainted(active(turn, side))) {
+    const creature = active(turn, side);
+    const bite = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(creature) / 4)));
+    if (bite > 0) {
+      turn.events.push({ t: "volatile", side, which: "curseBite" });
+      turn.events.push({ t: "damage", side, amount: bite, quarters: 4, crit: false });
+    }
+  }
+  if (volatiles(turn, side).salted && !isFainted(active(turn, side))) {
+    const creature = active(turn, side);
+    const share = typesOf(turn, side).some((type) => type === "water" || type === "steel") ? 4 : 8;
+    const bite = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(creature) / share)));
+    if (bite > 0) {
+      turn.events.push({ t: "volatile", side, which: "saltBite" });
+      turn.events.push({ t: "damage", side, amount: bite, quarters: 4, crit: false });
+    }
+  }
+
   if (isFainted(active(turn, side))) return;
 
   if (volatiles(turn, side).nightmare) {
@@ -2613,6 +3581,49 @@ function tickVolatiles(turn: Turn, side: SideIndex): void {
 
   const afloat = volatiles(turn, side).afloat ?? 0;
   if (afloat > 0) mergeVolatiles(turn, side, { afloat: afloat - 1 || undefined });
+
+  // Octolock squeezing both guards, and syrup slowing it down.
+  if (volatiles(turn, side).octolocked) applyBoosts(turn, side, { def: -1, spd: -1 }, true);
+  const syrup = volatiles(turn, side).syrup ?? 0;
+  if (syrup > 0) {
+    applyBoosts(turn, side, { spe: -1 }, true);
+    mergeVolatiles(turn, side, { syrup: syrup - 1 || undefined });
+  }
+
+  // The restrictions counting down, each said out loud when it lifts.
+  const timed = volatiles(turn, side);
+  const patch: Volatiles = {};
+  let wore = false;
+  if (timed.taunt) {
+    patch.taunt = timed.taunt - 1 || undefined;
+    wore ||= !patch.taunt;
+  }
+  if (timed.disableTurns) {
+    patch.disableTurns = timed.disableTurns - 1 || undefined;
+    if (!patch.disableTurns) {
+      patch.disabled = undefined;
+      wore = true;
+    }
+  }
+  if (timed.encoreTurns) {
+    const creature = active(turn, side);
+    const slot = timed.encore ? creature.moves.indexOf(timed.encore) : -1;
+    const runDry = slot < 0 || !hasPp(creature, slot);
+    patch.encoreTurns = runDry ? undefined : timed.encoreTurns - 1 || undefined;
+    if (!patch.encoreTurns) {
+      patch.encore = undefined;
+      wore = true;
+    }
+  }
+  if (timed.healBlock) {
+    patch.healBlock = timed.healBlock - 1 || undefined;
+    wore ||= !patch.healBlock;
+  }
+  const embargoEnds = timed.embargo === 1;
+  if (timed.embargo) patch.embargo = timed.embargo - 1 || undefined;
+  if (Object.keys(patch).length) mergeVolatiles(turn, side, patch);
+  if (wore) turn.events.push({ t: "volatile", side, which: "worn" });
+  if (embargoEnds) unmuffle(turn, side);
 
   const perish = volatiles(turn, side).perish ?? 0;
   if (perish > 0) {
@@ -2717,13 +3728,28 @@ function situationalPower(turn: Turn, side: SideIndex, move: MoveEntry, power: n
     case "brine":
       return target.hp * 2 <= maxHp(target) ? power * 2 : power;
     case "knockoff":
-      return target.heldItem ? Math.floor((power * 3) / 2) : power;
+      return heldOf(turn, foe) ? Math.floor((power * 3) / 2) : power;
 
     // What the user is carrying.
     case "facade":
       return user.status === "brn" || user.status === "psn" || user.status === "par" ? power * 2 : power;
     case "acrobatics":
-      return user.heldItem ? power : power * 2;
+      return heldOf(turn, side) ? power : power * 2;
+
+    // What it has been doing.
+    case "furycutter":
+      return power * 2 ** Math.min(2, volatiles(turn, side).cutter ?? 0);
+    case "echoedvoice":
+      return Math.min(200, power * (1 + (volatiles(turn, side).echoes ?? 0)));
+    case "stompingtantrum":
+    case "temperflare":
+      return volatiles(turn, side).stumbled ? power * 2 : power;
+    case "lashout":
+      return turn.lowered[side] ? power * 2 : power;
+    case "ragefist": {
+      const mine = turn.battle.sides[side];
+      return Math.min(350, power + 50 * (mine.beaten?.[mine.active] ?? 0));
+    }
     case "eruption":
     case "waterspout":
     case "dragonenergy":
@@ -2783,6 +3809,7 @@ function situationalPower(turn: Turn, side: SideIndex, move: MoveEntry, power: n
  */
 function moveFails(turn: Turn, side: SideIndex, moveId: string): boolean {
   const foe = other(side);
+  if (roomUp(turn, "gravity") && hasFlag(moveById(moveId), "gravity")) return true;
   switch (moveId) {
     case "dreameater":
       return active(turn, foe).status !== "slp";
@@ -2819,7 +3846,38 @@ function afterHit(turn: Turn, side: SideIndex, moveId: string): void {
       turn.events.push({ t: "volatile", side: foe, which: "roused" });
       return;
     }
+    case "thief":
+    case "covet": {
+      const theirs = heldOf(turn, foe);
+      if (turn.hitSub[side] || !theirs || heldOf(turn, side) || isFainted(active(turn, side))) return;
+      lend(turn, side);
+      lend(turn, foe);
+      setHeld(turn, foe, null);
+      setHeld(turn, side, theirs);
+      turn.events.push({ t: "itemMoved", side, itemId: theirs, how: "stolen" });
+      return;
+    }
+    case "knockoff": {
+      const theirs = heldOf(turn, foe);
+      if (turn.hitSub[side] || !theirs) return;
+      const combatant = turn.battle.sides[foe];
+      if (!combatant.knocked || !(combatant.active in combatant.knocked)) {
+        combatant.knocked = { ...(combatant.knocked ?? {}), [combatant.active]: theirs };
+      }
+      setHeld(turn, foe, null);
+      turn.events.push({ t: "itemMoved", side: foe, itemId: theirs, how: "knocked" });
+      return;
+    }
+    case "incinerate": {
+      const theirs = heldOf(turn, foe);
+      if (turn.hitSub[side] || !theirs || !theirs.startsWith("berry-")) return;
+      setHeld(turn, foe, null);
+      turn.events.push({ t: "itemMoved", side: foe, itemId: theirs, how: "burnt" });
+      return;
+    }
+    case "mortalspin":
     case "rapidspin": {
+      sweepHazards(turn, side);
       const held = volatiles(turn, side);
       if (!held.seeded && !held.bound) return;
       mergeVolatiles(turn, side, { seeded: undefined, bound: undefined });
@@ -2870,7 +3928,7 @@ function damageFor(
   // in this arithmetic.
   const struggling = move.id === STRUGGLE;
 
-  const against = typesAgainst(attacker, defender, move, volatiles(turn, other(side)));
+  const against = typesAgainst(attacker, defender, move, seenAs(turn, other(side)));
   const quarters = struggling ? 4 : chartFor(move, against);
   if (move.category === "status" || power <= 0 || quarters === 0) {
     return { amount: 0, quarters, crit: false };
@@ -2903,7 +3961,7 @@ function damageFor(
         defender,
         defendStat,
         IGNORES_DEFENCE_STAGES.has(move.id) ? 0 : turn.battle.sides[other(side)].stages[defendStat],
-        volatiles(turn, other(side)).stats,
+        wonderStats(turn, other(side), defendStat),
       ),
       fieldStatMille(turn, other(side), defendStat),
     ),
@@ -2990,6 +4048,8 @@ function damageFor(
       (effect.when === "typed" && effect.type === move.type) ||
       (effect.when === "physical" && move.category === "physical") ||
       (effect.when === "special" && move.category === "special") ||
+      // The class abilities: one attack, by name.
+      (effect.when === "signature" && effect.move === move.id) ||
       (effect.when === "cornered" &&
         effect.type === move.type &&
         attacker.hp * 3 <= maxHp(attacker));
@@ -3032,6 +4092,9 @@ function damageFor(
   );
   // Facade ignores it too, which is the other half of why it doubles when burned.
   if (attacker.status === "brn" && physical && !gutsy && move.id !== "facade") value = Math.floor(value / 2);
+
+  // Glaive Rush's other price: double from everything, until it recovers.
+  if ((volatiles(turn, other(side)).exposed ?? 0) > 0) value *= 2;
 
   return { amount: Math.max(1, value), quarters, crit };
 }
@@ -3208,7 +4271,7 @@ function canAct(turn: Turn, side: SideIndex): boolean {
 function executeMove(
   turn: Turn,
   side: SideIndex,
-  moveId: string,
+  requestedId: string,
   /**
    * How many callers this move is standing on. Nought for the move that
    * was chosen; one for the move a Metronome landed on. A called move spends
@@ -3220,6 +4283,7 @@ function executeMove(
   if (depth > MAX_CALL_DEPTH) return;
   const attacker = active(turn, side);
   if (isFainted(attacker)) return;
+  let moveId = requestedId;
 
   // Sleep Talk is the one move that goes off *because* the user is asleep.
   // `canAct` still runs — the sleep counter still counts down, and a creature
@@ -3228,6 +4292,25 @@ function executeMove(
   if (depth === 0 && !canAct(turn, side)) {
     const dozing = moveId === "sleeptalk" && active(turn, side).status === "slp";
     if (!dozing) return;
+  }
+
+  /*
+   * Encore and the rest of move restriction, asked again at the moment of
+   * use: the menu was right when the move was picked, and a Taunt or an
+   * Encore from the faster side can land between the picking and the using.
+   */
+  if (depth === 0 && moveId !== STRUGGLE && !forcedMove(turn.battle, side)) {
+    const held = volatiles(turn, side);
+    if (held.encore && (held.encoreTurns ?? 0) > 0 && held.encore !== moveId) {
+      const slot = attacker.moves.indexOf(held.encore);
+      if (slot >= 0 && hasPp(attacker, slot)) moveId = held.encore;
+    }
+    if (restriction(turn.battle, side, moveId)) {
+      turn.events.push({ t: "use", side, moveId });
+      turn.events.push({ t: "volatile", side, which: "restricted" });
+      turn.used[side] = moveId;
+      return;
+    }
   }
 
   /**
@@ -3245,7 +4328,7 @@ function executeMove(
   // fifty otherwise.
   const weatherUp = weatherNow(turn);
   const base = moveById(moveId);
-  const move =
+  const shaped =
     moveId === "weatherball" && weatherUp
       ? { ...base, type: WEATHER_TYPE[weatherUp], power: 100 }
       : // Terrain Pulse is Weather Ball for the ground: the terrain's type and
@@ -3272,6 +4355,18 @@ function executeMove(
                 (volatiles(turn, side).curled ? 2 : 1),
             }
           : base;
+  // Electrify on the user, or Ion Deluge on a Normal move, makes it Electric;
+  // a move Me First borrowed is half again as strong.
+  const electric = Boolean(volatiles(turn, side).electrified) || (turn.ionDeluge === true && shaped.type === "normal");
+  const borrowed = depth === 1 && turn.meFirst === side;
+  const move =
+    electric || borrowed
+      ? {
+          ...shaped,
+          type: electric ? "electric" : shaped.type,
+          power: borrowed ? Math.floor((shaped.power * 3) / 2) : shaped.power,
+        }
+      : shaped;
   const struggling = moveId === STRUGGLE;
 
   // Spent here rather than when the move was chosen: a creature that is
@@ -3303,8 +4398,8 @@ function executeMove(
   // is a fresh lock rather than one consumed by itself, and a Destiny Bond
   // held through a second Destiny Bond is the second one.
   const sure = depth === 0 && Boolean(volatiles(turn, side).sure);
-  if (depth === 0 && (sure || volatiles(turn, side).bonded)) {
-    mergeVolatiles(turn, side, { sure: undefined, bonded: undefined });
+  if (depth === 0 && (sure || volatiles(turn, side).bonded || volatiles(turn, side).grudge)) {
+    mergeVolatiles(turn, side, { sure: undefined, bonded: undefined, grudge: undefined });
   }
 
   /*
@@ -3328,6 +4423,30 @@ function executeMove(
   }
   if (moveFails(turn, side, moveId)) {
     turn.events.push({ t: "fizzled", side, moveId });
+    return;
+  }
+
+  // Powder: a Fire move goes off in its user's face.
+  if (volatiles(turn, side).powdered && move.type === "fire") {
+    const user = active(turn, side);
+    const blast = applyDamage(turn, side, Math.max(1, Math.floor(maxHp(user) / 4)));
+    turn.events.push({ t: "volatile", side, which: "exploded" });
+    if (blast > 0) turn.events.push({ t: "recoil", side, amount: blast });
+    return;
+  }
+
+  // Snatch: a move the user aims at itself goes to whoever is waiting for it.
+  if (
+    depth === 0 &&
+    move.category === "status" &&
+    (move.target === "self" || move.target === "allySide") &&
+    volatiles(turn, other(side)).snatching &&
+    !move.selfSwitch &&
+    !UNSNATCHABLE.has(moveId)
+  ) {
+    mergeVolatiles(turn, other(side), { snatching: undefined });
+    turn.events.push({ t: "volatile", side: other(side), which: "snatched" });
+    executeMove(turn, other(side), moveId, 1);
     return;
   }
 
@@ -3478,7 +4597,7 @@ function executeMove(
    * without them two turns of invulnerability would cost nothing at all.
    */
   const away = volatiles(turn, other(side)).hidden;
-  if (away && move.target !== "self" && !reachesHidden(move, away)) {
+  if (away && aimedAtFoe(move) && !reachesHidden(move, away)) {
     turn.events.push({ t: "miss", side });
     return;
   }
@@ -3490,8 +4609,25 @@ function executeMove(
   // A move that targets the user goes through — you cannot Protect yourself
   // out of your own Swords Dance, and in a game that is 1v1 throughout every
   // other move is aimed at the one creature opposite.
-  if (move.target !== "self" && behindShield(turn, other(side))) {
+  if (aimedAtFoe(move) && behindShield(turn, other(side))) {
     turn.events.push({ t: "shielded", side: other(side) });
+    return;
+  }
+  // Quick Guard, Wide Guard, Crafty Shield and Mat Block: one kind of move each.
+  if (guardBlocks(turn, side, move)) {
+    turn.events.push({ t: "shielded", side: other(side) });
+    return;
+  }
+  // Magic Coat: a status move it could bounce goes back the way it came —
+  // once, so two coats cannot throw it back and forth.
+  if (depth === 0 && hasFlag(move, "reflectable") && volatiles(turn, other(side)).coated) {
+    turn.events.push({ t: "volatile", side: other(side), which: "bounced" });
+    executeMove(turn, other(side), moveId, 1);
+    return;
+  }
+  // A substitute takes no orders: a status move aimed at it simply fails.
+  if (move.category === "status" && subBlocks(turn, side, move)) {
+    turn.events.push({ t: "fizzled", side, moveId });
     return;
   }
 
@@ -3510,7 +4646,8 @@ function executeMove(
   // The healing has to happen even though nothing landed, which is why this
   // is not folded into `landsAs` — that answers a question, and this one has
   // a consequence.
-  const drinking = drinker(defender, move);
+  // Pulled down by Gravity or a Smack Down, a Levitate floats no more.
+  const drinking = move.type === "ground" && pulledDown(turn, other(side)) ? null : drinker(defender, move);
   if (drinking) {
     turn.events.push({ t: "ability", side: other(side), abilityId: drinking.id });
     if (drinking.effect.t === "absorb") {
@@ -3526,7 +4663,7 @@ function executeMove(
     return;
   }
 
-  const quarters = chartFor(move, typesAgainst(attacker, defender, move, volatiles(turn, other(side))));
+  const quarters = chartFor(move, typesAgainst(attacker, defender, move, seenAs(turn, other(side))));
   // Struggle is the exception to the type chart. It has to be: a creature out
   // of moves facing something its last resort cannot touch would be stuck in
   // a battle with no way to act and no way to lose.
@@ -3538,7 +4675,12 @@ function executeMove(
   // Magnet Rise and Telekinesis: a Ground attack passes underneath. Only
   // attacks — a Sand Attack is Ground-typed and still lands, because it is
   // thrown rather than felt through the floor.
-  if (move.type === "ground" && move.category !== "status" && (volatiles(turn, other(side)).afloat ?? 0) > 0) {
+  if (
+    move.type === "ground" &&
+    move.category !== "status" &&
+    (volatiles(turn, other(side)).afloat ?? 0) > 0 &&
+    !pulledDown(turn, other(side))
+  ) {
     turn.events.push({ t: "immune", side: other(side) });
     return;
   }
@@ -3547,7 +4689,8 @@ function executeMove(
   // the move cannot miss to begin with.
   let accuracy = move.accuracy;
   // A Lock-On taken last turn is the one thing that makes a Fissure certain.
-  let unmissable = accuracy === 0 || sure;
+  // Glaive Rush's price: until the end of next turn, nothing misses it.
+  let unmissable = accuracy === 0 || sure || (volatiles(turn, other(side)).exposed ?? 0) > 0;
   // Thunder and Hurricane cannot miss in the rain and are a coin in the sun;
   // Blizzard cannot miss in hail or snow. Sand Veil and Snow Cloak are the
   // target's weather, and read like a Bright Powder.
@@ -3569,6 +4712,8 @@ function executeMove(
   if (attacker.abilities.includes("hustle") && move.category === "physical") {
     accuracy = scaled(accuracy, 800);
   }
+  // Gravity: everything is easier to hit, by five thirds.
+  if (roomUp(turn, "gravity")) accuracy = Math.floor((accuracy * 5) / 3);
   // Bright Powder, which is the target's business rather than the attacker's.
   // Applied after `aim` so No Guard still cannot miss: an unmissable move is
   // unmissable, and a powder does not make it a coin flip.
@@ -3759,7 +4904,7 @@ function executeMove(
     applyBoosts(turn, side, move.selfBoosts.boosts);
   }
 
-  if (move.status) {
+  if (move.status && !turn.hitSub[side]) {
     // Through the normaliser, so a condition the manifest has and this engine
     // does not lands as the nearest one it does rather than as a crash.
     const condition = conditionOf(move.status);
@@ -3767,7 +4912,7 @@ function executeMove(
   }
   if (move.boosts) {
     const onSelf = move.target === "self";
-    applyBoosts(turn, onSelf ? side : other(side), move.boosts, !onSelf);
+    if (onSelf || !turn.hitSub[side]) applyBoosts(turn, onSelf ? side : other(side), move.boosts, !onSelf);
   }
 
   // Everything the manifest could not say. Asked for every move rather than
@@ -3796,6 +4941,7 @@ function executeMove(
   if (
     secondary &&
     !(shielded && !secondary.self) &&
+    !(turn.hitSub[side] && !secondary.self) &&
     !isFainted(active(turn, other(side))) &&
     chance(turn, `${side}-sec`, secondary.chance)
   ) {
@@ -3829,6 +4975,23 @@ function executeMove(
     if (secondary.volatile === "confusion" && !secondary.self) {
       confuseSide(turn, other(side));
     }
+    // The four riders that are conditions of their own.
+    if (secondary.volatile === "healblock" && !healBlocked(turn, other(side))) {
+      mergeVolatiles(turn, other(side), { healBlock: 2 });
+      turn.events.push({ t: "volatile", side: other(side), which: "healblocked" });
+    }
+    if (secondary.volatile === "saltcure" && !volatiles(turn, other(side)).salted) {
+      mergeVolatiles(turn, other(side), { salted: true });
+      turn.events.push({ t: "volatile", side: other(side), which: "salted" });
+    }
+    if (secondary.volatile === "sparklingaria" && active(turn, other(side)).status === "brn") {
+      setActive(turn, other(side), { ...active(turn, other(side)), status: null });
+      turn.events.push({ t: "volatile", side: other(side), which: "snapped" });
+    }
+    if (secondary.volatile === "syrupbomb" && !volatiles(turn, other(side)).syrup) {
+      mergeVolatiles(turn, other(side), { syrup: 3 });
+      turn.events.push({ t: "volatile", side: other(side), which: "syrupy" });
+    }
   }
 
   /*
@@ -3843,7 +5006,20 @@ function executeMove(
    * the longer one would be a different move. Named like every other roll in
    * the file, so a battle stays a pure function of its seed.
    */
-  if (move.volatile === "partiallytrapped" && dealt > 0 && !isFainted(active(turn, other(side)))) {
+  // Smack Down and Thousand Arrows: out of the air, and out of a Fly.
+  if (move.volatile === "smackdown" && dealt > 0 && !turn.hitSub[side] && !isFainted(active(turn, other(side)))) {
+    const held = volatiles(turn, other(side));
+    if (!held.smacked) {
+      mergeVolatiles(turn, other(side), {
+        smacked: true,
+        afloat: undefined,
+        ...(held.hidden === "sky" ? { hidden: undefined, committed: undefined, commitment: undefined, commitTurns: undefined } : {}),
+      });
+      turn.events.push({ t: "volatile", side: other(side), which: "smacked" });
+    }
+  }
+
+  if (move.volatile === "partiallytrapped" && dealt > 0 && !turn.hitSub[side] && !isFainted(active(turn, other(side)))) {
     if (!volatiles(turn, other(side)).bound) {
       const [least, most] = BIND_TURNS;
       const turns = least + intBelow(rngFor(turn.battle.seed, turn.battle.tag, turn.battle.turn, `${side}-bind`), most - least + 1);
@@ -3925,6 +5101,38 @@ function afterMove(turn: Turn, side: SideIndex): void {
   if (held.commitment === "charge" && held.committed === moveId) return;
   // Bide keeps its own counter and clears its own commitment.
   if (held.biding) return;
+
+  // The counters a handful of attacks keep: consecutive Fury Cutters that
+  // landed, consecutive Echoed Voices, whether this move failed, and a Rage
+  // that is still going.
+  mergeVolatiles(turn, side, {
+    cutter: moveId === "furycutter" && landed ? Math.min(2, (held.cutter ?? 0) + 1) : undefined,
+    echoes: moveId === "echoedvoice" ? Math.min(4, (held.echoes ?? 0) + 1) : undefined,
+    stumbled: landed ? undefined : true,
+    enraged: moveId === "rage" && (landed || held.enraged) ? true : undefined,
+  });
+  if (moveId === "glaiverush" && landed && !isFainted(active(turn, side))) {
+    mergeVolatiles(turn, side, { exposed: 2 });
+    turn.events.push({ t: "volatile", side, which: "exposed" });
+  }
+
+  // Uproar: three turns of it, and nobody sleeps through any of them.
+  if (moveId === "uproar") {
+    if (held.commitment === "uproar" && held.committed === moveId) {
+      const left = (held.commitTurns ?? 1) - 1;
+      if (left > 0 && landed) mergeVolatiles(turn, side, { commitTurns: left });
+      else mergeVolatiles(turn, side, { committed: undefined, commitment: undefined, commitTurns: undefined });
+    } else if (landed && !isFainted(active(turn, side))) {
+      mergeVolatiles(turn, side, { committed: moveId, commitment: "uproar", commitTurns: 2 });
+      turn.events.push({ t: "volatile", side, which: "uproar" });
+      for (const at of [0, 1] as SideIndex[]) {
+        const sleeper = active(turn, at);
+        if (sleeper.status !== "slp" || isFainted(sleeper)) continue;
+        setActive(turn, at, { ...sleeper, status: null, sleepTurns: 0 });
+        turn.events.push({ t: "woke", side: at });
+      }
+    }
+  }
 
   /*
    * The ten beam moves. Set whether or not the blow landed, which is the
@@ -4118,7 +5326,7 @@ function tickHealth(turn: Turn, side: SideIndex): void {
 
     if (welcome) {
       const room = maxHp(creature) - creature.hp;
-      if (room <= 0) continue;
+      if (room <= 0 || healBlocked(turn, side)) continue;
       setActive(turn, side, { ...creature, hp: creature.hp + Math.min(room, step) });
       turn.events.push({ t: "heal", side, amount: Math.min(room, step) });
     } else {
@@ -4155,7 +5363,7 @@ function eatBerry(turn: Turn, side: SideIndex): void {
 
     const back = effect.amount ?? Math.max(1, Math.floor(maxHp(creature) / (effect.share ?? 4)));
     const room = maxHp(creature) - creature.hp;
-    if (room <= 0) continue;
+    if (room <= 0 || healBlocked(turn, side)) continue;
     setActive(turn, side, { ...creature, hp: creature.hp + Math.min(room, back) });
     turn.events.push({ t: "heal", side, amount: Math.min(room, back) });
     usedItem(turn, side, "snack");
@@ -4200,6 +5408,9 @@ export function aiAction(state: BattleState, side: SideIndex = 1): BattleAction 
 
   const active = activeOf(state, side);
   if (!active.moves.length) return { t: "pass" };
+  // Part-way through a Fly, an Outrage or an Uproar, the move goes on whatever
+  // is picked — even with every use spent, which Struggle would be refused for.
+  if (forcedMove(state, side)) return { t: "fight", moveIndex: 0 };
   // Out of everything, or holding something that has taken everything else
   // off the menu. Either way there is one thing left to do.
   if (!anyPp(active) || !hasLegalMove(state, side)) return { t: "struggle" };
@@ -4260,7 +5471,8 @@ function firstMover(turn: Turn, moveA: string | null, moveB: string | null): Sid
 
   const speedA = speedOf(turn, 0);
   const speedB = speedOf(turn, 1);
-  if (speedA !== speedB) return speedA > speedB ? 0 : 1;
+  // Trick Room: within a priority bracket, the slower one goes first.
+  if (speedA !== speedB) return (speedA > speedB) !== roomUp(turn, "trickroom") ? 0 : 1;
 
   return roll(turn, "speedtie") < 0.5 ? 0 : 1;
 }
@@ -4314,6 +5526,8 @@ export function resolveTurn(
     ],
     connected: [false, false],
     used: [null, null],
+    lowered: [false, false],
+    hitSub: [false, false],
     battle: {
       ...state,
       turn: state.turn + 1,
@@ -4336,11 +5550,20 @@ export function resolveTurn(
       switchTo(turn, side, action.partyIndex);
       turn.battle.awaitingSwitch[side] = false;
     }
+    // Hazards can knock out what was just sent in.
+    if (([0, 1] as SideIndex[]).some((side) => isFainted(active(turn, side)))) settle(turn, rules);
     return finish(turn, null, 0);
   }
 
   let caught: Individual | null = null;
   let ballsUsed = 0;
+
+  // Struggle is legal only when nothing else was, judged before anything this
+  // turn moves. Asked the same way the refusal asks it, so the menu and the
+  // engine cannot disagree about whether there was anything else to do.
+  for (const side of [0, 1] as SideIndex[]) {
+    if (actions[side].t === "struggle" && hasLegalMove(state, side)) throw new IllegalAction("it still has moves to use");
+  }
 
   // Balls and running are wild-only, resolve before anything else, and give
   // the opponent a free move if they fail.
@@ -4502,6 +5725,17 @@ export function resolveTurn(
       });
     }
     if (held.shield) mergeVolatiles(turn, side, { shield: undefined });
+    // Everything else that lasts exactly the turn it was raised.
+    if (held.guard || held.snatching || held.coated || held.powdered || held.electrified) {
+      mergeVolatiles(turn, side, {
+        guard: undefined,
+        snatching: undefined,
+        coated: undefined,
+        powdered: undefined,
+        electrified: undefined,
+      });
+    }
+    if (held.exposed) mergeVolatiles(turn, side, { exposed: held.exposed - 1 || undefined });
     // The streak only survives an unbroken run of them, so a turn spent doing
     // anything else resets the price back to nothing.
     if (!held.shield && held.shieldStreak) mergeVolatiles(turn, side, { shieldStreak: undefined });
@@ -4559,9 +5793,9 @@ function chosenMove(turn: Turn, side: SideIndex, action: BattleAction): string |
 
   if (action.t === "fight") return moveIdFor(turn, side, action.moveIndex);
   if (action.t !== "struggle") return null;
-  // Asked the same way the refusal asks it, so the menu and the engine cannot
-  // disagree about whether there was anything else to do.
-  if (hasLegalMove(turn.battle, side)) throw new IllegalAction("it still has moves to use");
+  // Whether Struggle was allowed is asked of the battle as the turn began, in
+  // `resolveTurn`: a switch earlier in this turn — an Imprison leaving — can
+  // make a move legal again after the choice was already made.
   return STRUGGLE;
 }
 
@@ -4646,6 +5880,14 @@ export function actionRefusal(state: BattleState, side: SideIndex, action: Battl
   }
   // And a move part-way through holds it too: there is no calling back
   // something that is halfway up in the air or three turns into a rampage.
+  // Octolock holds it; Fairy Lock holds everybody, for the turn after it too.
+  if (
+    (action.t === "switch" || action.t === "flee") &&
+    !state.awaitingSwitch[side] &&
+    (state.sides[side].volatiles?.octolocked || (state.field?.rooms?.fairylock ?? 0) > 0)
+  ) {
+    return action.t === "flee" ? "there is no getting away" : "it cannot be called back";
+  }
   if (
     (action.t === "switch" || action.t === "flee") &&
     !state.awaitingSwitch[side] &&
@@ -4666,6 +5908,10 @@ export function actionRefusal(state: BattleState, side: SideIndex, action: Battl
     if (!hasPp(creature, action.moveIndex)) return "no uses left in that one";
 
     const moveId = creature.moves[action.moveIndex];
+
+    // Taunt, Disable, Encore, Torment, Imprison, Heal Block, Gravity.
+    const restricted = restriction(state, side, moveId);
+    if (restricted) return restricted;
 
     // An Assault Vest buys a defence with every status move it has.
     if (moveById(moveId).category === "status" && has(creature, "silent")) {
@@ -4725,6 +5971,9 @@ function onArriving(turn: Turn, side: SideIndex): void {
   // `spendFreshness` the moment the slot resolves a move, so it is gone again
   // within the turn and a battle nobody used it in carries no trace of it.
   mergeVolatiles(turn, side, { fresh: true });
+  // Whatever was laid on the ground bites first.
+  applyHazards(turn, side);
+  if (roomUp(turn, "magicroom")) muffle(turn, side);
   const arriving = active(turn, side);
   // Drought, Drizzle, Sand Stream, Snow Warning and the four Surges.
   for (const effect of effects(arriving, "summon")) {
@@ -4746,9 +5995,23 @@ function onArriving(turn: Turn, side: SideIndex): void {
 /** The active creature as it was before any Transform, without changing anything. */
 function untransformed(turn: Turn, side: SideIndex): Individual {
   const creature = active(turn, side);
-  const was = volatiles(turn, side).transformed;
-  if (!was) return creature;
-  const restored = { ...creature, ...was, ivs: { ...was.ivs }, evs: { ...was.evs }, abilities: [...was.abilities], moves: [...was.moves], pp: [...was.pp] };
+  const held = volatiles(turn, side);
+  const was = held.transformed;
+  let restored: Individual = was
+    ? { ...creature, ...was, ivs: { ...was.ivs }, evs: { ...was.evs }, abilities: [...was.abilities], moves: [...was.moves], pp: [...was.pp] }
+    : creature;
+  // Everything else a move borrowed for the length of a stay: its abilities,
+  // Mimic's slot, and an item that was switched off.
+  if (held.abilitiesWas) restored = { ...restored, abilities: [...held.abilitiesWas] };
+  if (held.mimicked && !was) {
+    const moves = [...restored.moves];
+    const pp = [...restored.pp];
+    moves[held.mimicked.slot] = "mimic";
+    pp[held.mimicked.slot] = held.mimicked.pp;
+    restored = { ...restored, moves, pp };
+  }
+  if (held.muffled !== undefined && !restored.heldItem) restored = { ...restored, heldItem: held.muffled };
+  if (restored === creature) return creature;
   // Health carries over, but not above what the original can hold: the copy
   // may have had a bigger health pool than the creature underneath it.
   return { ...restored, hp: Math.min(restored.hp, maxHp(restored)) };
@@ -4756,12 +6019,19 @@ function untransformed(turn: Turn, side: SideIndex): Individual {
 
 /** Puts a transformed creature back as it was. Called on leaving the field and at the end. */
 function revertTransform(turn: Turn, side: SideIndex): void {
-  if (!volatiles(turn, side).transformed) return;
+  const held = volatiles(turn, side);
+  if (!held.transformed && !held.abilitiesWas && !held.mimicked && held.muffled === undefined) return;
   setActive(turn, side, untransformed(turn, side));
-  mergeVolatiles(turn, side, { transformed: undefined });
+  mergeVolatiles(turn, side, { transformed: undefined, abilitiesWas: undefined, mimicked: undefined, muffled: undefined });
 }
 
-function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
+function switchTo(
+  turn: Turn,
+  side: SideIndex,
+  partyIndex: number,
+  /** Baton Pass and Shed Tail: what the one arriving takes over from the one leaving. */
+  carry?: { stages?: Stages; aim?: AimStages; volatiles?: Volatiles },
+): void {
   const combatant = turn.battle.sides[side];
   if (partyIndex < 0 || partyIndex >= combatant.team.length) throw new IllegalAction("no such party member");
   if (partyIndex === combatant.active && !turn.battle.awaitingSwitch[side]) {
@@ -4786,10 +6056,13 @@ function switchTo(turn: Turn, side: SideIndex, partyIndex: number): void {
   // *about* the switch: Healing Wish fainted so that this arrival is whole.
   const blessed = Boolean(combatant.volatiles?.blessing);
 
-  combatant.stages = { ...NO_STAGES };
-  combatant.aim = undefined;
-  combatant.volatiles = undefined;
+  combatant.stages = carry?.stages ? { ...carry.stages } : { ...NO_STAGES };
+  combatant.aim = carry?.aim ? { ...carry.aim } : undefined;
+  combatant.volatiles = carry?.volatiles && Object.keys(carry.volatiles).length ? { ...carry.volatiles } : undefined;
   turn.events.push({ t: "switch", side, partyIndex });
+
+  // An Octolock lasts only while whoever set it is standing there.
+  if (turn.battle.sides[other(side)].volatiles?.octolocked) mergeVolatiles(turn, other(side), { octolocked: undefined });
 
   /*
    * Who has taken part against what is standing opposite.
@@ -5003,6 +6276,7 @@ function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnR
   if (turn.battle.outcome) {
     revertTransform(turn, 0);
     revertTransform(turn, 1);
+    returnItems(turn);
   }
   return { battle: { ...turn.battle, events: turn.events }, caught, ballsUsed };
 }
@@ -5067,6 +6341,17 @@ export function battleHash(state: BattleState): string {
       combatant.future
         ? `${combatant.future.moveId}:${combatant.future.turns}:${combatant.future.amount}:${combatant.future.quarters}`
         : "",
+      // Hazards, spent items, hits taken and borrowed items: empty for nearly
+      // every battle, so those hash as they did.
+      [combatant.hazards, combatant.spent, combatant.beaten, combatant.lent, combatant.knocked]
+        .map((record) =>
+          Object.entries(record ?? {})
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, value]) => `${key}=${String(value)}`)
+            .join(","),
+        )
+        .filter(Boolean)
+        .join("&"),
     ].join("/");
   };
 
@@ -5083,6 +6368,7 @@ export function battleHash(state: BattleState): string {
     JSON.stringify(state.outcome ?? null),
     // Empty for no field, so a battle without weather hashes as it did.
     fieldKey(state.field),
+    state.ground ?? "",
   ].join(";");
   for (let i = 0; i < canonical.length; i++) {
     hash ^= canonical.charCodeAt(i);

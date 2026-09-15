@@ -240,6 +240,8 @@ export function beatsFor(
       case "aim":
       case "heal":
       case "transformed":
+      case "hazardHit":
+      case "itemMoved":
         beats[event.side].glowAt = (actor === null ? shift : started) + IMPACT_DELAY;
         break;
 

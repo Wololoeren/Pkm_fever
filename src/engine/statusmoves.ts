@@ -1,5 +1,5 @@
 import type { Boosts, MoveEntry, StageStat } from "./dex";
-import type { SportId, TerrainId, WeatherId } from "./field";
+import type { RoomId, SportId, TerrainId, WeatherId } from "./field";
 import { hasFieldUse } from "./fieldmoves";
 
 /*
@@ -85,6 +85,23 @@ export type SideConditionId =
   | "safeguard"
   | "luckychant"
   | "tailwind";
+
+/**
+ * What can be laid on a side's ground for whoever steps onto it next.
+ *
+ * On the side rather than on anybody standing there, like a screen, and with
+ * a number that is a count of layers rather than of turns: they stay until
+ * something sweeps them away.
+ */
+export type HazardId = "stealthrock" | "spikes" | "toxicspikes" | "stickyweb";
+
+/** How many of each can be stacked. */
+export const HAZARD_LAYERS: Record<HazardId, number> = {
+  stealthrock: 1,
+  spikes: 3,
+  toxicspikes: 2,
+  stickyweb: 1,
+};
 
 /** Which of the two probability ladders a move moves. */
 export type AimStat = "accuracy" | "evasion";
@@ -241,6 +258,84 @@ export type MoveEffect =
   | { t: "sport"; id: SportId }
   /** Aurora Veil: both screens at once, and only in hail or snow. */
   | { t: "veil" }
+  /**
+   * Gravity, Trick Room, Wonder Room, Magic Room, Fairy Lock: a condition on
+   * the whole battle that is not a weather or a terrain. The three rooms end
+   * early if they are used again while up; Gravity and Fairy Lock fail.
+   */
+  | { t: "room"; id: RoomId }
+  /** Ion Deluge: Normal moves are Electric for the rest of the turn. */
+  | { t: "ionDeluge" }
+  /** Court Change: the two sides' screens and hazards exchanged. */
+  | { t: "courtChange" }
+  /** Camouflage: the user becomes the type of the ground it is standing on. */
+  | { t: "camouflage" }
+  /**
+   * Worry Seed, Gastro Acid, Entrainment, Role Play, Skill Swap, Simple Beam
+   * and Doodle: abilities rewritten for as long as it stays in.
+   */
+  | { t: "ability"; how: "worry" | "gastro" | "entrain" | "copy" | "swap" | "simple" }
+  /** Baton Pass: the user leaves, and its stages and most conditions stay for the next one. */
+  | { t: "batonPass" }
+  /** Shed Tail: half its health for a substitute, left behind for the next one. */
+  | { t: "shedTail" }
+  /** Parting Shot: the target's Attack and Sp. Atk down a stage, then the user leaves. */
+  | { t: "partingShot" }
+  /** Stealth Rock, Spikes, Toxic Spikes, Sticky Web: laid on the target's side. */
+  | { t: "hazard"; id: HazardId }
+  /** Defog: the target's evasion down, its screens and every hazard cleared. */
+  | { t: "defog" }
+  /** Tidy Up: every hazard and substitute gone, and a stage of Attack and Speed. */
+  | { t: "tidyUp" }
+  /** Me First: the target's chosen attack, used first and half again as hard. */
+  | { t: "meFirst" }
+  /** Nature Power: a move decided by the terrain, or by the ground. */
+  | { t: "naturePower" }
+  /** Snatch: the target's next self-targeting status move this turn is taken. */
+  | { t: "snatch" }
+  /** Magic Coat: status moves aimed at the user this turn bounce back. */
+  | { t: "magicCoat" }
+  /** Mimic: the target's last move, in Mimic's slot, until it leaves. */
+  | { t: "mimic" }
+  /** Embargo: the target's held item does nothing for five turns. */
+  | { t: "embargo" }
+  /** Recycle: the last item the user used up, back in its hand. */
+  | { t: "recycle" }
+  /** Trick, Switcheroo: the two held items exchanged. */
+  | { t: "trick" }
+  /** Bestow: the user's held item given to a target holding nothing. */
+  | { t: "bestow" }
+  /**
+   * Stuff Cheeks (the user, and two stages of Defence) and Teatime (both
+   * sides): a held berry eaten now, whatever it was waiting for.
+   */
+  | { t: "eatBerry"; both: boolean; boosts?: Boosts }
+  /** Taunt: no status moves for three turns. */
+  | { t: "taunt" }
+  /** Disable: the target's last move refused for four turns. */
+  | { t: "disable" }
+  /** Encore: the target's last move, and only that, for three turns. */
+  | { t: "encore" }
+  /** Imprison: the target cannot use any move the user also knows. */
+  | { t: "imprison" }
+  /** Torment: the target cannot use the same move twice in a row. */
+  | { t: "torment" }
+  /** Heal Block: no healing for this many turns. */
+  | { t: "healBlock"; turns: number }
+  /** Grudge: the move that knocks the user out loses all its uses. */
+  | { t: "grudge" }
+  /** Substitute: a quarter of the user's health spent on a decoy that takes the hits. */
+  | { t: "substitute" }
+  /** Powder: a Fire move the target uses this turn explodes on it instead. */
+  | { t: "powder" }
+  /** Electrify: the target's move this turn is Electric. */
+  | { t: "electrify" }
+  /** Octolock: trapped, and a stage of each guard off at the end of every turn. */
+  | { t: "octolock" }
+  /** Curse: a Ghost pays half its health to curse the target; anything else trades Speed for Attack and Defence. */
+  | { t: "curse" }
+  /** Quick Guard, Wide Guard, Crafty Shield, Mat Block: one kind of move blocked this turn. */
+  | { t: "guard"; kind: "quick" | "wide" | "crafty" | "mat" }
   /**
    * Nothing, and that is the joke.
    *
@@ -486,6 +581,74 @@ export const STATUS_EFFECTS: Record<string, readonly MoveEffect[]> = {
   // creature, as Teleport is.
   chillyreception: [{ t: "weather", id: "snow" }, { t: "retreat" }],
 
+  // -------------------------------------------------------------- the rooms
+  gravity: [{ t: "room", id: "gravity" }],
+  trickroom: [{ t: "room", id: "trickroom" }],
+  wonderroom: [{ t: "room", id: "wonderroom" }],
+  magicroom: [{ t: "room", id: "magicroom" }],
+  fairylock: [{ t: "room", id: "fairylock" }],
+  iondeluge: [{ t: "ionDeluge" }],
+  courtchange: [{ t: "courtChange" }],
+  camouflage: [{ t: "camouflage" }],
+
+  // -------------------------------------------------------------- abilities
+  worryseed: [{ t: "ability", how: "worry" }],
+  gastroacid: [{ t: "ability", how: "gastro" }],
+  entrainment: [{ t: "ability", how: "entrain" }],
+  roleplay: [{ t: "ability", how: "copy" }],
+  doodle: [{ t: "ability", how: "copy" }],
+  skillswap: [{ t: "ability", how: "swap" }],
+  simplebeam: [{ t: "ability", how: "simple" }],
+
+  // ---------------------------------------------------- passing and leaving
+  batonpass: [{ t: "batonPass" }],
+  shedtail: [{ t: "shedTail" }],
+  partingshot: [{ t: "partingShot" }],
+
+  // ---------------------------------------------------------------- hazards
+  stealthrock: [{ t: "hazard", id: "stealthrock" }],
+  spikes: [{ t: "hazard", id: "spikes" }],
+  toxicspikes: [{ t: "hazard", id: "toxicspikes" }],
+  stickyweb: [{ t: "hazard", id: "stickyweb" }],
+  defog: [{ t: "defog" }],
+  tidyup: [{ t: "tidyUp" }],
+
+  // ------------------------------------------------------ more callers
+  mefirst: [{ t: "meFirst" }],
+  naturepower: [{ t: "naturePower" }],
+  snatch: [{ t: "snatch" }],
+  magiccoat: [{ t: "magicCoat" }],
+  mimic: [{ t: "mimic" }],
+
+  // ------------------------------------------------------------------ items
+  embargo: [{ t: "embargo" }],
+  recycle: [{ t: "recycle" }],
+  trick: [{ t: "trick" }],
+  switcheroo: [{ t: "trick" }],
+  bestow: [{ t: "bestow" }],
+  stuffcheeks: [{ t: "eatBerry", both: false, boosts: { def: 2 } }],
+  teatime: [{ t: "eatBerry", both: true }],
+
+  // ------------------------------------------------------------ restriction
+  taunt: [{ t: "taunt" }],
+  disable: [{ t: "disable" }],
+  encore: [{ t: "encore" }],
+  imprison: [{ t: "imprison" }],
+  torment: [{ t: "torment" }],
+  healblock: [{ t: "healBlock", turns: 5 }],
+  grudge: [{ t: "grudge" }],
+  substitute: [{ t: "substitute" }],
+  powder: [{ t: "powder" }],
+  electrify: [{ t: "electrify" }],
+  octolock: [{ t: "octolock" }],
+
+  // ------------------------------------------------- singles-worthy leftovers
+  curse: [{ t: "curse" }],
+  quickguard: [{ t: "guard", kind: "quick" }],
+  wideguard: [{ t: "guard", kind: "wide" }],
+  craftyshield: [{ t: "guard", kind: "crafty" }],
+  matblock: [{ t: "guard", kind: "mat" }],
+
   // ------------------------------------------------------------ and nothing
   splash: [{ t: "nothing" }],
 };
@@ -509,6 +672,9 @@ export const UNCALLABLE: ReadonlySet<string> = new Set([
   "sketch",
   "transform",
   "struggle",
+  "mefirst",
+  "naturepower",
+  "mimic",
 ]);
 
 /**

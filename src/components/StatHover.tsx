@@ -1,11 +1,10 @@
 "use client";
 
-import { abilitiesOf } from "@/engine/abilities";
+import { abilitiesOf, typesWith } from "@/engine/abilities";
 import { species as speciesById } from "@/engine/dex";
 import { effortSpent, effortYield } from "@/engine/effort";
 import { GENDER_NAMES } from "@/engine/gender";
-import { natureVector } from "@/engine/natures";
-import { computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX, ivTotal } from "@/engine/stats";
+import { computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX, ivTotal, natureTerms } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import { isSpecial, variant } from "@/engine/variants";
 import type { Combatant } from "@/engine/battle";
@@ -71,7 +70,7 @@ export function StatHover({
   const entry = speciesById(creature.speciesId);
   const mods = side ? sideMods(side) : null;
   const stats = computeStats(entry, creature);
-  const nature = natureVector(creature.natureId);
+  const nature = natureTerms(creature);
   const form = variant(creature.variantId);
   const spent = effortSpent(creature.evs);
   const yielded = effortYield(creature.speciesId);
@@ -83,7 +82,7 @@ export function StatHover({
       </p>
 
       <div className="types">
-        {entry.types.map((type) => (
+        {typesWith(creature.abilities, entry.types).map((type) => (
           <span key={type} className="typePill" style={{ background: typeColor(type) }}>
             {type}
           </span>

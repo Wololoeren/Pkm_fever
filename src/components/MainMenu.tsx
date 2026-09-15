@@ -34,11 +34,14 @@ export function MainMenu({
   autosave,
   onNew,
   onLoad,
+  onVault,
 }: {
   autosave: SaveFile | null;
   /** A new game in this world, played under this trainer name. */
   onNew: (seed: string, trainer: string) => void;
   onLoad: (save: SaveFile) => void;
+  /** Opens the vault. */
+  onVault: () => void;
 }) {
   const [seed, setSeed] = useState(() => randomSeed());
   const [trainer, setTrainer] = useState("");
@@ -153,6 +156,19 @@ export function MainMenu({
           />
         </div>
         {error ? <p className="error">{error}</p> : null}
+      </div>
+
+      <div className="menuCard">
+        <h2>Vault</h2>
+        <p className="muted">
+          Every creature from every run you add, in one place — and a Vault Adventure starts a new run with a copy of
+          one of them.
+        </p>
+        <div className="row">
+          <button type="button" onClick={onVault}>
+            Open the vault
+          </button>
+        </div>
       </div>
 
       <div className="menuCard dim">

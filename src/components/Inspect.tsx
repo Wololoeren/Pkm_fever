@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { depositRefusal, MAX_MOVES, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
-import { abilitiesOf } from "@/engine/abilities";
-import { natureVector } from "@/engine/natures";
+import { abilitiesOf, typesWith } from "@/engine/abilities";
 import { displayPower } from "@/engine/moves";
 import { maxPp, ppLeft } from "@/engine/pp";
 import {
@@ -14,6 +13,7 @@ import {
   ivTotal,
   statBreakdown,
   type StatBreakdown,
+  natureTerms,
 } from "@/engine/stats";
 import { effortSpent } from "@/engine/effort";
 import { expForLevel, levelFromExp } from "@/engine/progression";
@@ -268,8 +268,10 @@ export function Inspect({
   onClose: () => void;
 }) {
   const entry = speciesById(creature.speciesId);
-  const nature = natureVector(creature.natureId);
+  const nature = natureTerms(creature);
   const form = variant(creature.variantId);
+  const fighting = typesWith(creature.abilities, entry.types);
+  const retyped = fighting.join() !== entry.types.join();
 
   const pool = learnableAt(creature.speciesId, creature.level).sort((a, b) =>
     moveById(a).name < moveById(b).name ? -1 : 1,
@@ -342,8 +344,14 @@ export function Inspect({
                     {type}
                   </span>
                 ))}
+                {retyped ? (
+                  <span className="tag" title="What its abilities make it in battle">
+                    IN BATTLE: {fighting.length ? fighting.join("/").toUpperCase() : "TYPELESS"}
+                  </span>
+                ) : null}
                 {creature.traded ? <span className="tag">TRADED</span> : null}
                 {creature.prize ? <span className="tag">PRIZE</span> : null}
+                {creature.vault ? <span className="tag">VAULT</span> : null}
                 {creature.cheat ? <span className="tag fall">CHEAT</span> : null}
               </div>
               <p className="muted eggLine">

@@ -1,6 +1,7 @@
 import { rollAbilities } from "./abilities";
+import { rollHeld, WILD_HELD_ITEMS, WILD_HELD_PER_MILLE } from "./carry";
 import { SCHOOL_LABEL } from "./school";
-import { ALL_SPECIES, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
+import { ALL_SPECIES, baseFormOf, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
 import { INKS, ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
@@ -383,7 +384,7 @@ export function fishAt(
     // Rolled after gender, for the same reason gender was added last: every
     // draw above these was made before they existed.
     abilities: rollAbilities(rng),
-    heldItem: null,
+    heldItem: rollHeld(rngFor(world.seed, "fish-held", route, reach, index), WILD_HELD_ITEMS, WILD_HELD_PER_MILLE),
     nickname: null,
     traded: false,
     prize: false,
@@ -487,7 +488,15 @@ interface Duty {
   cabin: boolean;
   gym: GymSpec | null;
   cup: boolean;
+  /** The one route in the world with a lake on it. */
+  lake: boolean;
 }
+
+/** How many maze rooms the lake spans, across and down. */
+export const LAKE_CELLS = { w: 4, h: 3 };
+
+/** How many maze walls on a route may become a shortcut for Cut or Surf. */
+const SHORTCUTS: readonly [number, number] = [1, 3];
 
 /**
  * What is written on the board outside the Cup's house, and on the HUD once
@@ -680,6 +689,60 @@ function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; i
     }
   }
 
+  /*
+   * The lake, on the one route that has it: a block of rooms flooded, walls
+   * and all, and the maze's own corridors laid back across it as sand
+   * causeways.
+   *
+   * The causeways are what keep it honest. On foot the route is exactly the
+   * maze it was — every join still joined, by the same path, and nothing new
+   * opened — while with Surf the whole block is a way straight across. A
+   * shore round the edge was tried first and joined rooms the maze had kept
+   * apart, which made routes walkable in a straight line. Tried in a few
+   * places clear of the gates and the middle, and only kept where the way
+   * through stays open.
+   */
+  if (duty.lake) {
+    // Its own stream, so the lake moves nothing else on the route.
+    const lakeRng = rngFor(seed, "lake-spot", id);
+    const spots = shuffle(lakeRng, [
+      { cx: 1, cy: 1 },
+      { cx: cols - 1 - LAKE_CELLS.w, cy: 1 },
+      { cx: 1, cy: rows - 1 - LAKE_CELLS.h },
+      { cx: cols - 1 - LAKE_CELLS.w, cy: rows - 1 - LAKE_CELLS.h },
+    ]);
+    const covers = (spot: { cx: number; cy: number }, cell: { cx: number; cy: number }) =>
+      cell.cx >= spot.cx && cell.cx < spot.cx + LAKE_CELLS.w && cell.cy >= spot.cy && cell.cy < spot.cy + LAKE_CELLS.h;
+    for (const spot of spots) {
+      if (spot.cx < 1 || spot.cy < 1) continue;
+      if (covers(spot, { cx: midCol, cy: midRow }) || ways.some((way) => covers(spot, {
+        cx: Math.floor((way.room.x - originX) / CELL),
+        cy: Math.floor((way.room.y - originY) / CELL),
+      }))) continue;
+      const x0 = originX + spot.cx * CELL;
+      const y0 = originY + spot.cy * CELL;
+      const w = LAKE_CELLS.w * CELL;
+      const h = LAKE_CELLS.h * CELL;
+      const kept = keepingOpen(() => {
+        carve(grid, x0, y0, w, h, TILE.WATER);
+        for (let cy = 0; cy < rows; cy++) {
+          for (let cx = 0; cx < cols; cx++) {
+            for (const next of [
+              { cx: cx + 1, cy },
+              { cx, cy: cy + 1 },
+            ]) {
+              if (next.cx >= cols || next.cy >= rows || !joined(plan, { cx, cy }, next)) continue;
+              if (!covers(spot, { cx, cy }) && !covers(spot, next)) continue;
+              // Narrow, so it reads as a causeway over a lake rather than land with puddles.
+              carveLine(grid, centreOf(cx, cy), centreOf(next.cx, next.cy), 2, TILE.SAND);
+            }
+          }
+        }
+      });
+      if (kept) break;
+    }
+  }
+
   // Tall grass, the only thing out here that bites. Grown until the route is
   // as overgrown as its biome asks for, rather than a fixed number of blobs
   // over however much ground the maze happened to open up.
@@ -710,6 +773,59 @@ function buildRoute(seed: string, node: PlanNode, duty: Duty): { route: Route; i
   keepingOpen(() => speckle(grid, rng, TILE.ROCK, profile.clutter, [profile.ground]));
   // Flowers are walkable, so they can never close anything.
   speckle(grid, rng, TILE.FLOWER, profile.clutter, [profile.ground]);
+
+  /*
+   * Shortcuts: a few of the maze's walls, between two rooms it did not join,
+   * turned into a line of bushes or a channel of water.
+   *
+   * Only ever between two rooms that are both already reachable, so a
+   * shortcut can add a way and never be the only one: without Cut or Surf the
+   * maze is exactly what it was, and with them the long way round has a short
+   * way through. Only the wall and loose rock in the band are replaced, never
+   * the ground of either room. Water where the biome has land walls; a biome
+   * walled by water already swims through its walls, so it gets bushes.
+   */
+  {
+    const onFoot = reachableWith(grid, heart, walkable);
+    const open = (cell: { cx: number; cy: number }) => {
+      const at = centreOf(cell.cx, cell.cy);
+      return onFoot[at.y * ROUTE_WIDTH + at.x] === 1;
+    };
+    const walls: { a: { cx: number; cy: number }; b: { cx: number; cy: number } }[] = [];
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        for (const b of [
+          { cx: cx + 1, cy },
+          { cx, cy: cy + 1 },
+        ]) {
+          const a = { cx, cy };
+          if (b.cx >= cols || b.cy >= rows || joined(plan, a, b)) continue;
+          if (open(a) && open(b)) walls.push({ a, b });
+        }
+      }
+    }
+    // Its own stream too, so the shortcuts do not reshuffle what is built after them.
+    const cutRng = rngFor(seed, "shortcuts", id);
+    const wanted = intBetween(cutRng, SHORTCUTS[0], SHORTCUTS[1]);
+    for (const wall of shuffle(cutRng, walls).slice(0, wanted)) {
+      const tile = profile.wall === TILE.WATER || cutRng() < 0.5 ? TILE.BUSH : TILE.WATER;
+      const from = centreOf(wall.a.cx, wall.a.cy);
+      const to = centreOf(wall.b.cx, wall.b.cy);
+      const band = Math.min(2, corridor);
+      const half = Math.floor(band / 2);
+      for (let step = 0; ; step++) {
+        const x = from.x + Math.sign(to.x - from.x) * step;
+        const y = from.y + Math.sign(to.y - from.y) * step;
+        for (let across = 0; across < band; across++) {
+          const px = to.x === from.x ? x - half + across : x;
+          const py = to.x === from.x ? y : y - half + across;
+          const here = grid.get(px, py);
+          if (here === profile.wall || here === TILE.ROCK) grid.set(px, py, tile);
+        }
+        if (x === to.x && y === to.y) break;
+      }
+    }
+  }
 
   // The ways through: a short tunnel from each gap in the wall into the room
   // behind it, and nothing else.
@@ -1056,7 +1172,19 @@ export interface PickupSpec {
   x: number;
   y: number;
   item: string;
+  /** An egg lying about rather than an item: what hatches from it. `item` is
+   * `FOUND_EGG_ITEM` then, and walking over it picks up the egg. */
+  egg?: { speciesId: string };
 }
+
+/** The `item` a found egg carries. Not in the item list: it never reaches the bag. */
+export const FOUND_EGG_ITEM = "egg";
+
+/** How many steps a found egg takes to hatch. */
+export const FOUND_EGG_STEPS = 3000;
+
+/** The first ring that has an egg lying somewhere in it. */
+export const FOUND_EGG_FROM_RING = 2;
 
 /**
  * Whether standing here would cut the map in two.
@@ -1684,6 +1812,146 @@ function placeInks(
   }
 
   return next;
+}
+
+/**
+ * What a found egg can hatch into: the bottom of any line that can breed.
+ * Sorted by id so the draw is the world's and not the manifest's order.
+ */
+const FOUND_EGG_SPECIES: readonly string[] = ALL_SPECIES.filter(
+  (entry) => baseFormOf(entry.id) === entry.id && !entry.eggGroups.includes("Undiscovered"),
+)
+  .map((entry) => entry.id)
+  .sort();
+
+/**
+ * One egg in each ring from `FOUND_EGG_FROM_RING` out, on one of that ring's
+ * routes, on open ground that is not grass and not already holding something.
+ * Each ring draws from its own named stream, so a world with more rings keeps
+ * the eggs of the rings it shares with a smaller one.
+ */
+function placeFoundEggs(
+  seed: string,
+  routes: Map<string, Route>,
+  npcs: Map<string, NpcSpec[]>,
+  pickups: Map<string, PickupSpec[]>,
+): Map<string, PickupSpec[]> {
+  const next = new Map(pickups);
+  const byRing = new Map<number, Route[]>();
+  for (const route of routes.values()) {
+    if (route.kind !== "route" || route.ring < FOUND_EGG_FROM_RING) continue;
+    byRing.set(route.ring, [...(byRing.get(route.ring) ?? []), route]);
+  }
+
+  for (const ring of [...byRing.keys()].sort((a, b) => a - b)) {
+    const rng = rngFor(seed, "found-egg", ring);
+    const candidates = byRing.get(ring)!.sort((a, b) => a.id.localeCompare(b.id));
+
+    // A route with nowhere to put it is skipped for the next one along, so a
+    // ring never goes without an egg because of one cramped map.
+    const start = intBelow(rng, candidates.length);
+    for (let tried = 0; tried < candidates.length; tried++) {
+      const route = candidates[(start + tried) % candidates.length];
+      const busy = new Set([
+        ...(npcs.get(route.id) ?? []).map((who) => `${who.x},${who.y}`),
+        ...(next.get(route.id) ?? []).map((drop) => `${drop.x},${drop.y}`),
+      ]);
+      const open: { x: number; y: number }[] = [];
+      for (let y = 2; y < route.height - 2; y++) {
+        for (let x = 2; x < route.width - 2; x++) {
+          const tile = route.tiles[y * route.width + x];
+          if (!walkable(tile) || hidesEncounters(tile) || busy.has(`${x},${y}`)) continue;
+          if (propBlocks(route, x, y)) continue;
+          open.push({ x, y });
+        }
+      }
+      if (!open.length) continue;
+
+      const spot = open[intBelow(rng, open.length)];
+      const speciesId = FOUND_EGG_SPECIES[intBelow(rng, FOUND_EGG_SPECIES.length)];
+      next.set(route.id, [
+        ...(next.get(route.id) ?? []),
+        { id: `${route.id}:egg`, x: spot.x, y: spot.y, item: FOUND_EGG_ITEM, egg: { speciesId } },
+      ]);
+      break;
+    }
+  }
+
+  return next;
+}
+
+/**
+ * One Master Ball in every world, on a route of the outermost ring.
+ *
+ * The one ball that always catches is also sold, for fifty thousand; this is
+ * the other way to own one, and it is at the far edge of the map for the same
+ * reason the world's one shiny chroma is: the best thing is the longest walk.
+ */
+function placeMasterBall(
+  seed: string,
+  routes: Map<string, Route>,
+  npcs: Map<string, NpcSpec[]>,
+  pickups: Map<string, PickupSpec[]>,
+): Map<string, PickupSpec[]> {
+  const outer = [...routes.values()].filter((route) => route.kind === "route");
+  const ring = Math.max(0, ...outer.map((route) => route.ring));
+  const candidates = outer.filter((route) => route.ring === ring).sort((a, b) => a.id.localeCompare(b.id));
+  const next = new Map(pickups);
+  if (!candidates.length) return next;
+
+  const rng = rngFor(seed, "master-ball");
+  const start = intBelow(rng, candidates.length);
+  for (let tried = 0; tried < candidates.length; tried++) {
+    const route = candidates[(start + tried) % candidates.length];
+    const busy = new Set([
+      ...(npcs.get(route.id) ?? []).map((who) => `${who.x},${who.y}`),
+      ...(next.get(route.id) ?? []).map((drop) => `${drop.x},${drop.y}`),
+    ]);
+    const open: { x: number; y: number }[] = [];
+    for (let y = 2; y < route.height - 2; y++) {
+      for (let x = 2; x < route.width - 2; x++) {
+        const tile = route.tiles[y * route.width + x];
+        if (!walkable(tile) || hidesEncounters(tile) || busy.has(`${x},${y}`) || propBlocks(route, x, y)) continue;
+        open.push({ x, y });
+      }
+    }
+    if (!open.length) continue;
+    const spot = open[intBelow(rng, open.length)];
+    next.set(route.id, [...(next.get(route.id) ?? []), { id: `${route.id}:masterball`, x: spot.x, y: spot.y, item: "masterball" }]);
+    break;
+  }
+  return next;
+}
+
+/**
+ * The creature inside a found egg: rolled like a wild one — wild IVs, a
+ * nature, a gender, abilities — at level 1, from the pickup's own id.
+ */
+export function foundEggCreature(seed: string, pickupId: string, speciesId: string): Individual {
+  const rng = rngFor(seed, "found-egg-creature", pickupId);
+  return {
+    uid: 0,
+    speciesId,
+    level: 1,
+    exp: 1,
+    ivs: rollWildIvs(rng),
+    evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+    natureId: pickNature(rng),
+    variantId: "normal",
+    hp: 0,
+    status: null,
+    sleepTurns: 0,
+    moves: [],
+    pp: [],
+    abilities: rollAbilities(rng),
+    heldItem: null,
+    nickname: null,
+    traded: false,
+    prize: false,
+    cheat: false,
+    parents: null,
+    gender: rollGender(rng),
+  };
 }
 
 /** The walkable tile just inside a border gate. */
@@ -2345,7 +2613,7 @@ function placeCritters(
       status: null,
       sleepTurns: 0,
       moves: [],
-      heldItem: null,
+      heldItem: rollHeld(rngFor(seed, "critter-held", entry.id), WILD_HELD_ITEMS, WILD_HELD_PER_MILLE),
       nickname: null,
       traded: false,
       prize: false,
@@ -2482,7 +2750,7 @@ function placeCritters(
         status: null,
         sleepTurns: 0,
         moves: [],
-        heldItem: null,
+        heldItem: rollHeld(rngFor(seed, "idler-held", route.id, index), WILD_HELD_ITEMS, WILD_HELD_PER_MILLE),
         nickname: null,
         traded: false,
         prize: false,
@@ -2570,6 +2838,16 @@ export function generateWorld(
    */
   const plan = planWorld(rngFor(seed, "plan"), placesWanted() + OUTER_TOWNS);
 
+  // The one route with a lake: somewhere with land walls rather than water
+  // ones, where a lake would be a lake rather than more of the same.
+  const lakeCandidates = plan.nodes
+    .filter((node) => node.kind !== "town" && profileFor(node.biome).wall !== TILE.WATER)
+    .map((node) => node.id)
+    .sort();
+  const lakeRoute = lakeCandidates.length
+    ? lakeCandidates[intBelow(rngFor(seed, "lake"), lakeCandidates.length)]
+    : null;
+
   for (const node of plan.nodes) {
     if (node.kind === "town") {
       const spec = TOWNS.find((each) => each.id === node.id);
@@ -2590,6 +2868,7 @@ export function generateWorld(
       cabin: CABIN_ROUTES.has(`${node.biome}:${nth}`),
       gym: GYMS.find((entry) => entry.biome === node.biome && entry.nth === nth) ?? null,
       cup: node.biome === CUP_BIOME && nth === CUP_NTH,
+      lake: node.id === lakeRoute,
     });
 
     routes.set(built.route.id, built.route);
@@ -2638,7 +2917,12 @@ export function generateWorld(
   place(crown, crownRng, depthRing(3));
 
   const npcs = placeNpcs(seed, routes);
-  const pickups = placeInks(seed, routes, placePickups(seed, routes, npcs, config.rings));
+  const pickups = placeMasterBall(
+    seed,
+    routes,
+    npcs,
+    placeFoundEggs(seed, routes, npcs, placeInks(seed, routes, placePickups(seed, routes, npcs, config.rings))),
+  );
 
   const trainers = new Map<string, TrainerSpec[]>();
   for (const route of routes.values()) {
@@ -2952,7 +3236,7 @@ export function wildAt(
     // Both filled by the caller, which runs them through `withMoves`.
     pp: [],
     abilities,
-    heldItem: null,
+    heldItem: rollHeld(rngFor(world.seed, "wild-held", route, index), WILD_HELD_ITEMS, WILD_HELD_PER_MILLE),
     nickname: null,
     traded: false,
     prize: false,

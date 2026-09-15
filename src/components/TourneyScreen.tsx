@@ -1,6 +1,7 @@
 "use client";
 
 import { rememberedTrainerName } from "./MainMenu";
+import { anyFlags, flagsText, type TeamFlags } from "@/engine/integrity";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BattleAction } from "@/engine/battle";
 import { BRACKET_SIZES, roundName, type BracketSize } from "@/engine/bracket";
@@ -49,13 +50,16 @@ function PlayerChip({
   you,
   seed,
   moves,
+  flags,
 }: {
   name: string;
   gone: boolean;
   you: boolean;
   seed?: string;
   moves?: number;
+  flags?: TeamFlags;
 }) {
+  const warned = flagsText(flags);
   const detail = [seed ? `seed ${seed}` : null, moves !== undefined ? `${moves.toLocaleString()} moves` : null]
     .filter(Boolean)
     .join(" · ");
@@ -67,6 +71,7 @@ function PlayerChip({
         {gone ? " · AI" : ""}
       </span>
       {detail ? <span className="playerDetail">{detail}</span> : null}
+      {warned ? <span className="playerDetail warn">⚠ {warned}</span> : null}
     </span>
   );
 }
@@ -492,9 +497,19 @@ export function TourneyScreen({
               you={one.id === view?.self}
               seed={one.seed}
               moves={one.moves}
+              flags={one.flags}
             />
           ))}
         </div>
+        {lobby.some((one) => anyFlags(one.flags)) ? (
+          <p className="warn">
+            Before you start: {lobby
+              .filter((one) => anyFlags(one.flags))
+              .map((one) => `${one.id === view?.self ? "you are" : `${one.name} is`} bringing ${flagsText(one.flags)}`)
+              .join("; ")}
+            .
+          </p>
+        ) : null}
 
         <div className="row">
           {hosting ? (

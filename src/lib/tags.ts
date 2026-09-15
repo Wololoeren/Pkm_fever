@@ -404,7 +404,9 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
             ? `Charging ${moveEntry(vol.committed).name} — it goes off next turn, and nothing else can be picked`
             : vol.commitment === "roll"
               ? `Rolling — ${moveEntry(vol.committed).name} again next turn, at twice this turn's power`
-              : `Locked into ${moveEntry(vol.committed).name} — nothing else can be picked, and it ends in confusion`,
+              : vol.commitment === "uproar"
+                ? `Uproar — ${moveEntry(vol.committed).name} again next turn, and nobody can fall asleep`
+                : `Locked into ${moveEntry(vol.committed).name} — nothing else can be picked, and it ends in confusion`,
         cls: vol.commitment === "roll" ? "rise" : "fall",
       });
     }
@@ -456,6 +458,36 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
         cls: "rise",
       });
     }
+
+    // The last of the deferred moves.
+    const flag = (key: string, label: string, title: string, cls: "rise" | "fall") => out.push({ key, label, title, cls });
+    if (vol.substitute) flag("substitute", `SUB ${vol.substitute}`, `Substitute — a decoy with ${vol.substitute} HP takes hits and blocks most status moves`, "rise");
+    if (vol.taunt) flag("taunt", `TAUNT ${vol.taunt}`, `Taunted — no status moves for ${turnsText(vol.taunt)} more`, "fall");
+    if (vol.disabled) flag("disabled", "DISABLED", `Disabled — it cannot use ${moveEntry(vol.disabled).name} for ${turnsText(vol.disableTurns ?? 1)} more`, "fall");
+    if (vol.encore) flag("encore", "ENCORE", `Encore — it can only use ${moveEntry(vol.encore).name} for ${turnsText(vol.encoreTurns ?? 1)} more`, "fall");
+    if (vol.tormented) flag("tormented", "TORMENT", "Tormented — it cannot use the same move twice in a row", "fall");
+    if (vol.imprisoning) flag("imprisoning", "IMPRISON", "Imprison — the foe cannot use any move this one knows", "rise");
+    if (vol.healBlock) flag("healBlock", `HEAL BLOCK ${vol.healBlock}`, `Heal Block — it cannot heal for ${turnsText(vol.healBlock)} more`, "fall");
+    if (vol.grudge) flag("grudge", "GRUDGE", "Grudge — the move that knocks it out loses all its PP", "rise");
+    if (vol.powdered) flag("powdered", "POWDER", "Powder — a Fire move this turn explodes on it", "fall");
+    if (vol.electrified) flag("electrified", "ELECTRIFIED", "Electrified — its move this turn is Electric", "fall");
+    if (vol.octolocked) flag("octolocked", "OCTOLOCK", "Octolocked — it cannot leave, and loses a Defence and Sp. Def stage every turn", "fall");
+    if (vol.cursed) flag("cursed", "CURSED", "Cursed — a quarter of its max HP every turn until it switches out", "fall");
+    if (vol.guard) flag("guard", "GUARD", `${{ quick: "Quick Guard", wide: "Wide Guard", crafty: "Crafty Shield", mat: "Mat Block" }[vol.guard]} — up for this turn`, "rise");
+    if (vol.snatching) flag("snatching", "SNATCH", "Snatch — it takes the foe's next self-targeting status move this turn", "rise");
+    if (vol.coated) flag("coated", "MAGIC COAT", "Magic Coat — status moves aimed at it bounce back this turn", "rise");
+    if (vol.mimicked) flag("mimicked", "MIMIC", "Mimicking — Mimic comes back when it switches out", "rise");
+    if (vol.embargo) flag("embargo", `EMBARGO ${vol.embargo}`, `Embargo — its held item does nothing for ${turnsText(vol.embargo)} more`, "fall");
+    if (vol.muffled !== undefined) flag("muffled", "NO ITEM", "Its held item is switched off", "fall");
+    if (vol.abilitiesWas !== undefined) flag("abilitiesWas", "ABILITY CHANGED", "Its abilities were changed by a move, until it switches out", "fall");
+    if (vol.cutter) flag("cutter", `CUTTER ×${2 ** vol.cutter}`, `Fury Cutter is at ×${2 ** vol.cutter} power`, "rise");
+    if (vol.echoes) flag("echoes", `ECHO ×${1 + vol.echoes}`, `Echoed Voice is at ×${1 + vol.echoes} power`, "rise");
+    if (vol.stumbled) flag("stumbled", "FAILED", "Its last move failed — Stomping Tantrum and Temper Flare hit twice as hard", "rise");
+    if (vol.enraged) flag("enraged", "RAGE", "Rage — every hit it takes raises its Attack", "rise");
+    if (vol.exposed) flag("exposed", "EXPOSED", "Glaive Rush — every move hits it and does double damage", "fall");
+    if (vol.smacked) flag("smacked", "GROUNDED", "Grounded — Ground moves reach it and terrain affects it", "fall");
+    if (vol.salted) flag("salted", "SALT CURE", "Salt Cure — 1/8 of its max HP every turn, 1/4 for Water and Steel", "fall");
+    if (vol.syrup) flag("syrup", `SYRUP ${vol.syrup}`, `Syrup — a Speed stage off every turn for ${turnsText(vol.syrup)} more`, "fall");
   }
 
   // Screens last, and they say how long they have left: they are the only
@@ -470,6 +502,19 @@ export function badgesFor(side: Combatant, creature: Individual): Badge[] {
       title: `${SCREEN_NAMES[which] ?? which}, ${turnsText(turns)} left — and it stays up through a switch`,
       cls: "rise",
     });
+  }
+
+  // Hazards on the ground, by layers: they stay until swept.
+  const HAZARD_LABELS: Record<string, [string, string]> = {
+    stealthrock: ["ROCKS", "Stealth Rock — every arrival takes damage by how Rock hits it"],
+    spikes: ["SPIKES", "Spikes — grounded arrivals take 1/8, 1/6 or 1/4 of max HP by layers"],
+    toxicspikes: ["TOXIC SPIKES", "Toxic Spikes — grounded arrivals are poisoned"],
+    stickyweb: ["WEB", "Sticky Web — grounded arrivals lose a Speed stage"],
+  };
+  for (const [id, layers] of Object.entries(side.hazards ?? {})) {
+    if (!layers) continue;
+    const [label, title] = HAZARD_LABELS[id] ?? [id.toUpperCase(), id];
+    out.push({ key: `hazard:${id}`, label: layers > 1 ? `${label} ×${layers}` : label, title, cls: "fall" });
   }
 
   return out;

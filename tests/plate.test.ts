@@ -217,7 +217,7 @@ describe("what is happening to a creature", () => {
      * where a player should meet them. A badge apiece would be four badges
      * saying one thing.
      */
-    const exempt = new Set(["shieldStreak", "commitment", "commitTurns", "rolled", "bided"]);
+    const exempt = new Set(["shieldStreak", "commitment", "commitTurns", "rolled", "bided", "disableTurns", "encoreTurns"]);
 
     // One value per field that reads as "on". Every kind the engine writes is
     // either a flag, a count or one of two words.
@@ -249,6 +249,33 @@ describe("what is happening to a creature", () => {
       bound: 4,
       biding: 2,
       fresh: true,
+      substitute: 20,
+      taunt: 2,
+      disabled: "tackle",
+      encore: "tackle",
+      tormented: true,
+      imprisoning: true,
+      healBlock: 3,
+      grudge: true,
+      powdered: true,
+      electrified: true,
+      octolocked: true,
+      cursed: true,
+      guard: "quick",
+      snatching: true,
+      coated: true,
+      mimicked: { slot: 0, pp: 10 },
+      embargo: 3,
+      muffled: "hold-leftovers",
+      abilitiesWas: ["intimidate"],
+      cutter: 1,
+      echoes: 2,
+      stumbled: true,
+      enraged: true,
+      exposed: 1,
+      smacked: true,
+      salted: true,
+      syrup: 2,
       transformed: { speciesId: "ditto", ivs: {}, evs: {}, natureId: "hardy", abilities: [], moves: ["transform"], pp: [10] },
     };
 

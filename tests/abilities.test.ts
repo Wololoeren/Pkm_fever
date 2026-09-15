@@ -132,11 +132,11 @@ describe("the catalogue", () => {
 
     // And the counts it opens with have to be the real ones.
     const singles = ABILITIES.filter(
-      (spec) => !/^(cornered|absorb|ward)-/.test(spec.id),
+      (spec) => !/^(cornered|absorb|ward|lack|affinity)-/.test(spec.id),
     ).length;
-    expect(doc).toContain(`## The fifty-eight singles`);
-    expect(singles).toBe(58);
-    expect(ABILITIES.length).toBe(112);
+    expect(doc).toContain(`## The ninety-one singles`);
+    expect(singles).toBe(91);
+    expect(ABILITIES.length).toBe(181);
   });
 });
 

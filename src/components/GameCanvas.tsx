@@ -105,7 +105,10 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
     for (const drop of world.pickups.get(route.id) ?? []) {
       if (state.taken.includes(drop.id)) continue;
       if (!inView(drop.x, drop.y, camX, camY, viewW, viewH)) continue;
-      ball(ctx, (drop.x - camX) * TILE_PX + TILE_PX / 2, (drop.y - camY) * TILE_PX + TILE_PX / 2);
+      const cx = (drop.x - camX) * TILE_PX + TILE_PX / 2;
+      const cy = (drop.y - camY) * TILE_PX + TILE_PX / 2;
+      if (drop.egg) groundEgg(ctx, cx, cy);
+      else ball(ctx, cx, cy);
     }
 
     // Signs, over the tiles and under the people: a board says what a
@@ -492,6 +495,12 @@ const NPC_COLOURS: Record<NpcKind, string> = {
   quest: "#c9a83a",
   gym: "#c95a7a",
   buy: "#b09a5a",
+  // A dull brass, for a man who buys anything.
+  pawn: "#8c7a4e",
+  // Gavel mahogany.
+  auction: "#9b3d2e",
+  // Apron blue.
+  workshop: "#4e7fa8",
   // The machine, and the man running a bracket out of a field.
   print: "#7ab0c9",
   arena: "#c97a4a",
@@ -512,6 +521,31 @@ const NPC_COLOURS: Record<NpcKind, string> = {
 
 /** An item on the floor. A ball whatever it holds — finding out is the point
  * of walking over to it. */
+/** An egg lying on the ground: cream, speckled, a little taller than wide. */
+function groundEgg(ctx: CanvasRenderingContext2D, px: number, py: number): void {
+  const r = TILE_PX * 0.26;
+
+  ctx.beginPath();
+  ctx.ellipse(px, py + r * 1.15, r * 0.85, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.ellipse(px, py, r * 0.82, r * 1.12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "#f4ecd2";
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "#7a6a4a";
+  ctx.stroke();
+
+  ctx.fillStyle = "#6fae6a";
+  for (const [dx, dy, s] of [[-0.35, -0.4, 0.2], [0.3, -0.05, 0.24], [-0.15, 0.45, 0.18]]) {
+    ctx.beginPath();
+    ctx.arc(px + dx * r, py + dy * r, s * r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function ball(ctx: CanvasRenderingContext2D, px: number, py: number): void {
   const r = TILE_PX * 0.28;
 

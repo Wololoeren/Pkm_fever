@@ -40,7 +40,13 @@ export type NpcKind =
   /** And the one who turns one into a stone of its type. */
   | "cut"
   /** The smith, who changes a nature with a hammer. */
-  | "forge";
+  | "forge"
+  /** The pawnbroker, who buys creatures by the level and needs time to sell each one on. */
+  | "pawn"
+  /** The auctioneer: six rare lots on a board, closing on a step count. */
+  | "auction"
+  /** The workshop, where an Ice, a Fire and a Water type can be left to work. */
+  | "workshop";
 
 /**
  * What a buyer pays for one rung of the shine ladder.
@@ -80,6 +86,15 @@ export interface NpcSpec {
   /** trade: what they will take, and what they give for it. */
   wants?: TradeWant;
   gives?: { speciesId: string; variantId: string; gender: Gender; level: number; nickname?: string };
+  /**
+   * trade: what actually changes hands, when it is not what they said.
+   *
+   * `gives` is what they show you and what the panel promises; this is what is
+   * in the ball. Only a crook has one.
+   */
+  delivers?: { speciesId: string; variantId: string; gender: Gender; level: number; nickname?: string };
+  /** What they say once they have already done business with you, if it is different. */
+  afterLines?: string[];
   /** quest: which one. */
   questId?: string;
   /** gym: which one. */
@@ -287,6 +302,59 @@ export const NPCS: readonly NpcPlacement[] = [
     lines: [
       "I am not here for the beds. I am here because this is where everyone eventually comes through.",
       "There is a tournament. It is not local and it is not friendly.",
+    ],
+  },
+  {
+    id: "trade-swindler",
+    name: "Mr. Vane",
+    kind: "trade",
+    where: { at: "town", x: 6, y: 22 },
+    wants: { speciesId: "pikachu", minLevel: 10 },
+    gives: { speciesId: "mew", variantId: "normal", gender: "trans", level: 1 },
+    delivers: { speciesId: "metapod", variantId: "normal", gender: "male", level: 1, nickname: "Mew" },
+    lines: [
+      "Closer. No — closer. The walls in this town have ears, and the ears have friends.",
+      "I have something in this ball you will not find in any grass. Pink. Small. Older than your grandmother's grandmother's grandmother. A Mew, child. A real one.",
+      "All I ask in return is a Pikachu. Level ten, no younger. I like them with a little spark still left in them.",
+      "Don't look at the ball. Look at me. There. Isn't that better? Do we have an arrangement?",
+    ],
+    afterLines: [
+      "Oh, it's you again. How is our little friend? Growing, I hope. They do grow, you know. Eventually.",
+      "No refunds. You looked me in the eye and you said yes, and I remember every yes I have ever been given.",
+      "Run along now. Somebody else is coming up the lane, and they have a Pikachu too.",
+    ],
+  },
+  {
+    id: "pawn-broker",
+    name: "Pawnbroker",
+    kind: "pawn",
+    where: { at: "town", town: "town-1", x: 20, y: 16 },
+    lines: [
+      "Creatures bought. Fifty a level, cash, no questions asked and none answered.",
+      "One at a time, mind. I need to walk each one to a buyer before I take the next, and the buyers do not live close.",
+      "Whatever it is holding comes back to you. I buy the animal, not its pockets.",
+    ],
+  },
+  {
+    id: "auctioneer",
+    name: "Auctioneer",
+    kind: "auction",
+    where: { at: "town", town: "town-2", x: 20, y: 18 },
+    lines: [
+      "Lots! Rare lots! Nothing on this board was caught by anybody who will admit to it.",
+      "Six at a time, each closing on the step. Bid, and your money sits with me until the hammer comes down.",
+      "Half the bids win. The other half get every coin back — I am an auctioneer, not a thief. Come back when the lot has closed and I will settle up either way.",
+    ],
+  },
+  {
+    id: "workshop-foreman",
+    name: "Workshop Foreman",
+    kind: "workshop",
+    where: { at: "town", town: "town-3", x: 12, y: 13 },
+    lines: [
+      "Short-handed, as ever. Three jobs going and nobody to do them.",
+      "An Ice type on the churn makes ice cream. A Fire type on the spit roasts the chickens. A Water type does the garden, and the garden needs it.",
+      "Leave one with me and it learns by doing — a little experience for every step you take, wherever you are. It will not pick up any new moves here, mind, and nobody evolves on my shift. Come and fetch it whenever you like.",
     ],
   },
   {
@@ -1599,7 +1667,9 @@ function cupContenders(): NpcPlacement[] {
 }
 
 /** Everything an NPC says, plus whatever the offer is. */
-export function dialogueOf(npc: NpcSpec): string[] {
+export function dialogueOf(npc: NpcSpec, helped = false): string[] {
+  // Somebody you have already dealt with may have a different story now.
+  if (helped && npc.afterLines) return [...npc.afterLines];
   const lines = [...npc.lines];
 
   if (npc.kind === "gift" && npc.item) lines.push(`(${itemSpec(npc.item).name})`);

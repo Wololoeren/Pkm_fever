@@ -590,6 +590,15 @@ describe("the gate on the damaging half of the pool", () => {
       "bide",
       "flinch",
       "confusion",
+      // The last eight, each honoured by name in battle.ts.
+      "glaiverush",
+      "rage",
+      "uproar",
+      "smackdown",
+      "healblock",
+      "saltcure",
+      "sparklingaria",
+      "syrupbomb",
     ]);
 
     /**
@@ -599,25 +608,7 @@ describe("the gate on the damaging half of the pool", () => {
      * If this list grows, something was added to the manifest and not to the
      * engine, and the number below is what says so.
      */
-    const waiting = new Set([
-      // The user takes double damage until its next turn. One move.
-      "glaiverush",
-      // Rage builds Attack while it is being hit. One move, and it wants a
-      // hook in front of the other side's blow.
-      "rage",
-      // Three turns of forced attacking that also stops anything sleeping.
-      // Wants the sleep half, which is a condition on the whole battle.
-      "uproar",
-      // The target is knocked out of the air and grounded. Wants the ground /
-      // Flying immunity to be writable, which `afloat` is and types are not.
-      "smackdown",
-      // Four secondaries that are conditions of their own: no healing, salt in
-      // the wound, a sound that lingers, syrup that slows. One move each.
-      "healblock",
-      "saltcure",
-      "sparklingaria",
-      "syrupbomb",
-    ]);
+    const waiting = new Set<string>([]);
 
     const unknown = new Set<string>();
     for (const move of ALL_MOVES) {

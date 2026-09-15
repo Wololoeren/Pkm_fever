@@ -1,4 +1,4 @@
-import { ENGINE_VERSION } from "@/engine/types";
+import { ENGINE_VERSION, type Individual } from "@/engine/types";
 import type { Input } from "@/engine/engine";
 import { packInputs, unpackInputs } from "./pack";
 
@@ -25,10 +25,43 @@ export interface SaveFile {
   /** Wall-clock, for showing the player which save is which. Never read by
    * the engine — nothing derived from it may touch game state. */
   savedAt: string;
+  /**
+   * Every creature the run owned when it was saved, written out whole.
+   *
+   * Never read by the engine either: the log is still the save. This is for
+   * the vault, and it is there so a *later* engine can still read the
+   * creatures out of a save it can no longer replay — a rules change
+   * refuses an old log, and without this it would take the creatures with it.
+   */
+  roster?: Individual[];
+  /**
+   * A random name for the run, made when it began and kept by every save of
+   * it. Not game state — two runs on one seed are the same game — but the
+   * vault needs to tell them apart, and to know a later save of this run from
+   * a different run that happens to start the same way.
+   */
+  run?: string;
 }
 
-export function makeSave(seed: string, inputs: readonly Input[]): SaveFile {
-  return { v: ENGINE_VERSION, seed, inputs: [...inputs], savedAt: new Date().toISOString() };
+export function makeSave(
+  seed: string,
+  inputs: readonly Input[],
+  roster?: readonly Individual[],
+  run?: string,
+): SaveFile {
+  return {
+    v: ENGINE_VERSION,
+    seed,
+    inputs: [...inputs],
+    savedAt: new Date().toISOString(),
+    ...(roster ? { roster: [...roster] } : {}),
+    ...(run ? { run } : {}),
+  };
+}
+
+/** A fresh run name. Random, and never read by the engine. */
+export function newRunId(): string {
+  return randomSeed() + randomSeed();
 }
 
 /**
@@ -46,12 +79,14 @@ export function encodeSave(save: SaveFile): string {
     seed: save.seed,
     log: packInputs(save.inputs),
     savedAt: save.savedAt,
+    ...(save.roster ? { roster: save.roster } : {}),
+    ...(save.run ? { run: save.run } : {}),
   });
 }
 
-export function writeAutosave(seed: string, inputs: readonly Input[]): void {
+export function writeAutosave(seed: string, inputs: readonly Input[], roster?: readonly Individual[], run?: string): void {
   try {
-    localStorage.setItem(KEY, encodeSave(makeSave(seed, inputs)));
+    localStorage.setItem(KEY, encodeSave(makeSave(seed, inputs, roster, run)));
   } catch {
     // A full or blocked store costs the autosave, not the session.
   }
@@ -74,7 +109,7 @@ export function writeAutosave(seed: string, inputs: readonly Input[]): void {
 const AUTOSAVE_DELAY = 500;
 
 let pending: ReturnType<typeof setTimeout> | null = null;
-let owed: { seed: string; inputs: readonly Input[] } | null = null;
+let owed: { seed: string; inputs: readonly Input[]; roster?: readonly Individual[]; run?: string } | null = null;
 
 /**
  * Writes the autosave soon.
@@ -83,8 +118,8 @@ let owed: { seed: string; inputs: readonly Input[] } | null = null;
  * is held rather than captured per timer, which is what makes `flushAutosave`
  * able to pay it early.
  */
-export function scheduleAutosave(seed: string, inputs: readonly Input[]): void {
-  owed = { seed, inputs };
+export function scheduleAutosave(seed: string, inputs: readonly Input[], roster?: readonly Individual[], run?: string): void {
+  owed = { seed, inputs, roster, run };
   if (pending !== null) return;
   pending = setTimeout(() => {
     pending = null;
@@ -105,9 +140,18 @@ export function flushAutosave(): void {
     pending = null;
   }
   if (!owed) return;
-  const { seed, inputs } = owed;
+  const { seed, inputs, roster, run } = owed;
   owed = null;
-  writeAutosave(seed, inputs);
+  writeAutosave(seed, inputs, roster, run);
+}
+
+/** The autosave exactly as stored, for the vault to read creatures out of. */
+export function readAutosaveRaw(): string | null {
+  try {
+    return localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function readAutosave(): SaveFile | null {
@@ -166,12 +210,45 @@ export function parseSave(raw: string): SaveFile | null {
     seed: candidate.seed,
     inputs,
     savedAt: typeof candidate.savedAt === "string" ? candidate.savedAt : "",
+    ...(Array.isArray(candidate.roster) ? { roster: candidate.roster as Individual[] } : {}),
+    ...(typeof candidate.run === "string" ? { run: candidate.run } : {}),
+  };
+}
+
+/**
+ * A save from *any* engine version, as far as it can be read.
+ *
+ * `parseSave` refuses another version outright, because replaying it would be
+ * a different game. The vault only wants the creatures, so it takes what it
+ * can: the log when this engine can replay it, and the roster snapshot when
+ * there is one, whatever version wrote it.
+ */
+export function parseAnySave(
+  raw: string,
+): { v: number; seed: string; inputs: Input[] | null; roster: Individual[] | null; savedAt: string; run: string | null } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const candidate = parsed as Partial<SaveFile> & { log?: unknown };
+  if (typeof candidate.seed !== "string" || typeof candidate.v !== "number") return null;
+  const readable = candidate.v === ENGINE_VERSION ? parseSave(raw) : null;
+  return {
+    v: candidate.v,
+    seed: candidate.seed,
+    inputs: readable?.inputs ?? null,
+    roster: Array.isArray(candidate.roster) ? (candidate.roster as Individual[]) : null,
+    savedAt: typeof candidate.savedAt === "string" ? candidate.savedAt : "",
+    run: typeof candidate.run === "string" ? candidate.run : null,
   };
 }
 
 /** Hands the player a file. The browser owns where it goes. */
-export function downloadSave(seed: string, inputs: readonly Input[]): void {
-  const blob = new Blob([encodeSave(makeSave(seed, inputs))], { type: "application/json" });
+export function downloadSave(seed: string, inputs: readonly Input[], roster?: readonly Individual[], run?: string): void {
+  const blob = new Blob([encodeSave(makeSave(seed, inputs, roster, run))], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

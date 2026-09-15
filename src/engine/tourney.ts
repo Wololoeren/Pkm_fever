@@ -23,6 +23,7 @@ import { fullPp } from "./pp";
 import { randomCreature } from "@/ai/teams";
 import { atFullHealth, withMoves } from "./engine";
 import { rngFor } from "./rng";
+import { readFlags, teamFlags, type TeamFlags } from "./integrity";
 import type { Individual } from "./types";
 
 /**
@@ -95,7 +96,7 @@ export type TourneyPhase =
 export type TourneyMessage =
   /** Broadcast on arrival, and again whenever somebody new turns up: this is
    * who I am. Sent by everybody including the host. */
-  | { t: "hello"; name: string; seed?: string; moves?: number }
+  | { t: "hello"; name: string; seed?: string; moves?: number; flags?: TeamFlags }
   /**
    * The host, locking the field.
    *
@@ -189,6 +190,12 @@ export interface Entrant {
   /** Their world seed and move count. See `Player`. */
   seed?: string;
   moves?: number;
+  /**
+   * How many of the team they brought are cheated, from the vault, traded in
+   * or won as a prize — so the room can see it before the bracket starts.
+   * As their client reports it; see `integrity.ts`.
+   */
+  flags?: TeamFlags;
 }
 
 /**
@@ -197,13 +204,13 @@ export interface Entrant {
  * Another person's client wrote this, so a seed that is not a short string or
  * a count that is not a whole number is dropped rather than shown.
  */
-function introduced(message: { seed?: unknown; moves?: unknown }): Pick<Entrant, "seed" | "moves"> {
+function introduced(message: { seed?: unknown; moves?: unknown; flags?: unknown }): Pick<Entrant, "seed" | "moves" | "flags"> {
   const seed = typeof message.seed === "string" && message.seed.length <= 32 ? message.seed : undefined;
   const moves =
     typeof message.moves === "number" && Number.isSafeInteger(message.moves) && message.moves >= 0
       ? message.moves
       : undefined;
-  return { seed, moves };
+  return { seed, moves, flags: readFlags(message.flags) };
 }
 
 export class TourneySession {
@@ -251,7 +258,7 @@ export class TourneySession {
     this.team = options.team.map(rested);
     this.send = options.send;
     this.moves = options.moves;
-    this.lobby.set(this.self, { name: this.name, seed: this.seed, moves: this.moves });
+    this.lobby.set(this.self, { name: this.name, seed: this.seed, moves: this.moves, flags: teamFlags(this.team) });
   }
 
   view(): TourneyView {
@@ -276,7 +283,7 @@ export class TourneySession {
   /** Says who we are. Called on joining, and again when somebody arrives —
    * the newcomer has not heard the earlier ones. */
   announce(): void {
-    this.send({ t: "hello", name: this.name, seed: this.seed, moves: this.moves });
+    this.send({ t: "hello", name: this.name, seed: this.seed, moves: this.moves, flags: teamFlags(this.team) });
   }
 
   /** Somebody arrived: tell them who we are, so a late joiner learns the room

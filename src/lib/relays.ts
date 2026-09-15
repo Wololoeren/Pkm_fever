@@ -28,9 +28,49 @@ export const RELAY_URLS = [
 
 export const APP_ID = "pkm-fever";
 
+/**
+ * TURN servers, for the players a direct connection cannot reach.
+ *
+ * Relays only introduce two browsers; after that WebRTC connects them
+ * directly, and two players who are both behind a strict NAT — many mobile
+ * carriers, office and school networks — cannot reach each other at all. A
+ * TURN server fixes that by forwarding the traffic between them.
+ *
+ * There is no free public TURN server worth trusting, so the site reads its
+ * own from the build: `NEXT_PUBLIC_TURN_URLS` (comma-separated, e.g.
+ * `turn:host:80,turns:host:443?transport=tcp`), `NEXT_PUBLIC_TURN_USERNAME`
+ * and `NEXT_PUBLIC_TURN_CREDENTIAL`. Next inlines them at build time, so on
+ * GitHub Pages they come from repository secrets passed to the build in
+ * `.github/workflows/pages.yml`. Without them nothing changes: direct
+ * connections only, as before.
+ *
+ * They end up in the page, where anybody can read them — which is how every
+ * static-site TURN setup works, and why the credential should be one made for
+ * this site with a usage cap, not an account password.
+ */
+export function turnServers(): { urls: string[]; username?: string; credential?: string }[] {
+  const urls = (process.env.NEXT_PUBLIC_TURN_URLS ?? "")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+  if (!urls.length) return [];
+  return [
+    {
+      urls,
+      username: process.env.NEXT_PUBLIC_TURN_USERNAME || undefined,
+      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || undefined,
+    },
+  ];
+}
+
 /** The config every room joins with. */
 export function trysteroConfig() {
-  return { appId: APP_ID, relayConfig: { urls: RELAY_URLS, redundancy: RELAY_URLS.length } };
+  const turn = turnServers();
+  return {
+    appId: APP_ID,
+    relayConfig: { urls: RELAY_URLS, redundancy: RELAY_URLS.length },
+    ...(turn.length ? { turnConfig: turn } : {}),
+  };
 }
 
 /**

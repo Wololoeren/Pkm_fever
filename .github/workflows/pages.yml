@@ -27,6 +27,11 @@ jobs:
       - run: npm run build
         env:
           NEXT_BASE_PATH: /Pkm_fever
+          # A TURN server for players on strict networks. Optional: unset
+          # secrets leave PvP on direct connections only. See src/lib/relays.ts.
+          NEXT_PUBLIC_TURN_URLS: ${{ secrets.TURN_URLS }}
+          NEXT_PUBLIC_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
+          NEXT_PUBLIC_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out

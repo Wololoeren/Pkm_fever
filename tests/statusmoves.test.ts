@@ -118,7 +118,9 @@ describe("nothing dealt does nothing", () => {
       if (live.length < all.length) trimmed++;
       if (all.length > 0) expect(live.length, `${spec.id} has nothing left`).toBeGreaterThan(0);
     }
-    expect(trimmed, "the filter removed nothing at all").toBeGreaterThan(400);
+    // Only the doubles-only moves are left to filter, and dozens of species
+    // still learn one of them.
+    expect(trimmed, "the filter removed nothing at all").toBeGreaterThan(100);
 
     // Ditto and Smeargle are the two the floor would have caught: their whole
     // learnset is one move. They pass because that move is now honoured.

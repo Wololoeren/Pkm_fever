@@ -2,6 +2,7 @@ import type { BattleEvent, SideIndex } from "@/engine/battle";
 import { ability } from "@/engine/abilities";
 import { move as moveById, species as speciesById } from "@/engine/dex";
 import type { Individual } from "@/engine/types";
+import { item as itemById } from "@/engine/items";
 
 /**
  * Turns the battle's structured events into sentences.
@@ -84,6 +85,61 @@ const VOLATILE_TEXT: Record<string, string> = {
   retyped: "changed type",
   seen: "was identified",
   inverted: "had its stat changes turned upside down",
+  decoy: "put up a substitute",
+  decoyhit: "had its substitute take the hit",
+  decoybroke: "had its substitute broken",
+  taunted: "fell for the taunt",
+  disabled: "had a move disabled",
+  encored: "got an encore",
+  tormented: "is being tormented",
+  imprisoning: "sealed the moves it knows",
+  healblocked: "was prevented from healing",
+  grudging: "wants its foe to bear a grudge",
+  grudged: "lost every use of that move to the grudge",
+  powdered: "is covered in powder",
+  exploded: "was caught in the powder's explosion",
+  electrified: "is charged with electricity",
+  octolocked: "is locked in an octopus hold",
+  cursed: "was cursed",
+  curseBite: "is afflicted by the curse",
+  guarding: "is guarding its side",
+  snatching: "waits for a move to snatch",
+  snatched: "snatched the move",
+  coated: "shrouded itself in a magic coat",
+  bounced: "bounced the move back",
+  mimicked: "learned the move by mimicking it",
+  embargoed: "can't use items anymore",
+  abilityChanged: "had its ability changed",
+  passed: "was passed the baton",
+  camouflaged: "blended into its surroundings",
+  enraged: "is building up rage",
+  exposed: "is left wide open",
+  smacked: "fell straight down",
+  salted: "is being salt cured",
+  saltBite: "is hurt by the salt",
+  syrupy: "got covered in sticky syrup",
+  restricted: "can't use that move right now",
+  uproar: "caused an uproar",
+  worn: "is free of a restriction",
+};
+
+const HAZARD_TEXT: Record<string, [string, string, string]> = {
+  stealthrock: ["Pointed stones float around", "Pointed stones dug into", "The pointed stones disappeared from"],
+  spikes: ["Spikes were scattered around", "Spikes hurt", "The spikes disappeared from"],
+  toxicspikes: ["Poison spikes were scattered around", "Poison spikes reached", "The poison spikes disappeared from"],
+  stickyweb: ["A sticky web spread out around", "A sticky web caught", "The sticky web disappeared from"],
+};
+
+const ITEM_MOVED_TEXT: Record<string, (who: string, what: string) => string> = {
+  stolen: (who, what) => `${who} stole ${what}!`,
+  swapped: (who, what) => `${who} received ${what}!`,
+  given: (who, what) => `${who} was given ${what}!`,
+  knocked: (who, what) => `${who} lost its ${what}!`,
+  burnt: (who, what) => `${who}'s ${what} was burnt up!`,
+  recycled: (who, what) => `${who} recycled ${what}!`,
+  eaten: (who, what) => `${who} ate its ${what}!`,
+  muffled: (who, what) => `${who}'s ${what} stopped working!`,
+  unmuffled: (who, what) => `${who}'s ${what} works again!`,
 };
 
 /** The field arriving and leaving. One sentence each way, like the screens. */
@@ -99,6 +155,11 @@ const FIELD_TEXT: Record<string, [string, string]> = {
   psychic: ["The ground got weird!", "The weirdness disappeared."],
   water: ["Fire's power was weakened!", "The effects of Water Sport faded."],
   mud: ["Electricity's power was weakened!", "The effects of Mud Sport faded."],
+  gravity: ["Gravity intensified!", "Gravity returned to normal."],
+  trickroom: ["The dimensions were twisted!", "The twisted dimensions returned to normal."],
+  wonderroom: ["A bizarre area swapped Defense and Sp. Def!", "The bizarre area disappeared."],
+  magicroom: ["A bizarre area made held items lose their effects!", "Held items work again."],
+  fairylock: ["No one will be able to run away during the next turn!", "The fairy lock wore off."],
 };
 
 const WEATHERED_TEXT: Record<string, string> = {
@@ -330,6 +391,19 @@ export function narrateParts(
         break;
       case "spite":
         say(`${nameOf(event.side)}'s ${moveById(event.moveId).name} lost ${event.amount} uses!`);
+        break;
+      case "hazard": {
+        const [laid, , gone] = HAZARD_TEXT[event.id] ?? ["Something was laid around", "", "It disappeared from"];
+        say(event.layers > 0 ? `${laid} ${nameOf(event.side)}'s side!` : `${gone} ${nameOf(event.side)}'s side.`);
+        break;
+      }
+      case "hazardHit": {
+        const [, bit] = HAZARD_TEXT[event.id] ?? ["", "Something hurt", ""];
+        say(event.amount > 0 ? `${bit} ${nameOf(event.side)} for ${event.amount}!` : `${bit} ${nameOf(event.side)}!`);
+        break;
+      }
+      case "itemMoved":
+        say((ITEM_MOVED_TEXT[event.how] ?? ((who: string, what: string) => `${who}'s ${what} moved!`))(nameOf(event.side), itemById(event.itemId).name));
         break;
       case "revived":
         // Named by species rather than by side, because the side's name is

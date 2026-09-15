@@ -110,7 +110,140 @@ listed at the end.
   mid-battle; `cleanNickname()` trims, strips control characters, 12 max, and
   the species name or empty clears it. UI is `NameEditor` in `Inspect.tsx`.
 
-## Uncommitted (2026-09-15) — ENGINE_VERSION 36
+## Committed on 2026-09-15, not pushed — ENGINE_VERSION 36
+
+- **68 new abilities** (180 total) in `abilities.ts`. Adding to `ABILITIES` changes
+  every wild ability roll (`pickAbilities` indexes the list), so this breaks old
+  saves; it rides on 36 because 36 never shipped.
+  - 12 classes: `power` with `when: "signature"` and `move`, ×2 on one move.
+  - `lack-*` / `affinity-*` for 18 types: `typesWith()`, read by `typesOf` and
+    `typesAgainst` in `battle.ts`. Battle only; NPC wants, quests and the AI's
+    features still read species types. Inspect shows an IN BATTLE tag.
+  - 9 effort abilities on the existing `regimen` shape.
+  - 4 `temper` abilities: `natureTerms()` in `stats.ts` (Inspect and StatHover use it).
+  - 7 `forage` abilities: `forageStep()` in `engine.ts`, new state `forageWalk`
+    (hashed), `FORAGE_EVERY` 500, notice `foraged`.
+  - Tests in `newabilities.test.ts`; `docs/abilities.md` updated.
+- **Born holding items.** `rollHeld()` and the pools in `carry.ts`: wild (grass,
+  fishing, idlers, authored critters) 1% from common berries + Nugget + Pearl;
+  starters 10% from `STARTER_HELD_ITEMS` (Leftovers, Focus Sash, Lucky Egg, ...).
+  Each a separate named rng stream. Caught creatures keep the item. Also
+  save-breaking, also on 36. Tests in `bornheld.test.ts`.
+- **Found eggs.** `placeFoundEggs()` in `world.ts`: one per ring from ring 2,
+  on a random route of that ring, on open non-grass ground. A `PickupSpec` with
+  `egg: { speciesId }` and `item: "egg"` (not a real item: code iterating
+  pickups must skip `drop.egg`). Species: any base form not in Undiscovered.
+  The creature is `foundEggCreature()` (wild IVs, level 1). Picking it up in
+  `move()` needs a free party slot, else notice `foundEgg` with `taken: false`
+  and it stays. 3000 steps. Drawn as a speckled egg in `GameCanvas.tsx`.
+  Save-breaking, on 36. Tests in `foundegg.test.ts`.
+- **Every remaining move.** 51 status moves honoured in `statusmoves.ts` +
+  `applyMoveEffect` (rooms, hazards, restriction, Substitute, Baton Pass /
+  Shed Tail / Parting Shot, ability rewrites, item moves, Snatch / Magic Coat
+  / Me First / Nature Power / Mimic, Curse and the four guards), plus Fury
+  Cutter, Echoed Voice, Stomping Tantrum, Temper Flare, Lash Out, Rage Fist,
+  Knock Off / Thief / Covet / Incinerate and the eight damaging riders (Glaive
+  Rush, Rage, Uproar, Smack Down, Psychic Noise, Salt Cure, Sparkling Aria,
+  Syrup Bomb). Only the 11 ally-only moves stay filtered (`docs/moves-deferred.md`).
+  New state: `Field.rooms`, `Combatant.hazards/spent/beaten/lent/knocked`,
+  `BattleState.ground` (set by `grounds()` in the engine funnel from the
+  biome), ~30 volatiles (all badged in `tags.ts`, narrated in `narrate.ts`,
+  documented in `docs/status.md`). Simple ability added for Simple Beam.
+  Item moves: Knock Off always returns the item after battle; Thief/Trick/
+  Bestow are permanent in wild battles and returned otherwise (`returnItems`).
+  Embargo / Magic Room move the item into `volatiles.muffled`.
+  Two bugs fixed that `tests/fuzzmoves.test.ts` found: Struggle legality is
+  now judged at the start of the turn (an Imprison user switching out made a
+  chosen Struggle throw), and `aiAction` continues a forced move instead of
+  picking a refused Struggle when every PP is spent (pre-existing, could
+  crash a trainer battle). Learnsets changed, so this is save-breaking, on 36.
+  Tests: `lastmoves.test.ts`, `fuzzmoves.test.ts`.
+- **Master Ball** (price stays 50,000): one lies on a route of the outermost
+  ring of every world (`placeMasterBall()` in `world.ts`), and Ball Collector
+  rolls a 0.5% Master Ball before its ordinary list (`forage.rare`). World
+  change, so save-breaking, on 36. Tests `masterball.test.ts`.
+- **Names out of the hash.** Nicknames and box-tab names are no longer in
+  `stateHash` (only the tab count is), and `rename`, `renameBox` and `trainer`
+  no longer advance `tick`, so two players who name things differently on
+  the same seed hash the same.
+- **TURN for strict networks.** `turnServers()` in `src/lib/relays.ts` reads
+  `NEXT_PUBLIC_TURN_URLS` / `_USERNAME` / `_CREDENTIAL` at build time; the
+  Pages workflow passes them from repo secrets `TURN_URLS`, `TURN_USERNAME`,
+  `TURN_CREDENTIAL`. Unset = direct connections only. Needs the user to
+  create a TURN account (Metered, ExpressTURN, Cloudflare…) and add secrets. Skipped for now by the user.
+- **Mr. Vane, the swindler** (Hearth, `trade-swindler` in `npc.ts`): shows a
+  level 1 Mew for a level 10+ Pikachu and delivers a level 1 Metapod nicknamed
+  "Mew". New `NpcSpec.delivers` (what is really handed over) and `afterLines`
+  (`dialogueOf(npc, helped)`); notice `swindled`.
+- **Pawnbroker** (Southpass, kind `pawn`): buys a party creature for 50 per
+  level (`PAWN_PER_LEVEL`), returns its held item, then refuses until
+  `PAWN_COOLDOWN` (1200) real steps have passed. New state `stepsTaken`
+  (every map step, in `walked()`) and `pawnedAt`; input `pawn` (opcode 49);
+  notice `pawned`. New NPCs shift world placement: save-breaking, on 36.
+  Tests `swindlepawn.test.ts`.
+- **Auction house** (New Willow, kind `auction`; board logic in
+  `src/engine/auction.ts`). Lot n closes at step 1000·(n+1) and is on the
+  board the 6000 steps before, so six are always up, one closing every 1000
+  steps. Lots are 70% exotic (first forms whose line peaks at base total
+  ≥530) and 30% legendary (Undiscovered first forms, total ≥570); level
+  10–30; price (20000 + 1500·level), ×2.5 for a legend. A bid (input `bid`,
+  opcode 50) pays now into `state.bids`; after the close `collectBids`
+  (opcode 51) delivers the creature (50% roll `bidWins`, named per lot) or
+  refunds. The catch rates in the manifest are not canon (Dratini is 194), so
+  they cannot identify rare species. Save-breaking (new NPC), on 36. Board
+  checked in the browser on the dev server. Tests `auction.test.ts`.
+- **Workshop** (Sanchford, kind `workshop`, in `engine.ts` beside the
+  auction): three jobs — `ice` (ice cream), `fire` (roast chicken), `water`
+  (plants) — each holding one party creature of that type in
+  `state.workshop`. `workshopStep()` in `walked()` gives each 1 exp per step
+  (`worked()`): level from exp, health kept proportional, and nothing else —
+  no learnset moves and no evolution offers, so moves passed while working
+  are skipped for good. Inputs `workshopLeave` / `workshopTake` (opcodes
+  52/53). Save-breaking (new NPC), on 36. Tests `workshop.test.ts`.
+- **The lake and the shortcuts** (`buildRoute` in `world.ts`). One route per
+  world (`lakeRoute` in `generateWorld`, a land-walled biome) floods a 4x3
+  block of maze rooms with water and lays the maze's own corridors back
+  across it as 2-wide sand causeways, so on foot the maze is unchanged and
+  Surf crosses it. Every route also turns 1–3 walls between two reachable,
+  unjoined rooms into a band of bushes (Cut) or water (Surf; bushes where
+  the biome's walls are already water). Both use their own named rng
+  streams so nothing else on the route moves. W25 now measures walks on
+  foot, since tool shortcuts are meant to shorten them. Save-breaking
+  (world layout), on 36. Tests `lake.test.ts`.
+- **The vault** (no server). `src/lib/vault.ts` keeps `VaultEntry`s in
+  localStorage (`pkm-fever.vault`), exportable/importable as a file.
+  Entries come from a save file or the autosave (`entriesFromSave`: replay
+  with this engine → `proven` unless the run cheated; otherwise the save's
+  `roster` snapshot, unproven) or from the live run ("Add this run to the
+  vault" button, `entriesFromRun`). Entry id = `seed-run:uid`, so a later
+  save of the same run updates rather than duplicates. Saves now carry
+  `roster` (all creatures, so a future engine can still read them) and a
+  random `run` name (`newRunId`, kept in `Session.run`); neither is read by
+  the engine. `VaultScreen.tsx` (main menu → Open the vault): 7x7 pages,
+  search, details via `StatHover`, remove, Begin Vault Adventure. That
+  dispatches `trainer` + `vaultStart` (opcode 54); `vaultArrival()` rebuilds
+  and sanitises the creature: level 5, EVs 0, moves for level 5, keeps
+  species/look/nature/gender/IVs (clamped)/valid abilities/held item/name/
+  caughtBy/cheat/prize, sets `Individual.vault`. VAULT tag in Inspect and on
+  the verify page (`Verification.vaultStart`). Saves from engine 35 have no
+  roster and cannot be read. Checked end to end in the browser. Tests
+  `vault.test.ts`.
+- **PvP warnings for flagged teams.** `src/engine/integrity.ts` counts
+  cheated / vault / traded / prize creatures (`teamFlags`, `flagsText`).
+  Duels: `PvpScreen` holds on a "Before you battle" screen at turn 0 when
+  either team has any (both teams already arrive in the `hello`), with
+  Battle anyway / Leave; no protocol change. Tournaments: `hello` now carries
+  `flags` (optional, old clients ignore it; `readFlags` sanitises), shown on
+  each player chip and as a warning above Start in the lobby. Flags are what
+  each client reports, so a modified client could hide them; the verify page
+  is the proof. Not exercised between two real browsers. Tests
+  `integrity.test.ts`.
+- **Bug: the nurse refused a party that was only missing PP** ("everyone is
+  well"). `offerRefusal` for `heal` now asks `needsCentre()` — health, a
+  condition, or any move below its max PP. Not save-breaking: a refused
+  input was never recorded. Test N6b in `npc.test.ts`.
+
+## Earlier on 2026-09-15 — committed locally, not pushed (ENGINE_VERSION 36)
 
 - **Poison on the map.** `poisonStep()` in `engine.ts`, called at the top of
   `walked()`: every `POISON_STEP_EVERY` (5) steps each poisoned party member
@@ -208,11 +341,7 @@ listed at the end.
   Impression with Fake Out; `afterHit()` (Wake-Up Slap and Smelling Salts
   cure, Rapid Spin frees seed/bind, Clear Smog clears stages) with new
   volatile events `roused`/`spun`/`cleared`. Tests in `tests/situational.test.ts`.
-  **Still missing** (need state the engine does not keep): Fury Cutter and
-  Echoed Voice (consecutive-use counters), Stomping Tantrum/Temper Flare (last
-  move failed), Lash Out (stats lowered this turn), Rage Fist (times hit),
-  and item removal/theft — Knock Off's removal, Thief, Covet, Incinerate —
-  which would need items restored after battle.
+  (The moves this once listed as still missing were all done on 2026-09-15.)
 - **Weather on the field.** `WeatherLayer.tsx` draws rain, sun, sand, hail and
   snow (and a ground glow per terrain) from `battle.field`, as CSS animations
   in `globals.css` under "the weather". It sits first in `.field` at z-index 0

@@ -99,6 +99,12 @@ function Result({ report }: { report: Verification }) {
               </td>
             </tr>
             <tr>
+              <td>Vault Adventure</td>
+              <td className={`num ${report.vaultStart ? "warn" : "good"}`}>
+                {report.vaultStart ? `began with ${report.vaultStart.name} from the vault` : "no"}
+              </td>
+            </tr>
+            <tr>
               <td>Engine</td>
               <td className="num">v{report.version}</td>
             </tr>
@@ -128,6 +134,7 @@ function Result({ report }: { report: Verification }) {
                   said on the line where somebody is looking at it. */}
               {one.traded ? <span className="tag warn"> TRADED IN</span> : null}
               {one.prize ? <span className="tag warn"> PRIZE</span> : null}
+              {one.vault ? <span className="tag warn"> VAULT</span> : null}
               {one.cheat ? <span className="tag fall"> CHEAT</span> : null}
             </li>
           ))}

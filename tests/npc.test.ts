@@ -237,6 +237,21 @@ describe("what people do", () => {
     expect(offerRefusal(world, healed)).toBe("everyone is well");
   });
 
+  it("N6b: a party at full health with spent moves still gets its PP back", () => {
+    const { world, state } = started();
+    const lead = state.party[0];
+    const spent: GameState = {
+      ...beside(world, state, "nurse"),
+      party: [{ ...lead, pp: lead.moves.map(() => 0) }],
+    };
+    const at = applyInput(world, spent, { t: "talk", id: "nurse" });
+    expect(offerRefusal(world, at)).toBeNull();
+
+    const healed = applyInput(world, at, { t: "npcAccept" });
+    expect(healed.party[0].pp.every((left, slot) => left > 0 && left === healed.party[0].pp[slot])).toBe(true);
+    expect(offerRefusal(world, healed)).toBe("everyone is well");
+  });
+
   it("N7: a hint-giver has nothing to hand over, which is the point of them", () => {
     const { world, state } = started();
     const at = applyInput(world, beside(world, state, "breeder"), { t: "talk", id: "breeder" });

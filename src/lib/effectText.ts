@@ -194,6 +194,99 @@ export function effectText(effect: MoveEffect): string {
       return effect.id === "water" ? "For 5 turns, Fire moves are ×0.333." : "For 5 turns, Electric moves are ×0.333.";
     case "veil":
       return "Only in hail or snow: Reflect and Light Screen both, for 5 turns.";
+    case "room":
+      return {
+        gravity: "For 5 turns: everything is grounded, accuracy is ×5/3, and flying and jumping moves fail. Fails if already up.",
+        trickroom: "For 5 turns, the slower creature moves first within the same priority. Using it again ends it.",
+        wonderroom: "For 5 turns, Defence and Sp. Def are exchanged when hit (stages stay put). Using it again ends it.",
+        magicroom: "For 5 turns, held items do nothing. Using it again ends it.",
+        fairylock: "Nobody can switch out or run this turn and next.",
+      }[effect.id];
+    case "ionDeluge":
+      return "For the rest of this turn, Normal moves are Electric.";
+    case "courtChange":
+      return "Swaps every screen and hazard between the two sides.";
+    case "camouflage":
+      return "The user becomes the type of the ground it is on (the terrain's type if a terrain is up).";
+    case "ability":
+      return {
+        worry: "The target's abilities become Insomnia, which also wakes it.",
+        gastro: "The target's abilities are switched off until it switches out.",
+        entrain: "The target's abilities become the user's.",
+        copy: "The user's abilities become the target's.",
+        swap: "The user and the target exchange abilities.",
+        simple: "The target's abilities become Simple: every stage change to it is doubled.",
+      }[effect.how];
+    case "batonPass":
+      return "Switches out, passing stat stages, confusion, seeds, a substitute and other conditions to the next one.";
+    case "shedTail":
+      return "Costs half its max HP: switches out and leaves a substitute of a quarter of its HP for the next one.";
+    case "partingShot":
+      return "Lowers the target's Attack and Sp. Atk by 1 stage, then the user switches out.";
+    case "hazard":
+      return {
+        stealthrock: "Rocks on the foe's side: every arrival takes 1/8 of its max HP, scaled by how Rock hits it.",
+        spikes: "Spikes on the foe's side (up to 3 layers): grounded arrivals take 1/8, 1/6 or 1/4 of max HP.",
+        toxicspikes: "Poison spikes on the foe's side (up to 2 layers): grounded arrivals are poisoned; a grounded Poison type clears them.",
+        stickyweb: "A web on the foe's side: grounded arrivals lose 1 Speed stage.",
+      }[effect.id];
+    case "defog":
+      return "Lowers the target's evasion by 1 stage, clears its Reflect, Light Screen, Mist and Safeguard, and clears every hazard on both sides.";
+    case "tidyUp":
+      return "Clears every hazard and substitute on both sides, then raises Attack and Speed by 1 stage.";
+    case "meFirst":
+      return "Uses the target's chosen attack first, at 1.5× power. Fails if the target has already moved or chose a status move.";
+    case "naturePower":
+      return "Becomes a move decided by the terrain, or by the ground the battle is on.";
+    case "snatch":
+      return "This turn, steals the next status move the foe uses on itself.";
+    case "magicCoat":
+      return "This turn, bounces status moves aimed at the user back at whoever used them.";
+    case "mimic":
+      return "Replaces Mimic with the target's last move (5 PP) until the user switches out.";
+    case "embargo":
+      return "The target's held item does nothing for 5 turns.";
+    case "recycle":
+      return "Brings back the last item the user used up, if it holds nothing.";
+    case "trick":
+      return "The user and the target exchange held items. Items move back after a battle against a trainer.";
+    case "bestow":
+      return "Gives the user's held item to a target holding nothing.";
+    case "eatBerry":
+      return effect.both
+        ? "Both creatures eat their held berry now, whatever it was waiting for."
+        : "The user eats its held berry now and raises its Defence by 2 stages. Fails without a berry.";
+    case "taunt":
+      return "For 3 turns, the target cannot use status moves.";
+    case "disable":
+      return "For 4 turns, the target cannot use the move it used last.";
+    case "encore":
+      return "For 3 turns, the target can only use the move it used last.";
+    case "imprison":
+      return "The foe cannot use any move the user also knows, until the user switches out.";
+    case "torment":
+      return "The target cannot use the same move twice in a row.";
+    case "healBlock":
+      return `For ${effect.turns} turns, the target cannot heal and cannot use healing moves.`;
+    case "grudge":
+      return "If the user faints to a move before it moves again, that move loses all its PP.";
+    case "substitute":
+      return "Costs 1/4 of max HP: a decoy with that much HP takes hits and blocks most status moves.";
+    case "powder":
+      return "This turn, if the target uses a Fire move it fails and the target loses 1/4 of its max HP.";
+    case "electrify":
+      return "The target's move this turn becomes Electric. Fails if it already moved.";
+    case "octolock":
+      return "The target cannot switch out or run, and loses 1 Defence and Sp. Def stage every turn while the user stays in.";
+    case "curse":
+      return "A Ghost user loses half its max HP and the target loses 1/4 of its max HP every turn. Anything else: Attack and Defence +1, Speed −1.";
+    case "guard":
+      return {
+        quick: "This turn, blocks moves with raised priority aimed at the user.",
+        wide: "This turn, blocks moves that hit everything opposite (Earthquake, Surf, Rock Slide…).",
+        crafty: "This turn, blocks status moves aimed at the user.",
+        mat: "Only on the user's first turn out: blocks damaging moves this turn.",
+      }[effect.kind];
     case "nothing":
       return "Does nothing. That is the point.";
     default: {

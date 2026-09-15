@@ -1,7 +1,7 @@
 # Abilities
 
-A hundred and twelve of them. **Fifty-eight** are their own idea; **fifty-four**
-are three families of eighteen, one entry per type.
+A hundred and eighty-one of them. **Ninety-one** are their own idea; **ninety** are five
+families of eighteen, one entry per type.
 
 An ability here belongs to the individual, not to the species — see the header
 of `src/engine/abilities.ts` for why. What that means in play:
@@ -21,7 +21,7 @@ For the conditions and ladders several of these read and modify, see
 
 ---
 
-## The fifty-eight singles
+## The ninety-one singles
 
 ### Damage it deals
 
@@ -56,6 +56,7 @@ For the conditions and ladders several of these read and modify, see
 | **Clear Body** | Nobody else lowers **any** of its stages |
 | **Hyper Cutter** | Nobody else lowers its **Attack** |
 | **Big Pecks** | Nobody else lowers its **Defence** |
+| **Simple** | Every stage change to it **counts double**, still capped at ±6. What Simple Beam gives the target |
 
 ### The field
 
@@ -117,6 +118,68 @@ move's own status *and* against a secondary.
 | **Regenerator** | Switching out mends **1/3** of its maximum |
 | **Rock Head** | **Recoil never touches it.** Struggle's own cost is not waived — that is what having nothing left costs you |
 | **Scrappy** | Its **Normal and Fighting reach Ghosts** |
+
+### The classes
+
+One per class, each built around one common attack: that move does **×2** (every blow of a multi-hit move). Nothing else it knows is touched.
+
+| Ability | Move |
+| --- | --- |
+| **Barbarian** | Bite |
+| **Bard** | Disarming Voice |
+| **Cleric** | Dazzling Gleam |
+| **Druid** | Razor Leaf |
+| **Fighter** | Quick Attack |
+| **Monk** | Double Kick |
+| **Paladin** | Metal Claw |
+| **Ranger** | Aerial Ace |
+| **Rogue** | Feint Attack |
+| **Sorcerer** | Ember |
+| **Warlock** | Hex |
+| **Wizard** | Swift |
+
+### Effort
+
+EVs from each defeated foe, including one beaten while it sat out holding an Exp. Share. The 252 per stat and 510 total caps still apply.
+
+| Ability | Effect |
+| --- | --- |
+| **Diligent** | EVs **×1.5**, rounded down |
+| **Hard Worker** | EVs **×2** |
+| **Workaholic** | EVs **×3** |
+| **Marathoner** | All EVs into **HP**, ×2 |
+| **Weightlifter** | All EVs into **Attack**, ×2 |
+| **Bulwark Drill** | All EVs into **Defence**, ×2 |
+| **Scholar** | All EVs into **Sp. Atk**, ×2 |
+| **Stoic** | All EVs into **Sp. Def**, ×2 |
+| **Sprinter** | All EVs into **Speed**, ×2 |
+
+A held Macho Brace or Power item that picks a stat overrides which stat the steered ones aim at.
+
+### Natures
+
+The nature term is **+24 / −24** on the raw sum (see `natures.ts`). These scale it; a neutral nature is unaffected.
+
+| Ability | Raised stat | Lowered stat |
+| --- | --- | --- |
+| **Strong-Willed** | +48 | −24 |
+| **Fervent** | +72 | −24 |
+| **Headstrong** | +48 | −48 |
+| **Extremist** | +72 | −72 |
+
+### Foraging
+
+Every **500** steps walked, each of these on a party member finds one item, equal odds from its list. Eggs and the box find nothing.
+
+| Ability | Finds |
+| --- | --- |
+| **Scavenger** | Potion, Super Potion, Poké Ball, Great Ball, Repel, Super Repel, Escape Rope, Full Heal, Revive, Ultra Ball |
+| **Berry Picker** | Oran, Sitrus, Figy, Wiki, Mago, Aguav, Iapapa, Cheri, Chesto, Pecha, Rawst, Aspear, Lum |
+| **Ball Collector** | Poké, Great, Ultra, Quick, Timer, Net, Nest, Level, Fast, Dive Ball — or, 0.5% of the time, a **Master Ball** |
+| **Herbalist** | Potion, Super Potion, Hyper Potion, Full Heal, Revive |
+| **Treasure Hunter** | Nugget, Pearl |
+| **Rockhound** | Leaf, Fire, Water, Thunder, Ice, Moon, Sun, Dusk, Dawn, Shiny Stone |
+| **Gym Rat** | HP Up, Protein, Iron, Calcium, Zinc, Carbos |
 
 ---
 
@@ -180,6 +243,44 @@ above, and heals nothing.
 
 ---
 
+## Two more families
+
+Only in battle: out on the map a creature is still its species' types to anybody asking. Deficiencies come off first, then affinities are added. A move that sets types (Soak and the rest) replaces the lot while it lasts.
+
+### Deficiency — in battle it does not have that type
+
+Losing every type leaves it **typeless**: no same-type bonus, and every attack neutral against it. No effect on a creature without the type.
+
+| Type | Name | | Type | Name |
+| --- | --- | --- | --- | --- |
+| bug | Bug Deficiency | | grass | Grass Deficiency |
+| dark | Dark Deficiency | | ground | Ground Deficiency |
+| dragon | Dragon Deficiency | | ice | Ice Deficiency |
+| electric | Electric Deficiency | | normal | Normal Deficiency |
+| fairy | Fairy Deficiency | | poison | Poison Deficiency |
+| fighting | Fighting Deficiency | | psychic | Psychic Deficiency |
+| fire | Fire Deficiency | | rock | Rock Deficiency |
+| flying | Flying Deficiency | | steel | Steel Deficiency |
+| ghost | Ghost Deficiency | | water | Water Deficiency |
+
+### Affinity — in battle it also has that type
+
+Same-type bonus on those moves, and the type's weaknesses, resistances and immunities. No effect if it already has it.
+
+| Type | Name | | Type | Name |
+| --- | --- | --- | --- | --- |
+| bug | Bug Affinity | | grass | Grass Affinity |
+| dark | Dark Affinity | | ground | Ground Affinity |
+| dragon | Dragon Affinity | | ice | Ice Affinity |
+| electric | Electric Affinity | | normal | Normal Affinity |
+| fairy | Fairy Affinity | | poison | Poison Affinity |
+| fighting | Fighting Affinity | | psychic | Psychic Affinity |
+| fire | Fire Affinity | | rock | Rock Affinity |
+| flying | Flying Affinity | | steel | Steel Affinity |
+| ghost | Ghost Affinity | | water | Water Affinity |
+
+---
+
 ## How they are built
 
 The effects are a **closed set of twenty-one shapes**, not a callback each. The
@@ -205,3 +306,8 @@ more expensive lesson than "not all of them are in yet".
 | `aim`, `luck`, `quick` | Accuracy, crit ratio, priority |
 | `endure`, `spoils`, `arrival`, `mend`, `shake` | Surviving, knocking out, arriving, leaving |
 | `reckless`, `reach` | Recoil, and reaching a Ghost |
+| `power` (signature) | Is this one named move doubled? (the classes) |
+| `lack`, `affinity` | Which types does it have in battle? |
+| `regimen` | How much effort does it earn, and into which stat? |
+| `temper` | How much does its nature count? |
+| `forage` | What does it find on the walk? |

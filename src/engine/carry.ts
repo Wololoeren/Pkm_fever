@@ -858,3 +858,31 @@ export const HELD_ITEMS: readonly HeldItemSeed[] = [
 ];
 
 const HOLDS = new Map(HELD_ITEMS.map((entry) => [entry.id, entry.hold]));
+
+/**
+ * What a creature is born holding, now and then.
+ *
+ * Wild ones: one in a hundred holds a common berry, a Nugget or a Pearl, so a
+ * catch is sometimes worth a second look in the bag. Starters: one in ten
+ * holds something better, the kind of item a shop charges thousands for.
+ * Every entry equally likely. The roll is its own named stream at each call
+ * site, so it never shifts the creature's other rolls.
+ */
+export const WILD_HELD_PER_MILLE = 10;
+export const WILD_HELD_ITEMS: readonly string[] = [
+  "berry-oran", "berry-sitrus", "berry-figy", "berry-wiki", "berry-mago", "berry-aguav", "berry-iapapa",
+  "berry-cheri", "berry-chesto", "berry-pecha", "berry-rawst", "berry-aspear", "berry-lum",
+  "nugget", "pearl",
+];
+
+export const STARTER_HELD_PER_MILLE = 100;
+export const STARTER_HELD_ITEMS: readonly string[] = [
+  "hold-leftovers", "hold-shellbell", "hold-quickclaw", "hold-scopelens", "hold-muscleband", "hold-wiseglasses",
+  "hold-expertbelt", "hold-focussash", "hold-luckyegg", "hold-amuletcoin", "hold-eviolite", "berry-sitrus", "berry-lum",
+];
+
+/** A held item from `pool` at `perMille` odds, or null. */
+export function rollHeld(rng: () => number, pool: readonly string[], perMille: number): string | null {
+  if (Math.floor(rng() * 1000) >= perMille || !pool.length) return null;
+  return pool[Math.floor(rng() * pool.length)];
+}

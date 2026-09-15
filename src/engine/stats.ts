@@ -1,3 +1,4 @@
+import { temperedNature } from "./abilities";
 import { natureVector } from "./natures";
 import { STAT_IDS, type Individual, type SpeciesEntry, type StatId, type StatTable } from "./types";
 import { variant } from "./variants";
@@ -36,14 +37,26 @@ export const EV_MAX_TOTAL = 510;
  * The stat a creature has right now, before any in-battle stage modifiers.
  */
 export function computeStats(species: SpeciesEntry, individual: Individual): StatTable {
-  const { level, ivs, evs, natureId, variantId } = individual;
-  const nature = natureVector(natureId);
+  const { level, ivs, evs, variantId } = individual;
+  const nature = natureTerms(individual);
   const mult = variant(variantId).mult;
 
   const out = {} as StatTable;
   for (const stat of STAT_IDS) {
     out[stat] = computeStat(species.base[stat], stat, level, ivs[stat], evs[stat], nature[stat], mult[stat]);
   }
+  return out;
+}
+
+/**
+ * What its nature adds to each stat's raw sum, after any ability that makes a
+ * nature count for more (Strong-Willed and the rest). The stat screen reads
+ * this too, so the column it draws is the number the battle uses.
+ */
+export function natureTerms(individual: Pick<Individual, "natureId" | "abilities">): StatTable {
+  const vector = natureVector(individual.natureId);
+  const out = {} as StatTable;
+  for (const stat of STAT_IDS) out[stat] = temperedNature(individual.abilities ?? [], vector[stat]);
   return out;
 }
 

@@ -452,7 +452,7 @@ describe("getting hold of them", () => {
     const found = new Set<string>();
 
     for (const seed of ["a", "b", "c", "d"]) {
-      for (const drop of [...testWorld(seed).pickups.values()].flat()) found.add(drop.item);
+      for (const drop of [...testWorld(seed).pickups.values()].flat()) if (!drop.egg) found.add(drop.item);
     }
 
     for (const spec of stones) {
@@ -479,6 +479,12 @@ describe("getting hold of them", () => {
     for (const seed of ["a", "b", "c"]) {
       for (const drop of [...testWorld(seed).pickups.values()].flat()) {
         expect(typeof drop.item, `${seed}: ${drop.id}`).toBe("string");
+        // A found egg is the one thing on the floor that is not an item; what
+        // it must name instead is a species.
+        if (drop.egg) {
+          expect(() => speciesById(drop.egg!.speciesId), `${seed}: ${drop.id}`).not.toThrow();
+          continue;
+        }
         expect(() => item(drop.item), `${seed}: ${drop.id} -> ${drop.item}`).not.toThrow();
       }
     }
@@ -487,7 +493,7 @@ describe("getting hold of them", () => {
   it("K14c: one world holds enough of the floor to be worth walking", () => {
     // Not a balance assertion, a sanity one: the new rows went into a weighted
     // table, and a typo in a weight is a family that never drops at all.
-    const drops = [...testWorld("SPREAD1").pickups.values()].flat();
+    const drops = [...testWorld("SPREAD1").pickups.values()].flat().filter((drop) => !drop.egg);
     expect(drops.length).toBeGreaterThan(20);
 
     const kinds = new Set(drops.map((drop) => item(drop.item).kind));

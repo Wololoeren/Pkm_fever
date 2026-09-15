@@ -3,7 +3,7 @@ import { applyInput, initialState, reduce, stateHash, type Input } from "@/engin
 import { ENGINE_VERSION } from "@/engine/types";
 import { packInputs, unpackInputs } from "@/lib/pack";
 import { encodeSave, makeSave, parseSave } from "@/lib/save";
-import { play, testWorld } from "./helpers";
+import { creature, play, testWorld } from "./helpers";
 
 /**
  * The log codec.
@@ -86,6 +86,12 @@ describe("packing a log", () => {
       { t: "rename", uid: 1, name: "Sprout" },
       { t: "addBox" },
       { t: "trainer", name: "Ash" },
+      { t: "pawn", index: 1, confirm: 7 },
+      { t: "bid", n: 3 },
+      { t: "collectBids" },
+      { t: "workshopLeave", station: "ice", index: 1, confirm: 4 },
+      { t: "workshopTake", station: "fire" },
+      { t: "vaultStart", creature: creature("dratini", { uid: 2 }) },
       { t: "renameBox", tab: 0, name: "Keepers" },
       { t: "moveToBox", uid: 1, tab: 1 },
       { t: "toggleItem", item: "prism" },
