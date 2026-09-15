@@ -110,7 +110,28 @@ listed at the end.
   mid-battle; `cleanNickname()` trims, strips control characters, 12 max, and
   the species name or empty clears it. UI is `NameEditor` in `Inspect.tsx`.
 
-## Uncommitted (2026-09-14) — ENGINE_VERSION 35
+## Uncommitted (2026-09-15) — ENGINE_VERSION 36
+
+- **Poison on the map.** `poisonStep()` in `engine.ts`, called at the top of
+  `walked()`: every `POISON_STEP_EVERY` (5) steps each poisoned party member
+  loses 1 HP or is cured (`POISON_CURE_PERCENT`, 2%), rolled from
+  `rngFor(seed, "field-poison", tick, uid)`. At 1 HP the poison wears off, so
+  it never faints. New state `poisonWalk` and `poisonedAt` (both hashed);
+  `PoisonFlash` in `page.tsx` blinks `.poisonFlash` when `poisonedAt` changes.
+  Tests in `fieldpoison.test.ts`. 35 was pushed, so this is **36**.
+- **PvP timing out (live site).** Two causes. (1) Trystero's built-in relay pick for app id
+  `pkm-fever` was 4 of 5 dead, so every room hung on one relay. Rooms now use
+  `RELAY_URLS` in `src/lib/relays.ts` (7 relays, each verified pairing two
+  browsers from the live origin on 2026-09-15). (2) `room.ts`/`party.ts` set
+  status `failed` 12 s after joining if nobody had arrived, i.e. while the
+  host waited for a friend to type the code. Now only "no relay open" fails,
+  re-checked every 12 s, and it recovers. Still no TURN server: two players
+  both behind strict NATs (some mobile carriers, corporate networks) cannot
+  connect directly, and nothing free fixes that.
+- **Ability blurbs** in `abilities.ts` rewritten to state exact numbers and
+  exceptions, checked against `battle.ts`. Text only.
+
+## Committed (2026-09-14) — ENGINE_VERSION 35
 
 - **Evolution played twice.** Accepting an offered evolution left an `evolved`
   notice that the page also used as the stone-evolution reveal. The notice now

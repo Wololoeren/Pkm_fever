@@ -31,6 +31,11 @@ a Rest clears one.
 | **SLP** Sleep | — | loses the turn | a counter set to **1, 2 or 3** on landing |
 | **FRZ** Freeze | — | loses the turn | a **20%** roll every turn |
 
+**Poison also works on the map.** Every **5** steps each poisoned creature in
+the party loses **1** HP, or has a **2%** chance to be cured instead. It never
+faints from this: when it reaches 1 HP the poison wears off. The screen blinks
+purple when it hurts.
+
 One creature carries one condition. `applyStatus` refuses a second, and it is
 the single gate every road to a status goes down — a move's own, a secondary, a
 Yawn coming due, an ability, an item.

@@ -130,7 +130,7 @@ import { BIOME_IDS } from "./biomes";
  * which used to be its flat base power or always worked. And the Exp. Share,
  * handed over when anybody first reaches level 40, which changes who levels in
  * any battle fought after. */
-export const ENGINE_VERSION = 35;
+export const ENGINE_VERSION = 36;
 
 // ------------------------------------------------------------------ stats
 

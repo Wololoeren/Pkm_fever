@@ -621,6 +621,10 @@ export interface GameState {
   expShareGiven: boolean;
   /** The player's trainer name, written on everything they catch. Null until chosen. */
   trainerName: string | null;
+  /** Steps taken on the map, counting towards the next poison tick. */
+  poisonWalk: number;
+  /** The tick poison last hurt somebody out of battle, so the screen can flash. */
+  poisonedAt: number | null;
   nextUid: number;
   /** Everything held, by item id. Balls, medicine, rods and breeding gear in
    * one place, because "how many of this do I have" should have one answer. */
@@ -945,6 +949,8 @@ export function initialState(world: World): GameState {
     boxOf: {},
     expShareGiven: false,
     trainerName: null,
+    poisonWalk: 0,
+    poisonedAt: null,
     nextUid: 1,
     bag: { pokeball: STARTING_BALLS },
     money: STARTING_MONEY,
@@ -1798,7 +1804,8 @@ function atDaycare(world: World, state: GameState): boolean {
  * rather than to waiting. An incompatible pair produces nothing and the
  * counter does not move, so the UI can say why.
  */
-function walked(before: GameState): GameState {
+function walked(world: World, start: GameState): GameState {
+  const before = poisonStep(world, start);
   const step = (eggs: Egg[]) => eggs.map((egg) => (egg.steps > 0 ? { ...egg, steps: egg.steps - 1 } : egg));
 
   // Every egg carried is walked, and every egg in an incubator too: the
@@ -1815,6 +1822,39 @@ function walked(before: GameState): GameState {
   return steps < eggSteps(state.daycare.applied)
     ? { ...state, daycare: { ...state.daycare, steps } }
     : { ...state, daycare: { ...state.daycare, steps: 0, eggReady: true } };
+}
+
+/** How many steps on the map between one poison tick and the next. */
+export const POISON_STEP_EVERY = 5;
+/** The chance, in percent, that a poison tick cures instead of hurting. */
+export const POISON_CURE_PERCENT = 2;
+
+/**
+ * Poison keeps working out of battle.
+ *
+ * Every fifth step each poisoned creature in the party either shakes it off
+ * (2%) or loses 1 HP. It never faints from this: at 1 HP the poison wears off
+ * instead, so walking home poisoned costs health but never the creature.
+ * Each roll is named from the step count and the creature's uid, so a replay
+ * rolls the same.
+ */
+function poisonStep(world: World, state: GameState): GameState {
+  const poisoned = (one: Individual) => one.status === "psn" && !isFainted(one);
+  if (!state.party.some(poisoned)) return state.poisonWalk === 0 ? state : { ...state, poisonWalk: 0 };
+
+  const walk = state.poisonWalk + 1;
+  if (walk < POISON_STEP_EVERY) return { ...state, poisonWalk: walk };
+
+  let hurt = false;
+  const party = state.party.map((one) => {
+    if (!poisoned(one)) return one;
+    const rng = rngFor(world.seed, "field-poison", state.tick, one.uid);
+    if (intBelow(rng, 100) < POISON_CURE_PERCENT || one.hp <= 1) return { ...one, status: null };
+    hurt = true;
+    const hp = one.hp - 1;
+    return hp <= 1 ? { ...one, hp, status: null } : { ...one, hp };
+  });
+  return { ...state, party, poisonWalk: 0, poisonedAt: hurt ? state.tick : state.poisonedAt };
 }
 
 /** Setting foot somewhere new for the first time, and what it pays. */
@@ -5128,7 +5168,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   const door = route.doors.find((entry) => entry.x === nx && entry.y === ny);
   if (door) {
     const arrived = arrive(world, state, door.to);
-    return walked({ ...arrived, tick: state.tick + 1, route: door.to, x: door.at.x, y: door.at.y });
+    return walked(world, { ...arrived, tick: state.tick + 1, route: door.to, x: door.at.x, y: door.at.y });
   }
 
   const onBorder = nx === 0 || ny === 0 || nx === route.width - 1 || ny === route.height - 1;
@@ -5136,7 +5176,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     const exit = exitFrom(world, state.route, nx, ny);
     if (exit) {
       const arrived = arrive(world, state, exit.route);
-      return walked({ ...arrived, tick: state.tick + 1, route: exit.route, x: exit.x, y: exit.y });
+      return walked(world, { ...arrived, tick: state.tick + 1, route: exit.route, x: exit.x, y: exit.y });
     }
     throw new IllegalInput("blocked");
   }
@@ -5163,7 +5203,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   // Walking away is a way of ending a conversation, and the commonest one.
   // Leaving `talking` set would keep the panel open above a map you had
   // already left the speaker behind on.
-  const moved: GameState = walked({
+  const moved: GameState = walked(world, {
     ...state,
     tick: state.tick + 1,
     x: nx,
@@ -5634,6 +5674,8 @@ export function stateHash(state: GameState): string {
     state.box.map(individual).join("|"),
     state.boxNames.map((name) => encodeURIComponent(name)).join(","),
     state.expShareGiven ? "1" : "0",
+    state.poisonWalk,
+    state.poisonedAt ?? "-",
     Object.keys(state.boxOf)
       .map(Number)
       .sort((a, b) => a - b)

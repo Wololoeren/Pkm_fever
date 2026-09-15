@@ -146,6 +146,25 @@ function TrainerPrompt({ onInput }: { onInput: (input: Input) => void }) {
   );
 }
 
+/**
+ * A short purple blink over the whole screen when poison hurts someone on the
+ * map. Only for a tick that arrives while you watch: loading a save whose last
+ * poison tick is already in it does not flash.
+ */
+function PoisonFlash({ at }: { at: number | null }) {
+  const seen = useRef(at);
+  const [flash, setFlash] = useState<number | null>(null);
+  useEffect(() => {
+    if (at === seen.current) return;
+    seen.current = at;
+    if (at == null) return;
+    setFlash(at);
+    const done = setTimeout(() => setFlash(null), 400);
+    return () => clearTimeout(done);
+  }, [at]);
+  return flash == null ? null : <div key={flash} className="poisonFlash" aria-hidden="true" />;
+}
+
 export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
   const [autosave, setAutosave] = useState<SaveFile | null>(null);
@@ -781,6 +800,8 @@ export default function Page() {
       )}
 
       {!state.trainerName ? <TrainerPrompt onInput={dispatch} /> : null}
+
+      <PoisonFlash at={state.poisonedAt} />
 
       {state.talking ? (
         <TalkPanel world={session.world} state={state} onInput={dispatch} />
