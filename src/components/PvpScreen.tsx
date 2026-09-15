@@ -478,11 +478,11 @@ function connectionText(status: RoomStatus): string {
     case "connecting":
       return "Finding a relay…";
     case "waiting":
-      return "Waiting for the other player to join this code…";
+      return "Waiting for the other player to join this code. Pairing takes a few seconds once they have.";
     case "paired":
       return "Paired.";
     case "failed":
-      return "Lost the connection, or this network blocks peer-to-peer traffic.";
+      return "Lost the connection: the other player left, or no relay can be reached right now.";
     default:
       return "Closed.";
   }

@@ -475,7 +475,7 @@ export function TourneyScreen({
           {status === "connecting" || status === "waiting"
             ? "Finding the room…"
             : status === "failed"
-              ? "Nothing reached the room. A network that blocks WebRTC will do this."
+              ? "Can't reach any relay — check the connection. This keeps retrying."
               : "Waiting for the field to fill."}
         </p>
 

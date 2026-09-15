@@ -16,7 +16,7 @@
  * person playing alone.
  */
 
-const APP_ID = "pkm-fever";
+import { anyRelayOpen, RELAY_GRACE_MS, trysteroConfig } from "./relays";
 
 export type RoomStatus = "connecting" | "waiting" | "paired" | "failed" | "closed";
 
@@ -31,10 +31,6 @@ export interface Room<T> {
   send: (message: T) => void;
   leave: () => void;
 }
-
-/** Long enough that a slow relay is not called a failure, short enough that a
- * network which blocks WebRTC outright stops pretending it might work. */
-const CONNECT_GRACE_MS = 12000;
 
 /** How long after a deliberate teardown an abort is still that teardown's. */
 const CLOSE_ABORT_MS = 4000;
@@ -75,10 +71,10 @@ export async function joinRoom<T extends { t: string }>(
   kind: string,
   handlers: RoomHandlers<T>,
 ): Promise<Room<T>> {
-  const { joinRoom: joinTrysteroRoom } = await import("trystero/nostr");
+  const { joinRoom: joinTrysteroRoom, getRelaySockets } = await import("trystero/nostr");
 
   handlers.onStatus("connecting");
-  const room = joinTrysteroRoom({ appId: APP_ID }, `${kind}-${code}`);
+  const room = joinTrysteroRoom(trysteroConfig(), `${kind}-${code}`);
 
   // JSON on the wire rather than the library's structured payload type: it
   // keeps DuelMessage a domain type instead of one shaped by a generic.
@@ -115,9 +111,17 @@ export async function joinRoom<T extends { t: string }>(
 
   handlers.onStatus("waiting");
 
-  const grace = setTimeout(() => {
-    if (!live) handlers.onStatus("failed");
-  }, CONNECT_GRACE_MS);
+  // Judge the network, never the room: an empty room after twelve seconds is
+  // somebody still typing the code. Only when no relay is open at all is
+  // there nothing to wait for — and a relay that comes back un-fails it.
+  let failedNetwork = false;
+  const grace = setInterval(() => {
+    if (live) return clearInterval(grace);
+    const open = anyRelayOpen(getRelaySockets() as Record<string, WebSocket>);
+    if (open === !failedNetwork) return;
+    failedNetwork = !open;
+    handlers.onStatus(open ? "waiting" : "failed");
+  }, RELAY_GRACE_MS);
 
   return {
     send(message) {
@@ -127,7 +131,7 @@ export async function joinRoom<T extends { t: string }>(
       });
     },
     leave() {
-      clearTimeout(grace);
+      clearInterval(grace);
       channel.onMessage = null;
       room.onPeerJoin = null;
       room.onPeerLeave = null;

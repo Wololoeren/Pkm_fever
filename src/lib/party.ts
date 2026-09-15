@@ -18,7 +18,7 @@
  * protocol and `engine/bracket.ts` holds the draw; this moves strings.
  */
 
-const APP_ID = "pkm-fever";
+import { anyRelayOpen, RELAY_GRACE_MS, trysteroConfig } from "./relays";
 
 export type PartyStatus = "connecting" | "waiting" | "live" | "failed" | "closed";
 
@@ -52,8 +52,6 @@ export interface PartyRoom<T> {
   leave: () => void;
 }
 
-/** As long as the duel's, and for the same reason. */
-const CONNECT_GRACE_MS = 12000;
 const CLOSE_ABORT_MS = 4000;
 
 /** The same narrow suppression `room.ts` documents at length. */
@@ -78,10 +76,10 @@ export async function joinParty<T extends { t: string }>(
   kind: string,
   handlers: PartyHandlers<T>,
 ): Promise<PartyRoom<T>> {
-  const { joinRoom: joinTrysteroRoom, selfId } = await import("trystero/nostr");
+  const { joinRoom: joinTrysteroRoom, selfId, getRelaySockets } = await import("trystero/nostr");
 
   handlers.onStatus("connecting");
-  const room = joinTrysteroRoom({ appId: APP_ID }, `${kind}-${code}`);
+  const room = joinTrysteroRoom(trysteroConfig(), `${kind}-${code}`);
   const channel = room.makeAction<string>("msg");
 
   // Join order, which is not the draw order — see `drawOrder`, which shuffles
@@ -120,9 +118,17 @@ export async function joinParty<T extends { t: string }>(
 
   handlers.onStatus("waiting");
 
-  const grace = setTimeout(() => {
-    if (!present.length) handlers.onStatus("failed");
-  }, CONNECT_GRACE_MS);
+  // Judge the network, never the room: an empty room after twelve seconds is
+  // somebody still typing the code. Only when no relay is open at all is
+  // there nothing to wait for — and a relay that comes back un-fails it.
+  let failedNetwork = false;
+  const grace = setInterval(() => {
+    if (present.length) return clearInterval(grace);
+    const open = anyRelayOpen(getRelaySockets() as Record<string, WebSocket>);
+    if (open === !failedNetwork) return;
+    failedNetwork = !open;
+    handlers.onStatus(open ? "waiting" : "failed");
+  }, RELAY_GRACE_MS);
 
   return {
     self: selfId,
@@ -136,7 +142,7 @@ export async function joinParty<T extends { t: string }>(
       void channel.send(JSON.stringify(message), { target: id }).catch(() => {});
     },
     leave() {
-      clearTimeout(grace);
+      clearInterval(grace);
       channel.onMessage = null;
       room.onPeerJoin = null;
       room.onPeerLeave = null;
