@@ -243,7 +243,7 @@ export function CheatMenu({
         <div className="boxList">
           {prizes.map((creature, index) => (
             <div key={creature.speciesId} className="boxRow">
-              <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={24} />
+              <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={24} />
               <div
                 className="cardBody clickable"
                 role="button"

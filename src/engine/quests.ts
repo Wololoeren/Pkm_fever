@@ -5,6 +5,7 @@ import { species as speciesById } from "./dex";
 import type { Bag } from "./items";
 import type { Individual } from "./types";
 import { variant } from "./variants";
+import { levelBracket } from "./levels";
 
 /**
  * Quests, and the reason they need almost no state.
@@ -374,8 +375,12 @@ export function goalText(goal: QuestGoal): string {
       return `Have ${goal.count} creatures`;
     case "beatTrainers":
       return `Beat ${goal.count} trainers`;
-    case "reachRing":
-      return `Stand on ring ${goal.ring}`;
+    case "reachRing": {
+      // Rings are not shown anywhere any more — places are named, with their
+      // levels in brackets — so the goal quotes the bracket a player can see.
+      const [low, high] = levelBracket(goal.ring);
+      return `Stand somewhere marked [${low}-${high}] or further out`;
+    }
     case "ownChroma":
       return `Hold ${goal.count} wearing a colour`;
     case "ownTier":

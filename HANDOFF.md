@@ -251,6 +251,22 @@ listed at the end.
   so the first flicker frame was "after" while the silhouette filter was
   still fading in. `shapeAt()` in `EvolutionScene.tsx` now counts only
   swaps that have happened. Tests `evolutionscene.test.ts`.
+- **Ability chevrons.** `AbilityMark` in `Sprite.tsx`: one gold sergeant
+  chevron per ability (max 3) in the sprite's top-left corner, names on
+  hover. `Sprite` takes an optional `abilities` prop, passed by every caller
+  that has an Individual (party, box, battle, Inspect, daycare, PvP,
+  tournament, starters, vault, arena, cheat menu); `.abilityMark` in
+  `globals.css`, not hidden in box cells like `.mark` is. Checked in the
+  browser (one chevron on the Scholar Mudkip, none on the plain one).
+- **Bug: a trainer ready for a rematch stayed faded on the map** (and off
+  the minimap). Both drew from `state.beaten`, which never clears; they now
+  ask `wantsRematch`, the check walking into them uses (1000 moves after
+  the loss).
+- **Held item on the stat sheet.** `HeldLine` in `Inspect.tsx` shows what
+  it holds and the item's blurb, with a Take back button (`holdItem` with
+  `item: null`, refused through `holdRefusal`). Boxed creatures show the
+  item and say to take them into the party first. There was no way to
+  remove an item before, except swapping in another.
 
 ## Earlier on 2026-09-15 — committed locally, not pushed (ENGINE_VERSION 36)
 
@@ -397,3 +413,310 @@ listed at the end.
   the user was told about, not a confirmed preference.
 - `README.md` "What is next" lists the remaining design gaps (status moves
   still filtered out of learnsets, deferred items and abilities).
+
+## Eggs sit with the creatures, and incubators fill themselves
+
+- Hub: carried eggs are rows in the Party list (`EggRow`: picture, "Egg", `eggMood`), with an
+  **Incubate** button at the daycare when a slot is free. Incubating eggs are rows in the daycare
+  column and cells in the box grid (after the creatures; they belong to no tab yet).
+- Engine: `incubated()` in the `applyInput` funnel moves a waiting daycare egg into a free incubator
+  whenever one is free — laid while walking, a slot freed by hatching, or an incubator applied to a
+  pair with an egg waiting. `layEgg()` is the shared body of `collectEgg`. New input
+  `incubateEgg { index }` (pack opcode 55) hands a carried egg over; refusal `incubateRefusal`.
+  Notice `eggIncubated`. Save-breaking on engine 36 (unpushed). Tests BR24/BR24b.
+
+## The Grey Line is a map now, not a list of fifty
+
+- `TalkPanel`: a travel post's buttons are its reachable **towns** only (never more than four), and
+  everywhere else is a dot on a `RegionMap` drawn at 280px underneath, with every reachable stop
+  ringed in `--go` (bright green) and clickable. The line above it still counts reachable and closed
+  posts, so nothing about what the engine allows is hidden.
+- `RegionMap` gained `size`, `reachable` and `onPick`. The dex still passes neither. `.mapGo` in
+  globals.css is the hover/focus state; `--go` is a new token that only ever means "you may go here".
+- Engine untouched: the destination list is still `stations` + `travelRefusal`. Not save-breaking.
+
+## The maps, big, in a window of their own
+
+- `MiniMap` has an "Open a big map" button. `BigMapWindow` opens a named browser window
+  (`pkm-fever-map`), clones the page's `<style>`/`<link rel=stylesheet>` into it, and portals the
+  same `LocalMap` and `RegionMap` in at 620px — so it redraws with the game rather than holding a
+  second copy of the state. Closing the window, or pressing the button again, puts it away.
+- `LocalMap` gained a `width` prop; its cell ceiling now rises with the width asked for.
+- A blocked popup (`window.open` returns null) closes the state again, so the button never lies.
+  Note: popups are blocked outright in the in-app browser pane, so it was verified there by
+  stubbing `window.open` with a same-origin iframe.
+
+## Saves are named by when they were saved
+
+- `fileStamp(savedAt)` in `lib/save.ts` renders a save's moment as `20260916-1432` (local time,
+  sortable by name). `downloadSave` names files `pkm-fever-<seed>-<stamp>.json`, and the vault
+  export is `pkm-fever-vault-<stamp>.json`. Two saves of one run no longer collide into "(1)".
+- The file's own `savedAt` is unchanged and still what the menu and the verify page read. Nothing
+  about the format changed, so old saves open and new ones open in the live version. Test PK9.
+
+## Fly uses the Grey Line's map
+
+- `BagPanel`, Fly selected: the towns keep their cards (still greyed with `flyRefusal` where it
+  refuses), and every place you can land is ringed green on a 240px `RegionMap` above them —
+  clickable, read from `flyRefusal` so the map and the buttons cannot disagree. UI only.
+- Not checked in the browser: Fly is a gym reward and the testing shortcuts cannot grant items.
+
+## Box marks, and a slower daycare (engine 37)
+
+- Box cells show the shine/tint mark, the colour letter and the ability chevrons, shrunk to fit
+  (`.boxCell .mark`, `.boxCell .abilityMark svg`) instead of `display: none`.
+- `STEPS_PER_EGG` 300 → 600. Items that shorten it are unchanged, so each is worth relatively less.
+- **ENGINE_VERSION 36 → 37.** 36 was already live on origin, so the egg rate and the earlier
+  auto-incubate change would otherwise replay live 36 saves differently. 36 saves now refuse.
+
+## Ivo's printer: dearer and slower (folded into engine 37)
+
+- `PRINT_COOLDOWN` 600 → 1500; new `PRINT_PRICE` 3000, taken on every attempt (failed prints too),
+  refused below it with "a print costs ¤3,000". Dialogue and the talk panel say both. Tests Q8/Q8b.
+- Ivo stands in New Willow (`town-2`) on every seed: town names are fixed in towns.ts.
+
+## The traders wander, and auction lots have a sheet (folded into engine 37)
+
+- Ivo (`print-ivo`), the Auctioneer, Marv (`shred-marv`) and Hessa (`cut-hessa`) are placed with the
+  new `{ at: "wander", maxRing: 2 }`: a seeded pick (`rngFor(seed, "npcWander", id)`) among every
+  town and every route in rings 1–2, on a tile `walkableSpot` reaches on foot from the entry (a
+  flood fill, so a town corner behind houses is never chosen). Tests N20 (always placed, in range,
+  reachable) and N21 (not all in one place across seeds).
+- Auction board: each lot is a button; clicking opens a `StatHover` of
+  `atFullHealth(withMoves(lotCreature(seed, n)))` — exactly what a win delivers. Lot sprites carry
+  their ability chevrons. Not seen in the browser (the lot is on a random route now, and 37 refuses
+  the old autosave); type-checked only.
+
+## Gus buys eggs, and an ability list as plain text (folded into engine 37)
+
+- NPC `egg-buyer` ("Gus", kind `eggbuy`) at New Willow (20,14). `eggValue(egg)` =
+  1000 + 1500·tier/TOP_TIER + 500 if coloured → 1000–3000. Input `sellEgg { index, confirm }` (pack
+  opcode 56), refusal `sellEggRefusal`, notice `eggSold`, new state counter `eggsSold` (hashed).
+  Once `eggsSold >= 2` the talk panel appends `EGG_BUYER_AFTER_TWO` — omelettes hinted, never named
+  (EB5 checks). Tests in `tests/eggbuyer.test.ts`.
+- `docs/abilities.txt`: all 181 abilities, name and in-game description, alphabetical. Generated
+  from `ABILITIES`; regenerate it the same way if abilities change (nothing guards it).
+
+## Routes have names, and levels instead of rings
+
+- `src/engine/placenames.ts`: per-biome word lists (`grounds` × `of`, 63 names a biome) and
+  `placeNames(seed, routes)` — routes in id order, each drawing an unused name from
+  `rngFor(seed, "place-name", id)`, unique across the world. Applied at the end of `generateWorld`
+  after `wireBorders`, so it moves nothing; labels are not in any hash and no engine rule reads them.
+- Label is `"<Ground> of <Thing> [low-high]"`, e.g. "Maze of Static [9-13]". The bracket is
+  `levelBracket(ring)` from the new `src/engine/levels.ts` (`levelForRing` moved there, re-exported
+  from world.ts), and `wildAt` now rolls with the same `WILD_LEVEL_SPREAD`, so the sign is the truth
+  (PN4 samples every route's grass).
+- The "reach ring N" quest goal now reads "Stand somewhere marked [lo-hi] or further out".
+- Not save-breaking on its own: names are display only.
+
+## Handbook, switch animation, pickups off doors, boxing into the open tab
+
+- **Pokémon Handbook** (`handbook`, key item, `reads: true`, `bagUse` → "read"): given by the
+  Librarian (`gift-librarian`) in Hearth at (8,8). Opening it from the Bag shows
+  `components/Handbook.tsx` — shine rungs (`TIER_NAMES`/`TIER_MULT`, now exported), each colour's
+  stat shifts (`CHROMAS[].mult`), every ability and every item (searchable). Reading is not an input.
+  (26,14) was tried first and blocked the scripted walks out of Hearth in five tests.
+- **Switch animation** (`useLeaving` + `useSwitchIn` in `useBeat.ts`): the replaced creature walks
+  off (skipped if it fainted), a ball arcs in from the trainer's side and bursts, the new one pops
+  out. `useEntrance` now only plays on a battle's first creature (keyed on the tag).
+- **Pickups** never sit on a tile that moves you (`passesThrough`: doors, exits, borders, gates, the
+  entry) — doors were being chosen because a doorway is a dead end. Applied to floor pickups, inks,
+  found eggs and the Master Ball; `propBlocks` now also checked for floor pickups. HB3, verified to
+  fail without the fix.
+- **store** takes an optional `tab`; the hub's Box button passes the tab open in `BoxPanel` (which
+  is now optionally controlled). `storeRefusal` greys it when that tab is full. Old logs without a
+  tab behave as before. BX1b.
+- Librarian and the pickup move fold into engine 37.
+
+## Gyms on the region map
+
+- `RegionMap` finds each gym through its leader in `world.npcs` (hall, or the route when no hall was
+  built) and keys it by the outer route. Hover text: "a gym" until you have been inside, then
+  "Kiln Gym (Ash, fire) — not yet beaten", then "✓ Kiln Gym (Ash) — defeated"; a beaten gym's node
+  also gets a green ✓ drawn beside it (non-interactive, so travel rings still take the click).
+  Unvisited and visited hover lines checked in the browser; the beaten ✓ was not (the test fight
+  was lost), UI only.
+
+## The three who shape abilities (folded into engine 37)
+
+- `src/engine/tutor.ts` (pure): `chromaCandyFor` (0 without a colour, else 1 + shine tier),
+  `tutorOffer`/`tutorBoard` (8 offers, lot `n` leaves at `1000·(n+1)` steps like the auction; each
+  an ability plus money ¤5,000–20,000 and three of pearls / Chroma Candy / Glitter / one stone /
+  2–5 of one berry), `giftContents(seed, tick)` (80%: potions or berries; 20%: a stone, pearls,
+  Chroma Candy, Glitter or a machine).
+- Items `chromacandy` (currency, sells for 0) and `secretgift` (`opens: true`, used from the bag via
+  `useItem`, notice `giftOpened`).
+- NPCs: Colour Collector (`chromabuy`, Sanchford), Ability Tutor (`tutor`, Sanchford), Gift Swapper
+  (`giftswap`, Southpass). Inputs `chromaTrade`, `tutorLeave {n,index,confirm}`, `tutorTake`,
+  `giftSwap` (pack 57–60). State `tutoring` (hashed; counted in the vault roster). Held items
+  come back when a creature is given away. Tutor refuses: a pupil already there, an ability it
+  knows, a fourth ability, an offer gone from the board, a price you cannot pay; pupil ready after
+  2,500 steps. Talk panel: `TutorBoard` (pick an ability, then who). Tests in `tests/shapers.test.ts`.
+
+## Obedience (folded into engine 37)
+
+- `obedienceLevel(badges)` = 20 + 10·badges; `disobeys(state, creature)` = traded && level ≥ it.
+  `battleTurn` passes it as `BattleRules.obeysBelow` (duels and anything else leave it unset, so
+  everybody obeys there). In `resolveTurn`, a side-0 `fight` from such a creature (not mid-Fly/
+  Outrage, not Pursuit) goes to `disobeyed()`: roll `obey` over usable moves + 2, so each legal move
+  1 share and loafing 2. Event `disobeyed { side, moveId|null }`, narrated "ignored orders!" /
+  "is loafing around and won't listen."
+- Stat screen: the TRADED tag turns red as "TRADED · WON'T OBEY", with the rule in its hover.
+- Worth knowing: auction lots arrive `traded: true` at levels 10–30, so a level 20+ win will not
+  obey a trainer with no badges. Tests in `tests/obedience.test.ts`.
+
+## Gym scaling, and the team balls (gyms fold into engine 37)
+
+- `MOVES_PER_LEVEL` 1000 → 2500, `LEVELS_PER_BADGE` 5 → 3 (cap of 30 from moves unchanged). Hint
+  text, the badge notice and tests G3/HN follow the constants.
+- The trainer-team ball row was invisible: `TeamBalls` used class `ball`, which is also the thrown
+  catch ball (`position: absolute; transform: scale(0)` until thrown), so every team ball was scaled
+  to nothing. Renamed to `teamBall`. Checked in a gym battle: three 9px balls, untransformed.
+
+## IV scales
+
+- Thirty held items `hold-scale-<up>-<down>` ("Scale: +Atk −Spe"), ¤3,000 each at the Mart, effect
+  `{ t: "tilt", up, down, amount: SCALE_AMOUNT (5) }`. `ivTilt(pair)` sums what both parents carry;
+  `inheritIvs` applies it after every roll (so eggs draw the same numbers and are only moved),
+  clamped to 0–31. `expectedIvs` applies the same order, so the daycare table stays exact (SC4
+  checks it against 6,000 eggs). docs/items.md lists all thirty. Not save-breaking: nothing that
+  rolls from an item list includes held items wholesale.
+
+## People on the region map
+
+- New state `spokenTo` (sorted ids), filled by `acquainted()` at the end of the `applyInput` funnel
+  whenever `talking` names somebody new. Not hashed, not read by any rule — saves replay the same.
+  (`met` was already taken: it is the dealt-with critters.)
+- `RegionMap` hover appends the names of people you have spoken to who run a service there
+  (`SERVICES` in MiniMap.tsx: buyers, traders, printer, arenas, shredder, lapidary, smith, pawn,
+  auction, workshop, egg buyer, Colour Collector, Tutor, Gift Swapper), keyed by the outer route
+  for people indoors. Quest givers, gyms, the Cup, hints, nurses and Grey Line posts are left out.
+  Checked in the browser: "Sanchford — a town" became "Sanchford — a town — Ability Tutor". EB6.
+
+## Held-item gift box, and the arenas (arenas fold into engine 37)
+
+- `Sprite` takes `heldItem`; `HeldMark` draws a small SVG gift box bottom-left with the item's
+  name as hover text. Every caller that passes `abilities={x.abilities}` now also passes
+  `heldItem={x.heldItem}`. Seen on a starter card ("Holding Lum Berry").
+- `arenaRefusal`: the party must be exactly `teamSize` ("it is 3v3: bring exactly 3 (you have 5)"),
+  as well as all standing. W32 updated.
+- Arenas easier: `ARENA_MOVES_PER_LEVEL` 1000 → 2500, `ARENA_PER_BADGE` 5 → 3 (the gyms' pace),
+  opponent IVs `ARENA_IV` 24 → 18. W30 updated.
+
+## Hearth's terraces, and inviting people to live in them (folded into engine 37)
+
+- `buildTerraces` (world.ts) replaces the daycare's corner building in Hearth: a front row on the
+  east-west road (daycare 6 wide as the end house, then four 3-wide guest rooms) and a back row of
+  six more, with a path along its doorsteps to the north road. Rooms `hub-0:guest0..9`, labelled
+  "Terrace, No. N", role `guest`; every door has a board set into the wall beside it ("No. N",
+  short because the doors are three tiles apart). Daycare interior id is now `hub-0:daycare`.
+  The Librarian moved to (12,20) to clear the new rows.
+- State `served` (people whose service you have used; filled by `servedBy` from `SERVICE_INPUTS`)
+  and `lodgers` (room id → person id), both hashed. `LODGER_KINDS`: buyer, printer, shredder,
+  lapidary, smith, pawn, auction, workshop, egg buyer, Colour Collector, Tutor, Gift Swapper.
+- `peopleOn(world, state, route)` is now the question "who is standing here": the roster less
+  lodgers, plus the lodger of a guest room at `lodgerSpot(room)`. `talk`, walking into people
+  (`npcAt(..., state)`), the canvas and the map hover all ask it.
+- Inputs `invite` / `sendHome` (pack 61/62), offered last in the talk panel for those kinds;
+  refusals "do business with them first", "they already live in Hearth", "all 10 guest rooms are
+  taken", "they have nowhere to be but here".
+- Checked in the browser: sold Gus an egg → invited → gone from New Willow → walked into Terrace
+  No. 1 and he was there, still buying eggs; map hover "Hearth — a town — Gus". Tests LG1–LG4.
+
+## Quality-of-life batch (engine parts fold into 37)
+
+- **Locks** (`lock {uid}`, state `locked`, `LOCKED_TEXT`): refused by release, the Appraiser,
+  shredder, lapidary, pawnbroker, NPC trades, Colour Collector and Gift Swapper — not by the
+  daycare, workshop or tutor, which give it back. Toggle on the stat screen; 🔒 on box cells.
+- **Take back held items** (`takeHeldFromBox {tab}`), a button in the box tools.
+- **Box tools** (UI): sort (box order, level, IV total, shine, colour, abilities, type, holding),
+  filter (shine, colour, ability, holding, a type), shift/ctrl-click to pick several and drag them
+  onto a tab together (refused whole if they do not fit).
+- **Hatched box**: incubated eggs hatch into a tab named "Hatched" (`hatchedTab`), opened on first
+  need. `moveToBox`/`store` into it and renaming it are refused (`HATCHED_TEXT`); `shelved` never
+  files anything there.
+- **Egg-o-meter** (`eggometer`, kind `hm`, Tools tab): handed over on the 15th hatch
+  (`eggsHatched`, `given`); while carried `eggMood(egg, true)` shows exact steps everywhere.
+- **Doomscroller** (`doomscroller`, Keys, `reads: "feed"`): handed over when `spokenTo` includes 6
+  people of `LODGER_KINDS` (`acquainted`). Opens `components/Doomscroller.tsx`: a feed of every clock
+  (printer, wheel, shredder, pawnbroker, tutor, workshop, auction bids and closed lots, daycare egg,
+  carried and incubated eggs), ready ones first. `ItemSpec.reads` is now `"handbook" | "feed"`.
+- **Bag**: search across every tab; machines say who in the party can learn them.
+- **Daycare IV table**: a Scale column when a parent holds an IV scale; gain can be negative.
+- **Handbook**: a Types tab with the 18×18 effectiveness chart.
+- **Battle end**: an "auto-continue when nothing levelled, learned or evolved" checkbox, off by
+  default, remembered per browser (`pkm-fever.autoContinue`).
+- **Tutor board**: every price part green/red against your bag, "3 Pearl (you have 1)".
+- **Autosave slots**: `pkm-fever.saves` keeps the last `AUTOSAVE_SLOTS` (3) runs, one slot per run
+  id, newest first; the old single key still mirrors the newest (the vault reads it) and an old
+  single save is folded in as a slot. `clearAutosave` no longer deletes anything. Main menu lists
+  them with a Continue each.
+- **Tap-to-walk** (`lib/pathing.ts`, `stepToward`): click or tap a tile on the field map, the small
+  map or the big map window; the page sends one ordinary `move` per step toward it over seen ground
+  only, around people, creatures and trainers, stopping on arrival, anything not walking, or a
+  refused step. Keys cancel it.
+- **Mobile**: `TouchPad` (hold to walk, pointer events) under the map on coarse pointers or ≤720px,
+  field row stacks, map scales to width. Checked at 375×812: no horizontal scroll, pad under the
+  map, holding ▲ walked.
+- Tests: `tests/qol.test.ts` (QL1–QL8).
+
+## Dr. Couch, Egg Insurance, Mart shelves, and a halved lens (folded into 37)
+
+- **Dr. Couch** (`therapist`, kind `therapy`, Southpass): `therapyLeave {index, confirm}` for a
+  traded or prize party member, ¤10,000 (`THERAPY_PRICE`), 1,000 steps (`THERAPY_STEPS`) on the
+  couch (`state.therapy`, hashed, in the vault roster); `therapyTake` returns it with `traded`/`prize`
+  cleared and `rehabilitated`/`redeemed` set. Rehabilitated: not traded any more (obeys), ×2 exp.
+  Redeemed: ×3 exp and ×3 effort (battle.ts, after the Lucky Egg). Both flags hashed per creature;
+  integrity still counts them as traded/prize for tournament warnings. Tags on the stat screen.
+- **Egg Insurance** (`egginsurance`, breeding item, price 0) sold only by the `egg-insurance`
+  salesman (kind `insure`, Hearth) for ¤50,000 via `buyInsurance`. Applied at the daycare, an
+  incubated egg hatching with no shine and no colour pays out a Glitter or a Chroma Candy (seeded by
+  the hatchling's uid); notice `hatched.payout`.
+- **Mart gates** (`MART_GATES`, `martGateRefusal`, `highestLevel`): ≤¤1,000 always; ≤3,000 at
+  level 15 or 1 badge; ≤8,000 at 30 or 3; ≤20,000 at 45 or 5; above at 60 or 7. `buyRefusal`
+  enforces it, so the Mart greys locked stock with the requirement. I12/I15 now stand past the gates.
+- **Chroma Lens** `LENS_CHANCE` 0.2 → 0.1; blurb, BR26/BR27 follow.
+- Both new people are lodger kinds and service inputs, map-hover services, and Doomscroller posts.
+  Tests: `tests/therapy.test.ts`.
+
+## The social media cabin (folded into 37)
+
+- Placement `{ at: "socialCabin", spot }`: one cabin interior picked by `rngFor(seed, "social-cabin")`
+  holds both people. SO1.
+- **Skye (@skye.irl)**, kind `influence`: `influenceLeave {index, confirm}` for a creature with
+  `fameWorth` > 0 (shine rungs + 2 for a colour + 1 per ability), `influenceTake` adds the steps to
+  `Individual.fameSteps`. `fameLevel`: Famous N once `fameSteps × worth ≥ 10,000 × N(N+1)/2`, i.e.
+  10k, then 20k more, 30k more… (150k in all for Famous 5), up to 5. `state.influencing` (hashed,
+  vault roster). Leaving the stream's creature with her ends the stream.
+- **xX_Stream_Xx**, kind `stream`: `streamRegister` a Famous ≥ 1 party member for the ¤10,000 stake
+  (`state.stream = { uid, pool }`, one at a time). `streamStep` takes 1 from the pool per step;
+  `streamed` (in `battleTurn`) adds `STREAM_EARN[fame−1] × level` for every foe knocked out that
+  turn and takes `STREAM_FAINT[fame−1]` if the famous one faints — only while it is on your team in
+  that battle. Below 0 the stream ends (notice `streamBroke`, pool lost). `streamCollect` takes out
+  everything above the stake; `streamUnregister` takes the whole pool and stops.
+- Both are lodger kinds, map-hover services and Doomscroller posts; FAMOUS N tag on the stat screen.
+- Fixed on the way: `tutorTake` had been clearing `state.therapy` (a stray line from the therapy
+  patch). SO6.
+- Tests: `tests/social.test.ts`.
+
+## The pageant cabin (folded into 37)
+
+- `src/engine/pageant.ts`: `pageantField(seed, round)` — 15 contestants rolled like 16-player
+  tournament prizes, levels 1–75, 30% holding a pageant item; `round = floor(stepsTaken / 2500)`.
+  `pageantScore` = level + 40·rung + colour (`CHROMA_SCORE`: Ivory 100, Onyx 90, Teal 80, Umbral 70,
+  Static 60, Tide 50, Ember 40, Verdant 30) + 20·ability + IV total + the best matching pageant item.
+- Ten pageant items (`PAGEANT_ITEMS` in carry.ts, effect `{ t: "pageant", types, bonus }`, 50–200,
+  one or two types, sold at the Mart for 4,000 + 20·bonus, so behind its gates).
+- Placement `{ at: "pageantCabin", spot }`: a seeded cabin, never the social media one.
+- **Pageant Host** (kind `pageant`): `pageantEnter {index, confirm}`, one entry per round
+  (`state.pageantEntered`); a score above the round's best wins `ribbon: true`. Talk panel shows the
+  line-up best first, click for the sheet and how the score adds up.
+- **Ribbon**: on arrival, `RIBBON_CHARM` (30%) to drop the other side's Attack a stage (event
+  `ribbon`, narrated).
+- **Paparazzo** (kind `photoshoot`): `photoshoot {index, confirm}` on a Ribbon winner (refused if
+  locked) pays ¤100,000, clears the Ribbon and sets `burnedOut` — experience ÷ 10 (min 1).
+  Dr. Couch now also takes a burned-out creature and sends it back "Recovered".
+- The request named this person "BIG FAN" paying for a "private session" that leaves the creature
+  "Traumatized"; that framing was not used. The mechanic is the same.
+- Tests: `tests/pageant.test.ts`.

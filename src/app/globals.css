@@ -12,6 +12,9 @@
   --danger: #d4675a;
   --good: #7cc47f;
   --warn: #d8b23c;
+  /* Brighter than --good, and only ever means "you may go here": the ring on
+     a travel map's reachable stops. */
+  --go: #56ee7a;
 
   --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -337,6 +340,27 @@ button.ghost { background: transparent; }
  * keyframes own, so nothing here ever has a size except while it is animating.
  */
 .catchStage { position: relative; display: inline-flex; }
+/* A switch: the one going back, drawn over the spot while it walks off, and the
+   ball the next one comes out of. Both invisible until useSwitchIn moves them. */
+.switchGhost { position: absolute; inset: 0; display: inline-flex; pointer-events: none; z-index: 1; }
+.switchBall {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  border-radius: 50%;
+  /* The catch ball's drawing, so a switch and a throw are the same ball. */
+  background:
+    radial-gradient(circle at 50% 50%, #f4f4f4 0 3px, #222 3px 4.5px, transparent 4.5px),
+    linear-gradient(#222, #222) 0 calc(50% - 1px) / 100% 2px no-repeat,
+    linear-gradient(to bottom, #e33 0 50%, #f4f4f4 50% 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  transform: scale(0);
+  pointer-events: none;
+  z-index: 2;
+}
 .ball {
   position: absolute;
   left: 50%;
@@ -492,13 +516,19 @@ button.ghost { background: transparent; }
   margin-left: auto;
 }
 .movePp.low { color: var(--warn); }
-.moveBtn.spent { opacity: 0.4; }
+/* A faded move fades what is written on it, never the button itself. Opacity on
+   the button reaches everything inside it — including the move note, which
+   is fixed-positioned but still a child — and a note at forty percent over
+   the log is unreadable. So the button stays opaque and its contents dim. */
+.moveBtn.spent > :not(.moveNote) { opacity: 0.4; }
 .moveBtn.spent .movePp { color: var(--danger); }
 .moveBtn.spentAll { border-left-color: var(--danger); }
 /* A creature part-way through a Fly or an Outrage: every other button still
    presses, and still does the committed move. Dimmed rather than disabled,
    because disabling all four is how a menu ends up with nothing to press. */
-.moveBtn.overridden { opacity: 0.45; }
+.moveBtn.overridden > :not(.moveNote) { opacity: 0.45; }
+button.moveBtn:disabled { opacity: 1; }
+button.moveBtn:disabled > :not(.moveNote) { opacity: 0.42; }
 
 .ppTotal {
   font-variant-numeric: tabular-nums;
@@ -519,18 +549,19 @@ button.ghost { background: transparent; }
    as a ball at nine pixels; grey once its owner is beaten. */
 .ballRow { display: flex; gap: 3px; margin-bottom: 3px; }
 .plate.right .ballRow { justify-content: flex-end; }
-.ball {
+.teamBall {
+  display: inline-block;
   width: 9px;
   height: 9px;
   border-radius: 50%;
   border: 1px solid #0e1215;
   background: linear-gradient(#d4675a 0 44%, #0e1215 44% 56%, #e8edf1 56%);
 }
-.ball.out {
+.teamBall.out {
   background: linear-gradient(#3d474f 0 44%, #0e1215 44% 56%, #59646e 56%);
   opacity: 0.55;
 }
-.ball.here { box-shadow: 0 0 0 1px var(--accent); }
+.teamBall.here { box-shadow: 0 0 0 1px var(--accent); }
 
 /* What the person you walked into opened with.
    
@@ -873,9 +904,32 @@ button.small { padding: 5px 9px; font-size: 0.78rem; white-space: nowrap; }
 }
 .mark.tint   { color: #9fd8bf; border-color: #3f5a4d; }
 .mark.shiny  { color: #f0cd76; border-color: #7a6231; }
+/* A dot on the region map a coach will take you to. */
+.mapGo { cursor: pointer; }
+.mapGo:hover, .mapGo:focus-visible { stroke: var(--go); stroke-width: 3; outline: none; }
+.travelMap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
 /* The colour mark sits under the shine mark, so a shiny Tide shows both
    without either covering the sprite's face. */
 .mark.chroma { top: auto; bottom: 0; }
+/* A held item: a gift box in the bottom-left, the corner nothing else uses. */
+.heldMark {
+  position: absolute;
+  bottom: 1px;
+  left: 1px;
+  line-height: 0;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6));
+}
+.boxCell .heldMark svg { width: 10px; height: auto; }
+/* Sergeant's stripes, one per ability, in the corner the other two marks leave free. */
+.abilityMark {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  line-height: 0;
+  pointer-events: auto;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6));
+}
 
 .ladder { margin-bottom: 14px; }
 .ladderRow {
@@ -971,6 +1025,64 @@ button.boxRow:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .cheatHead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+
+/* The Pokémon Handbook: the cheat panel's frame, with a header that stays put while the page scrolls. */
+.handbook { max-height: 90vh; overflow-y: auto; }
+.handbookHead { position: sticky; top: -18px; background: var(--panel); padding-block: 4px; display: flex; flex-direction: column; gap: 8px; z-index: 1; }
+.handbookTable { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.handbookTable th, .handbookTable td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.handbookTable .num { text-align: right; font-variant-numeric: tabular-nums; }
+.handbookSwatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.handbookList { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.handbookList dt { font-weight: 600; }
+.handbookList dd { margin: 0 0 0 12px; color: var(--muted); }
+.tableScroll { overflow-x: auto; }
+/* The Doomscroller's feed. */
+/* The Handbook's type chart: small, square cells, coloured by what they mean. */
+.typeChart { font-size: 0.72rem; }
+.typeChart th, .typeChart td { padding: 2px 3px; text-align: center; }
+.typeChart .typePill { font-size: 0.62rem; padding: 0 4px; }
+.typeCell { min-width: 22px; font-weight: 700; }
+.typeCell.super { background: color-mix(in srgb, var(--good) 35%, transparent); }
+.typeCell.resist { background: color-mix(in srgb, var(--danger) 25%, transparent); }
+.typeCell.immune { background: #0b0e11; color: var(--muted); }
+/* The main menu's autosave slots. */
+.saveSlots { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.saveSlot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+/* Maps you can tap or click to walk on. */
+canvas.walkable { cursor: pointer; touch-action: manipulation; }
+
+/*
+ * The on-screen pad, for a phone or a tablet: shown on a touch screen or a
+ * narrow window, hidden where there is a keyboard and room.
+ */
+.touchPad { display: none; }
+@media (pointer: coarse), (max-width: 720px) {
+  .touchPad {
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(3, 56px);
+    gap: 6px;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  .touchPad button { font-size: 1.4rem; padding: 0; border-radius: 12px; }
+  .touchPad .padUp { grid-column: 2; grid-row: 1; }
+  .touchPad .padLeft { grid-column: 1; grid-row: 2; }
+  .touchPad .padRight { grid-column: 3; grid-row: 2; }
+  .touchPad .padDown { grid-column: 2; grid-row: 3; }
+  /* The side-by-side field row stacks, and the quest list goes full width. */
+  .fieldRow { flex-direction: column; align-items: stretch; }
+  .questsBeside { width: auto; }
+  .map { width: 100%; height: auto; }
+}
+.feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.feedPost { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel-2); }
+.feedPost.ready { border-color: var(--good); }
+.feedPost p { margin: 4px 0 0; }
+.feedHead { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .cheatHead h2 { font-size: 1.15rem; }
 
 select {
@@ -1008,6 +1120,23 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   padding: 6px;
   flex: none;
 }
+.mapPop { width: 100%; margin-top: 6px; }
+/* The body of the window the big map lives in. It is a document of its own, so
+   it carries the page background itself rather than inheriting one. */
+.bigMap {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.bigWhere { margin: 0; font-size: 18px; }
+.bigMap canvas { border: 1px solid var(--line); border-radius: 4px; image-rendering: pixelated; }
+
 .miniWhere {
   margin: 0 0 6px;
   font-size: 12px;
@@ -1503,7 +1632,8 @@ kbd {
 }
 button.moveRow { cursor: pointer; }
 button.moveRow:hover:not(:disabled) { background: #29323d; }
-button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
+button.moveRow:disabled { opacity: 1; cursor: not-allowed; }
+button.moveRow:disabled > :not(.moveNote) { opacity: 0.42; }
 .moveRow.on { background: var(--accent-dim); border-color: var(--accent); }
 .moveRow .muted { position: absolute; top: 6px; right: 8px; }
 
@@ -1655,10 +1785,17 @@ button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
 .boxCell:not(.empty):hover { border-color: var(--accent); }
 .boxCell .spriteWrap { max-width: 100%; }
 .boxCell .spriteWrap canvas { max-width: 100%; height: auto !important; }
-.boxCell .mark { display: none; }
+/* The marks, shrunk to fit a cell rather than hidden: a box is exactly where
+   you go looking for the shiny one, the coloured one and the one with an
+   ability, so it is the last place they should disappear from. */
+.boxCell .spriteWrap { position: relative; }
+.boxCell .mark { font-size: 8px !important; padding: 0 2px; border-radius: 3px; }
+.boxCell .abilityMark svg { width: 10px; height: auto; }
 .boxCellFoot { display: flex; gap: 3px; font-size: 0.62rem; line-height: 1; align-items: center; }
 .boxCell.hit { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn); }
 .boxCell.dim { opacity: 0.3; }
+.boxCell.picked { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.boxTools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0; font-size: 0.8rem; }
 /* --------------------------------------------------------------- strikes */
 
 /* The pieces a move leaves as it lands. Made and removed by strikes.ts; every
@@ -1825,3 +1962,16 @@ button.moveRow:disabled { opacity: 0.42; cursor: not-allowed; }
 .auctionBoard { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 8px 0; }
 .auctionLot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); text-align: center; font-size: 0.85rem; }
 .auctionLot.bidOn { border-color: var(--accent); }
+button.auctionLot { color: inherit; font: inherit; cursor: pointer; }
+button.auctionLot:hover { border-color: var(--accent); }
+.auctionLot.looking { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn); }
+.auctionSheet { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+/* The Ability Tutor's board: eight cards, each an ability, its price and its time left. */
+.tutorBoard { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.tutorOffer { display: flex; flex-direction: column; gap: 3px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.tutorOffer:hover { border-color: var(--accent); }
+.tutorOffer.looking { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn); }
+
+/* The stat sheet's held-item line: what it carries, and the button to take it back. */
+.heldLine { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.heldLine .eggLine { margin: 0; }

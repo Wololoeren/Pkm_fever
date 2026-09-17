@@ -225,6 +225,12 @@ export type LogLine = readonly LogPart[];
 export function narrateParts(
   events: readonly BattleEvent[],
   nameOf: (side: SideIndex) => string,
+  /**
+   * The name of a team member by uid, for the lines about somebody who is not
+   * necessarily the one out — experience is shared with everybody who fought
+   * and with an Exp. Share holder on the bench.
+   */
+  nameOfUid?: (uid: number) => string | null,
 ): LogLine[] {
   const lines: LogLine[] = [];
 
@@ -317,10 +323,13 @@ export function narrateParts(
       }
 
       case "exp": {
-        say(`Gained ${event.amount} EXP.`);
-        if (event.levels > 0) say(`Level up! (+${event.levels})`);
-        for (const learned of event.learned) say(`Learned ${moveById(learned).name}!`);
-        if (event.evolved) say(`It evolved into ${speciesById(event.evolved).name}!`);
+        const who = nameOfUid?.(event.uid);
+        say(who ? `${who} gained ${event.amount} EXP.` : `Gained ${event.amount} EXP.`);
+        // Named on every line, because two creatures can level in one turn and
+        // "Learned Ember!" under two EXP lines does not say whose it is.
+        if (event.levels > 0) say(`${who ?? "It"} levelled up! (+${event.levels})`);
+        for (const learned of event.learned) say(`${who ?? "It"} learned ${moveById(learned).name}!`);
+        if (event.evolved) say(`${who ?? "It"} evolved into ${speciesById(event.evolved).name}!`);
         break;
       }
       case "catchFailed":
@@ -331,6 +340,17 @@ export function narrateParts(
         break;
       case "fleeFailed":
         say("Couldn't get away!");
+        break;
+      case "ribbon":
+        say(`${nameOf(event.side)}'s Ribbon charms the crowd — and the foe!`);
+        break;
+      case "disobeyed":
+        // The move it picked narrates itself next, as any move does.
+        if (event.moveId) {
+          say(`${nameOf(event.side)} ignored orders!`);
+        } else {
+          say(`${nameOf(event.side)} is loafing around and won't listen.`);
+        }
         break;
       case "fled":
         say("Got away safely.");
@@ -426,8 +446,9 @@ export function narrateParts(
 export function narrate(
   events: readonly BattleEvent[],
   nameOf: (side: SideIndex) => string,
+  nameOfUid?: (uid: number) => string | null,
 ): string[] {
-  return narrateParts(events, nameOf).map(flatten);
+  return narrateParts(events, nameOf, nameOfUid).map(flatten);
 }
 
 /** One structured line, as a sentence. */

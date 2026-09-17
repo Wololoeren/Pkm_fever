@@ -161,7 +161,9 @@ describe("the Mart", () => {
   });
 
   it("I12: you cannot buy what you cannot afford, or outside the shop", () => {
-    const { world, state } = inMart();
+    const { world, state: fresh } = inMart();
+    // Past every shelf's gate, so the purse is the only thing in the way.
+    const state = { ...fresh, badges: ["1", "2", "3", "4", "5", "6", "7"] };
 
     expect(buyRefusal(world, state, "superrod", 1)).toBe("you cannot afford that");
     expect(buyRefusal(world, state, "nugget", 1)).toBe("that is not for sale");
@@ -195,7 +197,7 @@ describe("the Mart", () => {
 
   it("I15: trainers pay into the purse, and it buys things", () => {
     const { world, state } = inMart();
-    const rich: GameState = { ...state, money: 999_999 };
+    const rich: GameState = { ...state, money: 999_999, badges: ["1", "2", "3", "4", "5", "6", "7"] };
     expect(buyRefusal(world, rich, "superrod", 1)).toBeNull();
 
     const bought = applyInput(world, rich, { t: "buyItem", item: "superrod", count: 1 });

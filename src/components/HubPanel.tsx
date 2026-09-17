@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { abilitiesOf, abilityOdds } from "@/engine/abilities";
 import {
   BREEDING_ITEMS,
@@ -10,6 +11,7 @@ import {
   incubatorSlots,
   generationsToMax,
   mutationChance,
+  ivTilt,
   chromaOdds,
   climbChance,
   flatBonus,
@@ -19,7 +21,7 @@ import {
   type BreedingItem,
 } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
-import { collectRefusal, depositRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
+import { collectRefusal, depositRefusal, EGGOMETER, incubateRefusal, storeRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
@@ -29,8 +31,9 @@ import { hasItem, item as itemSpec } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 import { BoxPanel } from "./BoxPanel";
 import { ReleaseButton } from "./ReleaseButton";
-import { Sprite } from "./Sprite";
-import { EggSlots, GenderMark, VariantTag } from "./PartyStrip";
+import { EggSprite, Sprite } from "./Sprite";
+import { eggMood, GenderMark, VariantTag } from "./PartyStrip";
+import type { Egg } from "@/engine/breeding";
 
 /**
  * The hub: the daycare and the box.
@@ -191,7 +194,7 @@ function Slot({
 
   return (
     <div className="slotCard">
-      <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={48} />
+      <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={48} />
       <div className="cardBody">
         <div className="cardTop">
           <strong>
@@ -208,6 +211,25 @@ function Slot({
       <button type="button" className="ghost small" onClick={() => onWithdraw(index)}>
         Take back
       </button>
+    </div>
+  );
+}
+
+/**
+ * An egg, laid out like a creature's row: its picture, what it is, and how
+ * close it is — so a party list with eggs in it reads as the six slots it is.
+ */
+function EggRow({ egg, action, exact = false }: { egg: Egg; action?: React.ReactNode; exact?: boolean }) {
+  return (
+    <div className="boxRow">
+      <EggSprite variantId={egg.creature.variantId} size={48} />
+      <div className="cardBody">
+        <div className="cardTop">
+          <strong>Egg</strong>
+        </div>
+        <span className="muted small">{eggMood(egg, exact)}</span>
+      </div>
+      {action}
     </div>
   );
 }
@@ -231,7 +253,7 @@ function Row({
 }) {
   return (
     <div className="boxRow">
-      <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={48} />
+      <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={48} />
       <div className="cardBody">
         <div className="cardTop">
           <strong>
@@ -279,6 +301,9 @@ export function HubPanel({
   const pair = Boolean(first && second) && refusal === null;
   const needed = eggSteps(state.daycare.applied);
   const progress = pair ? state.daycare.steps / needed : 0;
+  /** The box tab on screen, so the Box button beside a party member files it there. */
+  const [boxTab, setBoxTab] = useState(0);
+  const shownBox = Math.min(boxTab, state.boxNames.length - 1);
   const slots = incubatorSlots(state.daycare.applied);
   const toParty = collectRefusal(world, state, "party");
   const toIncubator = collectRefusal(world, state, "incubator");
@@ -357,10 +382,19 @@ export function HubPanel({
           </p>
         ) : null}
 
+        {slots ? (
+          <p className="muted">
+            An egg goes into a free incubator by itself as soon as it is ready.
+          </p>
+        ) : null}
         {state.daycare.incubating.length ? (
           <>
-            <h3>Incubating</h3>
-            <EggSlots eggs={state.daycare.incubating} />
+            <h3>Incubating · {state.daycare.incubating.length}/{slots}</h3>
+            <div className="boxList">
+              {state.daycare.incubating.map((egg, index) => (
+                <EggRow key={`incubating-${index}`} egg={egg} exact={hasItem(state.bag, EGGOMETER)} />
+              ))}
+            </div>
           </>
         ) : null}
 
@@ -420,6 +454,26 @@ export function HubPanel({
 
         <h3>Party</h3>
         <div className="boxList">
+          {state.eggs.map((egg, index) => (
+            <EggRow
+              exact={hasItem(state.bag, EGGOMETER)}
+              key={`egg-${index}`}
+              egg={egg}
+              action={
+                showDaycare && slots ? (
+                  <button
+                    type="button"
+                    className="ghost small"
+                    disabled={Boolean(incubateRefusal(world, state, index))}
+                    title={incubateRefusal(world, state, index) ?? "Into an incubator: it frees the party slot and hatches into the box"}
+                    onClick={() => onInput({ t: "incubateEgg", index })}
+                  >
+                    Incubate
+                  </button>
+                ) : null
+              }
+            />
+          ))}
           {state.party.map((creature, index) => (
             <Row
               key={creature.uid}
@@ -454,9 +508,9 @@ export function HubPanel({
                   <button
                     type="button"
                     className="ghost small"
-                    disabled={state.party.length <= 1}
-                    onClick={() => onInput({ t: "store", index })}
-                    title="Into the box"
+                    disabled={Boolean(storeRefusal(state, index, shownBox))}
+                    onClick={() => onInput({ t: "store", index, tab: shownBox })}
+                    title={storeRefusal(state, index, shownBox) ?? `Into ${state.boxNames[shownBox] ?? "the box"}`}
                   >
                     Box
                   </button>
@@ -473,7 +527,7 @@ export function HubPanel({
           ))}
         </div>
 
-        <BoxPanel state={state} onInput={onInput} onInspect={onInspect} />
+        <BoxPanel state={state} onInput={onInput} onInspect={onInspect} tab={shownBox} onTab={setBoxTab} />
       </div>
     </section>
   );
@@ -502,14 +556,23 @@ function ExpectedIvs({
   const rows = expectedIvs(first, second, applied);
   const chance = Math.round(mutationChance(applied, [first, second]) * 100);
   const total = rows.reduce((sum, row) => sum + row.gain, 0);
+  // The IV scales the pair are carrying, and what they add up to per stat.
+  const tilt = ivTilt([first, second]);
+  const scales = [first, second].flatMap((parent) =>
+    parent.heldItem && Object.values(ivTilt([parent])).some((n) => n !== 0)
+      ? [`${displayName(parent)} holds ${itemSpec(parent.heldItem).name}`]
+      : [],
+  );
+  const signed = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
 
   return (
     <>
       <h3>Expected IVs per egg</h3>
       <p className="muted">
         Each IV comes from one parent or the other, then has a <strong>{chance}%</strong> chance
-        to mutate upward. On average an egg gains <strong>+{total.toFixed(1)}</strong> IV points
+        to mutate upward. On average an egg gains <strong>{signed(total)}</strong> IV points
         over the parents&apos; average.
+        {scales.length ? ` ${scales.join("; ")} — the Scale column is what that moves on every egg.` : ""}
       </p>
       <table className="statTable">
         <thead>
@@ -517,6 +580,7 @@ function ExpectedIvs({
             <th />
             <th className="num">{displayName(first)}</th>
             <th className="num">{displayName(second)}</th>
+            {scales.length ? <th className="num">Scale</th> : null}
             <th className="num">Egg</th>
             <th className="num">Gain</th>
           </tr>
@@ -527,8 +591,13 @@ function ExpectedIvs({
               <td>{IV_LABELS[row.stat]}</td>
               <td className="num">{row.first}</td>
               <td className="num">{row.second}</td>
+              {scales.length ? (
+                <td className={`num ${tilt[row.stat] > 0 ? "good" : tilt[row.stat] < 0 ? "error" : "muted"}`}>
+                  {tilt[row.stat] ? `${tilt[row.stat] > 0 ? "+" : ""}${tilt[row.stat]}` : "—"}
+                </td>
+              ) : null}
               <td className="num">{row.expected.toFixed(1)}</td>
-              <td className={`num ${row.gain > 0.05 ? "good" : "muted"}`}>+{row.gain.toFixed(1)}</td>
+              <td className={`num ${row.gain > 0.05 ? "good" : row.gain < -0.05 ? "error" : "muted"}`}>{signed(row.gain)}</td>
             </tr>
           ))}
         </tbody>

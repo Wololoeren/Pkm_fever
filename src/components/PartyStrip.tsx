@@ -74,7 +74,9 @@ export function TeamBalls({ team, active }: { team: readonly Individual[]; activ
       {team.map((one, index) => (
         <span
           key={index}
-          className={`ball${one.hp <= 0 ? " out" : ""}${index === active ? " here" : ""}`}
+          // Not `ball`: that class is the thrown ball in a battle, which sits
+          // scaled to nothing until it is thrown — and it took these with it.
+          className={`teamBall${one.hp <= 0 ? " out" : ""}${index === active ? " here" : ""}`}
         />
       ))}
     </div>
@@ -205,8 +207,10 @@ export function GenderMark({ gender }: { gender: Gender }) {
  * How long is a surprise. No count and no bar: only a line that changes as it
  * gets closer, the way the handhelds let you hold an egg up to your ear.
  */
-function eggMood(egg: Egg): string {
+export function eggMood(egg: Egg, exact = false): string {
   if (egg.steps === 0) return "It's hatching!";
+  // The Egg-o-meter: the number, instead of the ear against the shell.
+  if (exact) return `${egg.steps.toLocaleString()} step${egg.steps === 1 ? "" : "s"} left.`;
   const left = egg.steps / egg.total;
   if (left > 0.66) return "What will hatch from this? It will take some time.";
   if (left > 0.33) return "It moves around inside sometimes.";
@@ -214,7 +218,7 @@ function eggMood(egg: Egg): string {
   return "It's close to hatching!";
 }
 
-export function EggSlots({ eggs }: { eggs: readonly Egg[] }) {
+export function EggSlots({ eggs, exact = false }: { eggs: readonly Egg[]; exact?: boolean }) {
   if (!eggs.length) return null;
   return (
     <div className="eggs">
@@ -223,7 +227,7 @@ export function EggSlots({ eggs }: { eggs: readonly Egg[] }) {
           <EggSprite variantId={egg.creature.variantId} size={48} />
           <div className="eggInfo">
             <span className="itemName">Egg</span>
-            <span className="muted itemBlurb">{eggMood(egg)}</span>
+            <span className="muted itemBlurb">{eggMood(egg, exact)}</span>
           </div>
         </div>
       ))}
@@ -288,7 +292,7 @@ export function PartyStrip({
           >
             {/* The number that sends it out, while a switch is being chosen. */}
             {onSelect ? <kbd className="cardKey">{index + 1}</kbd> : null}
-            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={48} faint={fainted} />
+            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={48} faint={fainted} />
             <div className="cardBody">
               <div className="cardTop">
                 <strong>

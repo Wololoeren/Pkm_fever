@@ -375,7 +375,7 @@ const SINGLES: HeldItemSeed[] = [
     id: "hold-expshare",
     name: "Exp. Share",
     blurb:
-      "If it did not fight, it still gets half the experience of every creature your team beats, and the effort points too. Given once, when one of yours first reaches level 40, and never again.",
+      "If it did not fight, it still gets half the experience of every creature your team beats, and the effort points too — as long as it has not fainted. Given once, when one of yours first reaches level 40, and never again.",
     price: 0,
     sell: 2000,
     hold: { effects: [{ t: "share", mille: 500 }] },
@@ -528,6 +528,67 @@ const POWER_ITEMS: { id: string; name: string; stat: "hp" | "atk" | "def" | "spa
   { id: "powerband", name: "Power Band", stat: "spd", what: "special defence" },
   { id: "poweranklet", name: "Power Anklet", stat: "spe", what: "speed" },
 ];
+
+/** How far one IV scale moves each of its two stats. */
+export const SCALE_AMOUNT = 5;
+
+const SCALE_STATS = [
+  { stat: "hp", short: "HP", long: "HP" },
+  { stat: "atk", short: "Atk", long: "Attack" },
+  { stat: "def", short: "Def", long: "Defence" },
+  { stat: "spa", short: "SpA", long: "Sp. Atk" },
+  { stat: "spd", short: "SpD", long: "Sp. Def" },
+  { stat: "spe", short: "Spe", long: "Speed" },
+] as const;
+
+/**
+ * The IV scales: one for every ordered pair of stats, thirty in all.
+ *
+ * Carried by a parent at the daycare, a scale moves five IV points from one
+ * stat into another on every egg — after everything else about the egg is
+ * rolled, so a pairing draws exactly the numbers it always drew and the scale
+ * only moves them. Both parents can carry one, and two scales add.
+ *
+ * Every pair rather than six fixed ones, because the stat a build wants low
+ * and the stat it would rather have the points in are two separate choices,
+ * and a scale that made the second one for you would be the wrong scale half
+ * the time.
+ */
+function ivScales(): HeldItemSeed[] {
+  return SCALE_STATS.flatMap((up) =>
+    SCALE_STATS.filter((down) => down.stat !== up.stat).map((down) => ({
+      id: `hold-scale-${up.stat}-${down.stat}`,
+      name: `Scale: +${up.short} −${down.short}`,
+      blurb: `Held by a parent at the daycare: every egg gets +${SCALE_AMOUNT} ${up.long} IV and −${SCALE_AMOUNT} ${down.long} IV, never below 0 or above the cap. Two scales on the pair add.`,
+      price: 3000,
+      hold: { effects: [{ t: "tilt" as const, up: up.stat, down: down.stat, amount: SCALE_AMOUNT }] },
+    })),
+  );
+}
+
+/** The pageant items: carried on stage, they add their bonus when the carrier is one of their types. See pageant.ts. */
+export const PAGEANT_ITEMS: readonly { id: string; name: string; types: readonly string[]; bonus: number }[] = [
+  { id: "hold-silksash", name: "Silk Sash", types: ["normal", "fairy"], bonus: 120 },
+  { id: "hold-embertiara", name: "Ember Tiara", types: ["fire"], bonus: 90 },
+  { id: "hold-pearlnecklace", name: "Pearl Necklace", types: ["water", "ice"], bonus: 110 },
+  { id: "hold-flowercrown", name: "Flower Crown", types: ["grass", "bug"], bonus: 100 },
+  { id: "hold-stormbrooch", name: "Stormglass Brooch", types: ["electric", "flying"], bonus: 130 },
+  { id: "hold-moonveil", name: "Moonstone Veil", types: ["psychic", "ghost"], bonus: 150 },
+  { id: "hold-obsidianchoker", name: "Obsidian Choker", types: ["dark", "poison"], bonus: 140 },
+  { id: "hold-gildedgauntlet", name: "Gilded Gauntlet", types: ["fighting", "steel"], bonus: 160 },
+  { id: "hold-geodecrown", name: "Geode Crown", types: ["rock", "ground"], bonus: 50 },
+  { id: "hold-dragonscalecape", name: "Dragonscale Cape", types: ["dragon"], bonus: 200 },
+];
+
+function pageantItems(): HeldItemSeed[] {
+  return PAGEANT_ITEMS.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    blurb: `Beauty pageant: +${entry.bonus} to the score of a ${entry.types.map((type) => type[0].toUpperCase() + type.slice(1)).join(" or ")} type wearing it. Does nothing in battle.`,
+    price: 4000 + entry.bonus * 20,
+    hold: { effects: [{ t: "pageant" as const, types: [...entry.types], bonus: entry.bonus }] },
+  }));
+}
 
 function powerItems(): HeldItemSeed[] {
   return POWER_ITEMS.map((entry) => ({
@@ -851,6 +912,8 @@ export const HELD_ITEMS: readonly HeldItemSeed[] = [
   ...SECOND_NAMES,
   ...SPECIES_ITEMS,
   ...powerItems(),
+  ...pageantItems(),
+  ...ivScales(),
   ...typeItems(),
   ...cureBerries(),
   ...flavourBerries(),

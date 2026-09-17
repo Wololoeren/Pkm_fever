@@ -170,7 +170,7 @@ function PrizePick({
               className="starterCard"
               onClick={() => onPick(creature)}
             >
-              <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={96} />
+              <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={96} />
               <strong>
                 {entry.name} <GenderMark gender={creature.gender} />
               </strong>
@@ -448,7 +448,7 @@ export function TourneyScreen({
                   )
                 }
               >
-                <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={24} />
+                <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={24} />
                 <strong>{creature.nickname ?? speciesById(creature.speciesId).name}</strong>
                 <span className="muted">Lv{creature.level}</span>
                 <span className="muted">{picked ? "✓" : ""}</span>

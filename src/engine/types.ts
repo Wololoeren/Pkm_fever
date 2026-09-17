@@ -129,8 +129,42 @@ import { BIOME_IDS } from "./biomes";
  * Psyshock, Sacred Sword, Dream Eater, Sucker Punch and more — every one of
  * which used to be its flat base power or always worked. And the Exp. Share,
  * handed over when anybody first reaches level 40, which changes who levels in
- * any battle fought after. */
-export const ENGINE_VERSION = 36;
+ * any battle fought after.
+ *
+ * 37 is the daycare laying half as often — every 600 steps instead of 300 —
+ * and a ready egg going into a free incubator by itself (plus the
+ * `incubateEgg` input for a carried one). A recorded walk past a pair now
+ * lays at different steps and puts eggs somewhere else. Folded in,
+ * unreleased: Ivo's printer charges ¤3,000 a go and waits 1500 moves rather
+ * than 600, so a recorded print can be refused or leave different money. And
+ * the printer, the auctioneer, the shredder and the lapidary left New Willow
+ * for a seeded town or ring-one-or-two route each — people are solid, so the
+ * tiles they left and the ones they took change what a recorded walk does.
+ * And Gus, the egg buyer in New Willow: a new person, a new input (`sellEgg`)
+ * and a new counter on the state (`eggsSold`). And the Librarian in Hearth,
+ * who hands over the Pokémon Handbook; and nothing left lying on a door, an
+ * exit or a crossing any more, which moves those pickups elsewhere. And the
+ * three who shape abilities — Colour Collector, Ability Tutor, Gift Swapper —
+ * with four inputs, two items and the tutor's pupil on the state. And
+ * obedience: a traded creature at or above 20 + 10·badges picks its own move
+ * or loafs, so a recorded battle with one in it resolves differently. And
+ * gyms scale by a level per 2,500 moves and three per badge, rather than a
+ * thousand and five: every recorded gym battle is against a different team.
+ * The arenas the same, with IV 18 opponents instead of 24, and entered only
+ * with exactly the format's number in the party. And Hearth's terraces: the
+ * daycare rebuilt as the end house of a row on the road, ten guest rooms, and
+ * `served`/`lodgers` with the `invite` and `sendHome` inputs — the town's
+ * tiles moved, so a recorded walk through Hearth goes somewhere else. And the
+ * QoL batch: `lock` and `takeHeldFromBox` inputs, the Hatched box tab,
+ * the Egg-o-meter at fifteen hatches and the Doomscroller at six people met.
+ * And Dr. Couch and the Egg Insurance salesman (two people, three inputs,
+ * the couch on the state), the Mart's shelves gated by level or badges, and
+ * the Chroma Lens at 10% rather than 20%. And the social media cabin: the
+ * Influencer and the Streamer, five inputs, `fameSteps` on a creature, and
+ * the stream's pool paid out of every step and every knockout. And the
+ * pageant cabin: the host and the paparazzo, two inputs, ten pageant items,
+ * `ribbon` (a charm on arrival) and `burnedOut` (a tenth of the experience). */
+export const ENGINE_VERSION = 37;
 
 // ------------------------------------------------------------------ stats
 
@@ -305,6 +339,26 @@ export interface Individual {
    * tournament can decide whether it cares. Absent on everything else.
    */
   vault?: boolean;
+  /**
+   * A traded creature that has been through the Therapist: it no longer
+   * counts as traded (so it obeys whatever its level), and it earns double
+   * experience. Where it came from still counts in a tournament's warnings.
+   */
+  rehabilitated?: boolean;
+  /**
+   * A prize the Therapist has worked with: no longer a prize, and triple
+   * experience and triple effort. Still counts as a prize in the warnings.
+   */
+  redeemed?: boolean;
+  /**
+   * Steps spent being posted about by the Influencer, all visits added up.
+   * What they come to is `fameLevel` in engine.ts: Famous 1 to 5.
+   */
+  fameSteps?: number;
+  /** Won a beauty pageant: sometimes charms the foe as it comes out, lowering its Attack. */
+  ribbon?: boolean;
+  /** Sold to the paparazzo's photoshoot: a tenth of the experience until the Therapist has seen it. */
+  burnedOut?: boolean;
   /**
    * Whether a testing shortcut made or altered this one.
    *

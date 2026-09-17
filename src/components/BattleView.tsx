@@ -19,7 +19,7 @@ import { badgesFor } from "@/lib/tags";
 import { typeColor } from "@/render/palette";
 import { GenderMark, HpBar, TeamBalls, teamPanel, VariantTag } from "./PartyStrip";
 import { beatsFor, catchFor } from "@/lib/beats";
-import { useBeat, useCatch, useEntrance } from "./useBeat";
+import { useBeat, useCatch, useEntrance, useLeaving, useSwitchIn } from "./useBeat";
 import { useCues } from "./useCues";
 import { autoPick, pickByKey, switchTargets } from "@/lib/switching";
 import { MoveNote } from "./MoveNote";
@@ -266,6 +266,10 @@ export function BattleView({
   const foeFlash = useRef<HTMLSpanElement>(null);
   const mySprite = useRef<HTMLSpanElement>(null);
   const myFlash = useRef<HTMLSpanElement>(null);
+  const foeGhost = useRef<HTMLSpanElement>(null);
+  const foeSwitchBall = useRef<HTMLSpanElement>(null);
+  const myGhost = useRef<HTMLSpanElement>(null);
+  const mySwitchBall = useRef<HTMLSpanElement>(null);
 
   const them: SideIndex = role === 0 ? 1 : 0;
   const player = activeOf(battle, role);
@@ -367,15 +371,26 @@ export function BattleView({
   // same transform, and the later animation wins while the two overlap. A
   // creature sent out into a move already aimed at it should flinch rather
   // than keep strolling.
-  useEntrance(foeSprite, `${battle.tag}:${foe.uid}`, "left");
-  useEntrance(mySprite, `${battle.tag}:${player.uid}`, "right");
+  // The first of each side walks on when the battle opens; everyone after
+  // that comes out of a ball, and whoever they replaced walks off first.
+  const foeLeaving = useLeaving(battle.tag, foe);
+  const myLeaving = useLeaving(battle.tag, player);
+  useEntrance(foeSprite, battle.tag, "left");
+  useEntrance(mySprite, battle.tag, "right");
+  useSwitchIn(foeSprite, foeGhost, foeSwitchBall, foeLeaving, "left");
+  useSwitchIn(mySprite, myGhost, mySwitchBall, myLeaving, "right");
   useBeat(foeSprite, foeFlash, beats[them], battle.turn, "left");
   useBeat(mySprite, myFlash, beats[role], battle.turn, "right");
   useCatch(ballRef, foeSprite, burstRef, attempt, battle.turn);
   useCues(battle);
 
-  const lines = narrateParts(battle.events, (side) =>
-    side === role ? displayName(player) : `${opponentLabel} ${displayName(foe)}`.trim(),
+  const lines = narrateParts(
+    battle.events,
+    (side) => (side === role ? displayName(player) : `${opponentLabel} ${displayName(foe)}`.trim()),
+    (uid) => {
+      const member = battle.sides[role].team.find((one) => one.uid === uid);
+      return member ? displayName(member) : null;
+    },
   );
 
   /*
@@ -608,8 +623,14 @@ export function BattleView({
                   ball draws in and a ball that shrank with its own target
                   would vanish. */}
               <span className="catchStage">
+                {foeLeaving && !foeLeaving.fainted ? (
+                  <span className="switchGhost" ref={foeGhost} aria-hidden="true">
+                    <Sprite speciesId={foeLeaving.creature.speciesId} variantId={foeLeaving.creature.variantId} size={96} marks={false} />
+                  </span>
+                ) : null}
+                <span className="switchBall" ref={foeSwitchBall} aria-hidden="true" />
                 <span className="mover" ref={foeSprite}>
-                  <Sprite speciesId={foe.speciesId} variantId={foe.variantId} size={96} faint={foe.hp <= 0} />
+                  <Sprite speciesId={foe.speciesId} variantId={foe.variantId} abilities={foe.abilities} heldItem={foe.heldItem} size={96} faint={foe.hp <= 0} />
                   <span className="flash" ref={foeFlash} aria-hidden="true" />
                 </span>
                 <span className="ball" ref={ballRef} aria-hidden="true" />
@@ -626,9 +647,17 @@ export function BattleView({
               <StatHover creature={foe} side={battle.sides[them]} />
             </div>
             <div className="slot mine hoverable" tabIndex={0}>
-              <span className="mover" ref={mySprite}>
-                <Sprite speciesId={player.speciesId} variantId={player.variantId} size={96} flip faint={player.hp <= 0} />
-                <span className="flash" ref={myFlash} aria-hidden="true" />
+              <span className="catchStage">
+                {myLeaving && !myLeaving.fainted ? (
+                  <span className="switchGhost" ref={myGhost} aria-hidden="true">
+                    <Sprite speciesId={myLeaving.creature.speciesId} variantId={myLeaving.creature.variantId} size={96} flip marks={false} />
+                  </span>
+                ) : null}
+                <span className="switchBall" ref={mySwitchBall} aria-hidden="true" />
+                <span className="mover" ref={mySprite}>
+                  <Sprite speciesId={player.speciesId} variantId={player.variantId} abilities={player.abilities} heldItem={player.heldItem} size={96} flip faint={player.hp <= 0} />
+                  <span className="flash" ref={myFlash} aria-hidden="true" />
+                </span>
               </span>
               <Nameplate creature={player} side={battle.sides[role]} right />
               <StatHover creature={player} side={battle.sides[role]} />

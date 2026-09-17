@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { hasSeen, type GameState } from "@/engine/engine";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { hasSeen, peopleOn, wantsRematch, type GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
+import { gym as gymSpec, type GymSpec } from "@/engine/gyms";
+import type { NpcKind } from "@/engine/npc";
 import { HUB_ID, type Route, type World } from "@/engine/world";
 import { paletteFor, tileColor } from "@/render/tiles";
 
@@ -28,22 +31,112 @@ import { paletteFor, tileColor } from "@/render/tiles";
 
 const MINI_WIDTH = 176;
 
-export function MiniMap({ world, state }: { world: World; state: GameState }) {
+export function MiniMap({
+  world,
+  state,
+  onTileClick,
+}: {
+  world: World;
+  state: GameState;
+  /** A tile tapped or clicked on the local map, in route coordinates. */
+  onTileClick?: (x: number, y: number) => void;
+}) {
   const route = world.routes.get(state.route);
   // Standing indoors, the region map should still light up the town you are
   // indoors in — a door is not a journey.
   const outer = route?.kind === "interior" ? (route.parent ?? state.route) : state.route;
+  const [popped, setPopped] = useState(false);
 
   return (
     <div className="miniMap">
+      {popped ? (
+        <BigMapWindow onClose={() => setPopped(false)}>
+          <h2 className="bigWhere">{route?.label ?? "Nowhere"}</h2>
+          <LocalMap world={world} state={state} width={BIG_WIDTH} onTileClick={onTileClick} />
+          <RegionMap world={world} state={state} outer={outer} size={BIG_WIDTH} />
+          <p className="muted small">
+            This window follows the game. Close it, or press the button again, to put it away.
+          </p>
+        </BigMapWindow>
+      ) : null}
       {/* Where you are, over the map of it. The header at the top of the page
           says it too, but the header is a long way from the picture and the
           picture is the thing you are reading when you want to know. */}
       <h3 className="miniWhere">{route?.label ?? "Nowhere"}</h3>
-      <LocalMap world={world} state={state} />
+      <LocalMap world={world} state={state} onTileClick={onTileClick} />
       <RegionMap world={world} state={state} outer={outer} />
+      <button
+        type="button"
+        className="ghost small mapPop"
+        title={popped ? "Close the map window" : "The same two maps, big, in a window you can put on another screen"}
+        onClick={() => setPopped(!popped)}
+      >
+        {popped ? "Close the big map" : "Open a big map"}
+      </button>
     </div>
   );
+}
+
+/** How wide the maps are drawn in a window of their own. */
+const BIG_WIDTH = 620;
+
+/**
+ * A second browser window, with the same two maps drawn large in it.
+ *
+ * A portal rather than a page: the window is fed by the React tree that is
+ * already running, so it redraws every time the game does — walk a step and
+ * the dot moves in both places. A route of its own would need the state
+ * shipped across, and two copies of a save is exactly the thing this project
+ * spends its time not doing.
+ *
+ * The page's stylesheets are cloned into it on open. In development Next
+ * serves them as <link> elements and in a build as <style>, so both are
+ * copied; nothing here knows which it got.
+ */
+function BigMapWindow({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const popup = window.open("", "pkm-fever-map", `width=${BIG_WIDTH + 60},height=${BIG_WIDTH * 2},scrollbars=yes`);
+    // Blocked by the browser: nothing to draw into, and the button goes back
+    // to saying "open" rather than pretending something happened.
+    if (!popup) {
+      onClose();
+      return;
+    }
+
+    popup.document.title = "Pkm Fever — map";
+    // Emptied first: a window under this name may be one this effect already
+    // furnished — React mounts an effect twice in development, and the player
+    // can press the button again after the window was left open — and two sets
+    // of stylesheets in a head is two of everything.
+    popup.document.head.replaceChildren();
+    popup.document.body.replaceChildren();
+    for (const sheet of document.querySelectorAll('style, link[rel="stylesheet"]')) {
+      popup.document.head.appendChild(sheet.cloneNode(true));
+    }
+    const mount = popup.document.createElement("div");
+    mount.className = "bigMap";
+    popup.document.body.appendChild(mount);
+    setHost(mount);
+
+    // Closing the window is the other way of pressing the button, and the
+    // parent has to hear about it or the button lies. `unload` covers the
+    // player closing it; the interval covers the browser closing it for them.
+    const gone = () => onClose();
+    popup.addEventListener("unload", gone);
+    const watch = window.setInterval(() => {
+      if (popup.closed) onClose();
+    }, 500);
+
+    return () => {
+      window.clearInterval(watch);
+      popup.removeEventListener("unload", gone);
+      popup.close();
+    };
+  }, [onClose]);
+
+  return host ? createPortal(children, host) : null;
 }
 
 /**
@@ -58,13 +151,24 @@ export function MiniMap({ world, state }: { world: World; state: GameState }) {
  * camera showed you. Coarser than a tile, so it reads as regions of a route
  * rather than a torch beam; see `FOG`.
  */
-function LocalMap({ world, state }: { world: World; state: GameState }) {
+function LocalMap({
+  world,
+  state,
+  width = MINI_WIDTH,
+  onTileClick,
+}: {
+  world: World;
+  state: GameState;
+  width?: number;
+  onTileClick?: (x: number, y: number) => void;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const route = world.routes.get(state.route);
   // Routes are 88x68, so the floor has to come down or the local map is half
   // again wider than the column it sits in. Interiors, being tiny, still get
-  // fat pixels.
-  const cell = route ? Math.max(2, Math.min(9, Math.floor(MINI_WIDTH / route.width))) : 4;
+  // fat pixels. The ceiling rises with the width asked for: in a window of its
+  // own there is room for a tile you can actually see.
+  const cell = route ? Math.max(2, Math.min(Math.round(width / 20), Math.floor(width / route.width))) : 4;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -100,13 +204,14 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
       }
     }
 
-    // People still standing. Beaten trainers are off the map: they are
-    // scenery now, and drawing them would suggest a fight that is not there.
+    // People still standing. Trainers resting after a loss are off the map:
+    // drawing them would suggest a fight that is not there. Once they want a
+    // rematch they are back on it.
     // Nor is anybody drawn on ground you have not looked at — the map cannot
     // know about somebody you have never seen.
     ctx.fillStyle = "#5b86d6";
     for (const trainer of world.trainers.get(route.id) ?? []) {
-      if (state.beaten.includes(trainer.id)) continue;
+      if (!wantsRematch(state, trainer.id)) continue;
       if (!seen(trainer.x, trainer.y)) continue;
       ctx.fillRect(trainer.x * cell, trainer.y * cell, cell, cell);
     }
@@ -133,6 +238,14 @@ function LocalMap({ world, state }: { world: World; state: GameState }) {
         width={route.width * cell}
         height={route.height * cell}
         aria-label={`Map of ${route.label}`}
+        className={onTileClick ? "walkable" : undefined}
+        onClick={(event) => {
+          if (!onTileClick) return;
+          const box = event.currentTarget.getBoundingClientRect();
+          const px = ((event.clientX - box.left) * event.currentTarget.width) / box.width;
+          const py = ((event.clientY - box.top) * event.currentTarget.height) / box.height;
+          onTileClick(Math.floor(px / cell), Math.floor(py / cell));
+        }}
       />
     </div>
   );
@@ -156,14 +269,30 @@ export function RegionMap({
   state,
   outer,
   marks = [],
+  size = MINI_WIDTH,
+  reachable,
+  onPick,
 }: {
   world: World;
   state: GameState;
   outer: string;
   marks?: readonly MapMark[];
+  /** How wide to draw it. The default is the one under the field map. */
+  size?: number;
+  /**
+   * Places a coach will take you, ringed in bright green and clickable.
+   *
+   * The travel post reads the same drawing the field map does rather than a
+   * list of its own: a rider picks a dot on the map of the region, which is
+   * how you would ask for a journey out loud.
+   */
+  reachable?: readonly string[];
+  onPick?: (routeId: string) => void;
 }) {
-  const size = MINI_WIDTH;
   const pad = 9;
+  const canGo = new Set(reachable ?? []);
+  const gyms = gymsOnMap(world, state);
+  const people = peopleOnMap(world, state);
 
   // Every place that has a cell — the fifty routes and the town. Interiors do
   // not: a room behind a door is not anywhere on the lattice.
@@ -258,6 +387,26 @@ export function RegionMap({
         );
       })}
 
+      {/* The bright ring: where this coach goes. Over the lines and under the
+          dots, so it reads as a halo around the place rather than a dot of
+          its own. */}
+      {places
+        .filter((place) => canGo.has(place.id))
+        .map((place) => {
+          const here = at(place.cell);
+          return (
+            <circle
+              key={`go:${place.id}`}
+              cx={here.x}
+              cy={here.y}
+              r={dot + 4}
+              fill="none"
+              stroke="var(--go)"
+              strokeWidth={2.5}
+            />
+          );
+        })}
+
       {places.map((place) => {
         const here = at(place.cell);
         // By kind, not by id: there are four towns now and only one of them
@@ -271,12 +420,29 @@ export function RegionMap({
         const current = place.id === outer;
         const palette = paletteFor(place.biome);
 
+        const go = canGo.has(place.id) && onPick;
+        const hall = gyms.get(place.id);
+
         return (
           // No labels. Fifty names in a 176px square would be ink rather than
           // answer; the places are told apart by the colour of the ones you
           // have walked, and hovering one names it.
           <circle
             key={place.id}
+            className={go ? "mapGo" : undefined}
+            role={go ? "button" : undefined}
+            tabIndex={go ? 0 : undefined}
+            onClick={go ? () => onPick(place.id) : undefined}
+            onKeyDown={
+              go
+                ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onPick(place.id);
+                    }
+                  }
+                : undefined
+            }
             cx={here.x}
             cy={here.y}
             r={current ? dot + 2 : town ? dot + 1 : dot}
@@ -288,11 +454,129 @@ export function RegionMap({
             strokeWidth={current ? 3 : 1.25}
           >
             <title>
-              {`${place.label}${town ? " — a town" : ""}${visited ? "" : " — not yet visited"}`}
+              {`${place.label}${town ? " — a town" : ""}${visited ? "" : " — not yet visited"}${
+                hall ? ` — ${gymLine(hall)}` : ""
+              }${people.get(place.id)?.length ? ` — ${people.get(place.id)!.join(", ")}` : ""}${
+                go ? " — click to travel here" : ""
+              }`}
             </title>
           </circle>
         );
       })}
+
+      {/* A tick on every place whose gym has been beaten. Over the dots, and
+          not clickable, so a ringed travel stop still takes the click. */}
+      {places.map((place) => {
+        const hall = gyms.get(place.id);
+        if (!hall?.beaten) return null;
+        const here = at(place.cell);
+        const size = Math.max(9, dot * 2.6);
+        return (
+          <text
+            key={`gym:${place.id}`}
+            x={here.x + dot * 0.9}
+            y={here.y - dot * 0.6}
+            fontSize={size}
+            fontWeight={700}
+            fill="var(--good)"
+            stroke="var(--bg)"
+            strokeWidth={2}
+            paintOrder="stroke"
+            pointerEvents="none"
+            aria-hidden="true"
+          >
+            ✓
+          </text>
+        );
+      })}
     </svg>
   );
+}
+
+/**
+ * The kinds of person worth naming on the map: somebody who runs something you
+ * come back for. Not quest givers, gyms or the Cup, which the map and the quest
+ * panel already cover; not hints; and not the nurses and Grey Line posts, which
+ * stand in so many places that naming them would say nothing.
+ */
+const SERVICES: ReadonlySet<NpcKind> = new Set<NpcKind>([
+  "buy",
+  "trade",
+  "print",
+  "arena",
+  "shred",
+  "cut",
+  "forge",
+  "pawn",
+  "auction",
+  "workshop",
+  "eggbuy",
+  "chromabuy",
+  "tutor",
+  "giftswap",
+  "therapy",
+  "insure",
+  "influence",
+  "stream",
+  "pageant",
+  "photoshoot",
+]);
+
+/** The people you have met who run something, by the route on the map they stand at (or inside). */
+function peopleOnMap(world: World, state: GameState): Map<string, string[]> {
+  const found = new Map<string, string[]>();
+  // Asked of every map through `peopleOn`, so somebody who has moved into
+  // Hearth is named at Hearth and no longer where you first found them.
+  for (const routeId of world.routes.keys()) {
+    for (const person of peopleOn(world, state, routeId)) {
+      if (!SERVICES.has(person.kind) || !state.spokenTo.includes(person.id)) continue;
+      const standing = world.routes.get(routeId);
+      const outside = standing?.kind === "interior" ? (standing.parent ?? routeId) : routeId;
+      found.set(outside, [...(found.get(outside) ?? []), person.name].sort());
+    }
+  }
+  return found;
+}
+
+/** What the map knows about one gym. */
+interface GymOnMap {
+  spec: GymSpec;
+  /** You have been inside its hall — or, where no hall was built, on its route. */
+  visited: boolean;
+  beaten: boolean;
+}
+
+/**
+ * Every gym, by the route on the map it belongs to.
+ *
+ * Found through its leader rather than recomputed from the gym's biome: the
+ * leader is wherever the world actually put them — in the hall, or out on the
+ * route when no hall could be built — so the map cannot disagree with where
+ * you would walk to fight.
+ */
+function gymsOnMap(world: World, state: GameState): Map<string, GymOnMap> {
+  const found = new Map<string, GymOnMap>();
+  for (const [routeId, people] of world.npcs) {
+    for (const person of people) {
+      if (person.kind !== "gym" || !person.gymId) continue;
+      const standing = world.routes.get(routeId);
+      const outside = standing?.kind === "interior" ? (standing.parent ?? routeId) : routeId;
+      found.set(outside, {
+        spec: gymSpec(person.gymId),
+        visited: state.visited.includes(routeId),
+        beaten: state.badges.includes(person.gymId),
+      });
+    }
+  }
+  return found;
+}
+
+/**
+ * The hover line for a place with a gym. Nothing about which gym until you
+ * have been inside: the map shows you where things are, not what they are.
+ */
+function gymLine(hall: GymOnMap): string {
+  if (hall.beaten) return `✓ ${hall.spec.name} (${hall.spec.leader}) — defeated`;
+  if (hall.visited) return `${hall.spec.name} (${hall.spec.leader}, ${hall.spec.type}) — not yet beaten`;
+  return "a gym";
 }

@@ -1,6 +1,6 @@
 # Items
 
-**574 of them**, of which 308 are machines. The other 266 are below.
+**620 of them**, of which 308 are machines. The other 312 are below.
 
 Seven of those are the printer's inks — one per colour but ivory, which is the
 one it never ran out of. They are not on any shelf at any price: an ink is
@@ -21,7 +21,7 @@ something you give to a creature to keep, something you use on the world.
 
 | Shelf | Count | What it is |
 | --- | --- | --- |
-| Held | 71 | Given to a creature; does something while carried |
+| Held | 111 | Given to a creature; does something while carried |
 | Berries | 41 | The same, but eaten and gone the moment it does it |
 | Tonics | 37 | Moves a number on a stat screen |
 | Stones | 22 | Turns one creature into another |
@@ -30,11 +30,11 @@ something you give to a creature to keep, something you use on the world.
 | Lures | 9 | Draws one kind of thing out of the grass |
 | Medicine | 11 | Health, and what ails it |
 | Field | 5 | Used on the world rather than on a creature |
-| Tools | 10 | The HMs. Won from gyms |
+| Tools | 11 | The HMs, won from gyms — and the Egg-o-meter, given for hatching fifteen eggs, which shows every egg's exact steps |
 | Rods | 3 | Reaches further out the water |
 | Balls | 11 | Poké, Great and Ultra by rate; Quick, Timer, Net, Nest, Level, Fast and Dive by condition; Master always |
 | Valuables | 2 | For selling. That is the whole of it |
-| Keys | 1 | The World Cup Invitation |
+| Keys | 3 | The World Cup Invitation, the Pokémon Handbook (the Librarian in Hearth gives it), and the Doomscroller (a feed of every timer, given once you have met six of the people who run something) |
 
 The companion to this file is [`items-deferred.md`](./items-deferred.md): what
 is *not* here, grouped by the one mechanic each is waiting for.
@@ -137,6 +137,8 @@ ignores its own Flame Orb and a Fire type cannot be burned by one.
 | **Power Band** | Into Sp. Def |
 | **Power Anklet** | Into Speed |
 | **Destiny Knot** | Five inherited stat slots instead of three, at the daycare |
+| **Pageant items** (ten) | Nothing in battle; on stage a bonus when the wearer is the right type: Silk Sash (Normal/Fairy +120), Ember Tiara (Fire +90), Pearl Necklace (Water/Ice +110), Flower Crown (Grass/Bug +100), Stormglass Brooch (Electric/Flying +130), Moonstone Veil (Psychic/Ghost +150), Obsidian Choker (Dark/Poison +140), Gilded Gauntlet (Fighting/Steel +160), Geode Crown (Rock/Ground +50), Dragonscale Cape (Dragon +200) |
+| **Scale: +X −Y** (thirty: one for every ordered pair of stats) | At the daycare, every egg gets **+5** IV in X and **−5** in Y, kept within 0–31; two on the pair add. Scale: +HP −Atk, Scale: +HP −Def, Scale: +HP −SpA, Scale: +HP −SpD, Scale: +HP −Spe, Scale: +Atk −HP, Scale: +Atk −Def, Scale: +Atk −SpA, Scale: +Atk −SpD, Scale: +Atk −Spe, Scale: +Def −HP, Scale: +Def −Atk, Scale: +Def −SpA, Scale: +Def −SpD, Scale: +Def −Spe, Scale: +SpA −HP, Scale: +SpA −Atk, Scale: +SpA −Def, Scale: +SpA −SpD, Scale: +SpA −Spe, Scale: +SpD −HP, Scale: +SpD −Atk, Scale: +SpD −Def, Scale: +SpD −SpA, Scale: +SpD −Spe, Scale: +Spe −HP, Scale: +Spe −Atk, Scale: +Spe −Def, Scale: +Spe −SpA, Scale: +Spe −SpD |
 | **Smoke Ball** | Running from anything wild always works, whatever its level |
 
 The Everstone answers in `progression.ts` rather than at its two call sites,

@@ -6,11 +6,11 @@
  * far you have come, which is what stops the eighth being a wall at hour two
  * and a formality at hour twenty.
  *
- * Two things move it. **Moves**: one level per thousand steps taken, capped at
- * thirty, so a gym drifts up while you are away and stops drifting long before
- * it becomes silly. **Badges**: five levels each, so the order you take them in
- * is a real decision — the eighth gym you challenge is forty levels above the
- * first, whichever one it happens to be.
+ * Two things move it. **Moves**: one level per 2,500 moves, capped at thirty,
+ * so a gym drifts up while you are away and stops drifting long before it
+ * becomes silly. **Badges**: three levels each, so the order you take them in
+ * is still a decision — the eighth gym you challenge is twenty-one levels above
+ * the first, whichever one it happens to be.
  */
 
 export interface GymSpec {
@@ -159,11 +159,11 @@ export function isGym(id: string): boolean {
   return BY_ID.has(id);
 }
 
-/** One level per thousand moves, and never more than this many. */
+/** One level per 2,500 moves, and never more than this many. */
 export const MOVE_LEVELS_CAP = 30;
-export const MOVES_PER_LEVEL = 1000;
+export const MOVES_PER_LEVEL = 2500;
 /** What each badge already won adds to every gym still standing. */
-export const LEVELS_PER_BADGE = 5;
+export const LEVELS_PER_BADGE = 3;
 
 /**
  * What this gym is fielding right now.

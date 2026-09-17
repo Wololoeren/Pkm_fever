@@ -146,6 +146,15 @@ type EffectShape =
   /** Inherited stat slots, for a pairing — the Heirloom's shape, as an item
    * something can carry rather than one applied to the daycare. */
   | { t: "lineage"; slots: number }
+  /** A pageant item: this much on stage for a carrier of one of these types. Nothing in battle. */
+  | { t: "pageant"; types: string[]; bonus: number }
+  /**
+   * An IV scale, for a pairing: every egg gets `amount` more in `up` and
+   * `amount` less in `down`, kept inside nought and the cap. For builds that
+   * want a stat as low as it will go — a slow Trick Room sweeper, a Foul Play
+   * target with no Attack — as much as for ones that want it high.
+   */
+  | { t: "tilt"; up: "hp" | "atk" | "def" | "spa" | "spd" | "spe"; down: "hp" | "atk" | "def" | "spa" | "spd" | "spe"; amount: number }
   /**
    * Health back, once, when it falls below one over `below` of its maximum.
    *

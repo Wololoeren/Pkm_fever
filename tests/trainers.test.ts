@@ -136,16 +136,20 @@ function approach(
     { x: trainer.x, y: trainer.y + 1, dir: "n" as const },
   ];
 
-  const spot = sides.find(
+  const open = sides.filter(
     (side) =>
       side.x > 0 &&
       side.y > 0 &&
       side.x < route.width - 1 &&
       side.y < route.height - 1 &&
       walkable(route.tiles[side.y * route.width + side.x]) &&
-      !hidesEncounters(route.tiles[side.y * route.width + side.x]) &&
       !trainerAt(world, route.id, side.x, side.y),
   );
+  // Out of the grass when there is a choice. When there is not — a trainer
+  // with grass on every open side — standing in it is still fine: the player
+  // is placed there, and the step that follows is into the trainer, which
+  // moves nobody and rolls nothing.
+  const spot = open.find((side) => !hidesEncounters(route.tiles[side.y * route.width + side.x])) ?? open[0];
   expect(spot).toBeDefined();
 
   return { state: { ...state, x: spot!.x, y: spot!.y }, dir: spot!.dir };

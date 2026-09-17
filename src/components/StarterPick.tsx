@@ -33,7 +33,16 @@ const STAT_LABELS: Record<string, string> = {
  * *after* choosing — forty rerolls could walk past a chroma starter without
  * one of them ever saying so.
  */
-export function StarterPick({ world, onPick }: { world: World; onPick: (index: number) => void }) {
+export function StarterPick({
+  world,
+  onPick,
+  onReroll,
+}: {
+  world: World;
+  onPick: (index: number) => void;
+  /** Start over on a fresh random seed, for a different three. */
+  onReroll?: () => void;
+}) {
   return (
     <section className="starters">
       <header className="pageHead">
@@ -42,6 +51,16 @@ export function StarterPick({ world, onPick }: { world: World; onPick: (index: n
           Seed <code>{world.seed}</code> deals these {world.starters.length}. Anyone else on this
           seed is offered the same. Hover a card for its full numbers.
         </p>
+        {onReroll ? (
+          <button
+            type="button"
+            className="ghost"
+            onClick={onReroll}
+            title="A new random seed: a different world, and a different three to choose from"
+          >
+            Reroll seed
+          </button>
+        ) : null}
       </header>
 
       <div className="starterGrid">
@@ -57,7 +76,7 @@ export function StarterPick({ world, onPick }: { world: World; onPick: (index: n
                   times as obvious, and it pushed the numbers below the fold on
                   a laptop, which is the one screen where the numbers are the
                   reason you are looking. */}
-              <Sprite speciesId={id} variantId={creature.variantId} size={96} />
+              <Sprite speciesId={id} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={96} />
               <h3>
                 {entry.name} <GenderMark gender={creature.gender} />
               </h3>

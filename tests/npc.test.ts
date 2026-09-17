@@ -457,3 +457,57 @@ describe("the log still decides everything", () => {
     expect(stateHash(reduce(world, inputs.slice(0, 2)))).toBe(stateHash(once));
   });
 });
+
+/*
+ * The four with a machine and a trade.
+ *
+ * They all stood in New Willow, which made it the only town worth a detour.
+ * Now the seed picks a town or a route in the first two rings for each of
+ * them — so they must always exist, always be near home, and not be in one
+ * place on every seed.
+ */
+describe("the traders who wander", () => {
+  const WANDERERS = ["print-ivo", "auctioneer", "shred-marv", "cut-hessa"];
+  const SEEDS = ["WANDER1", "WANDER2", "WANDER3", "WANDER4", "WANDER5", "WANDER6"];
+
+  it("N20: each is placed exactly once, in a town or a route no further out than ring two", () => {
+    expect(NPCS.filter((entry) => WANDERERS.includes(entry.id)).every((entry) => entry.where.at === "wander")).toBe(true);
+
+    for (const seed of SEEDS) {
+      const world = testWorld(seed);
+      const everyone = [...world.npcs.values()].flat();
+      for (const id of WANDERERS) {
+        const found = everyone.filter((who) => who.id === id);
+        expect(found, `${id} on ${seed}`).toHaveLength(1);
+        const route = world.routes.get(found[0].route)!;
+        expect(route.kind === "town" || (route.kind === "route" && route.ring >= 1 && route.ring <= 2), `${id} on ${route.id}`).toBe(true);
+
+        // And you can walk up to them from the way in, on foot.
+        const seen = new Set([`${route.entry.x},${route.entry.y}`]);
+        const queue = [route.entry];
+        for (let head = 0; head < queue.length; head++) {
+          for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+            const x = queue[head].x + dx;
+            const y = queue[head].y + dy;
+            if (x < 0 || y < 0 || x >= route.width || y >= route.height || seen.has(`${x},${y}`)) continue;
+            if (!walkable(route.tiles[y * route.width + x])) continue;
+            seen.add(`${x},${y}`);
+            queue.push({ x, y });
+          }
+        }
+        expect(seen.has(`${found[0].x},${found[0].y}`), `${id} unreachable on ${route.id}`).toBe(true);
+      }
+    }
+  });
+
+  it("N21: and the seed decides where — they are not all in New Willow any more", () => {
+    const where = new Set<string>();
+    for (const seed of SEEDS) {
+      const world = testWorld(seed);
+      for (const who of [...world.npcs.values()].flat()) {
+        if (WANDERERS.includes(who.id)) where.add(who.route);
+      }
+    }
+    expect(where.size).toBeGreaterThan(4);
+  });
+});

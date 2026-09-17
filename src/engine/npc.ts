@@ -43,6 +43,26 @@ export type NpcKind =
   | "forge"
   /** The pawnbroker, who buys creatures by the level and needs time to sell each one on. */
   | "pawn"
+  /** The egg buyer in New Willow, who pays for eggs unopened and will not say why. */
+  | "eggbuy"
+  /** The Colour Collector: a coloured creature for Chroma Candy. See tutor.ts. */
+  | "chromabuy"
+  /** The Ability Tutor: eight abilities on a rotating board, taught over 2,500 steps. */
+  | "tutor"
+  /** The Gift Swapper: any creature for a Secret Gift. */
+  | "giftswap"
+  /** The Therapist: a traded creature rehabilitated, a prize redeemed. */
+  | "therapy"
+  /** The Egg Insurance salesman. */
+  | "insure"
+  /** The Influencer, who makes a special creature famous. */
+  | "influence"
+  /** The Streamer, who streams a famous creature's battles for money. */
+  | "stream"
+  /** The pageant host: fifteen contestants and a Ribbon. */
+  | "pageant"
+  /** The paparazzo, who buys a Ribbon winner's exclusive photoshoot. */
+  | "photoshoot"
   /** The auctioneer: six rare lots on a board, closing on a step count. */
   | "auction"
   /** The workshop, where an Ice, a Fire and a Water type can be left to work. */
@@ -154,6 +174,18 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
      * so the original roster reads the same as it always did.
      */
     | { at: "town"; town?: string; x: number; y: number }
+    /**
+     * Somewhere the seed picks: any town, or any route no further out than
+     * `maxRing`.
+     *
+     * For the people with a machine and a trade rather than a story tied to
+     * one street. Four of them in one town made New Willow the only stop that
+     * mattered and every other town a place you walked through; scattered,
+     * finding the printer is part of a run rather than a fact about the map.
+     * Near home on purpose — none of them is worth anything to somebody who
+     * cannot reach them before the midgame.
+     */
+    | { at: "wander"; maxRing: number }
     | {
         at: "interior";
         role: "centre" | "mart" | "daycare" | "house";
@@ -216,6 +248,13 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
      * there, outside on the route itself. A person who exists on some seeds
      * and not others is not a person, it is a bug with a name. */
     | { at: "cabin"; biome: string; nth: number }
+    /**
+     * The social media cabin: one cabin the seed picks from all of them, and
+     * which of its two spots. Both people in it stand in the same one.
+     */
+    | { at: "socialCabin"; spot: 0 | 1 }
+    /** The pageant cabin: another cabin the seed picks, never the social media one. */
+    | { at: "pageantCabin"; spot: 0 | 1 }
     | { at: "gym"; gymId: string }
     /**
      * Inside the house at the end of the ash flats.
@@ -227,6 +266,18 @@ export interface NpcPlacement extends Omit<NpcSpec, "x" | "y" | "route"> {
      */
     | { at: "cup" };
 }
+
+/**
+ * What the egg buyer says once he has two.
+ *
+ * Never the word itself. He gets as close as he can without saying it, which
+ * is the joke: one egg is a collection, and a second is a pan being warmed.
+ */
+export const EGG_BUYER_AFTER_TWO: readonly string[] = [
+  "(He is holding a whisk. He puts it down very quickly.)",
+  "Two now. Two is a good number. You can do things with two that you could not do with one. Display them. Side by side. Folded, perhaps. On a plate.",
+  "Do you happen to know whether the cheese goes in before the fold or after? I am asking about something else entirely.",
+];
 
 export const NPCS: readonly NpcPlacement[] = [
   // The four teachers in Hearth's house. Their lines are built from the
@@ -324,6 +375,131 @@ export const NPCS: readonly NpcPlacement[] = [
       "Run along now. Somebody else is coming up the lane, and they have a Pikachu too.",
     ],
   },
+  /*
+   * The egg buyer.
+   *
+   * New Willow, where nobody thinks about anything too hard. He pays well and
+   * he is very clear that it is a collection. The first egg gets you nothing
+   * but thanks; `EGG_BUYER_AFTER_TWO` is what he lets slip once he has two,
+   * which is the point at which a collection becomes a recipe.
+   */
+  {
+    id: "egg-buyer",
+    name: "Gus",
+    kind: "eggbuy",
+    where: { at: "town", town: "town-2", x: 20, y: 14 },
+    lines: [
+      "Eggs! I buy eggs. Unopened, mind. Once it has hatched it is a pet, and I do not want a pet.",
+      "A thousand for an ordinary one. More if there is something shiny in there, or something a nice colour — up to three thousand. I can tell. Do not ask me how I can tell.",
+      "It is a collection. I collect them. That is all it is.",
+    ],
+  },
+  /*
+   * The three who shape abilities — see tutor.ts. Two in Sanchford, where the
+   * tutor keeps his board and the collector who pays in his currency stands
+   * across the square; the swapper in Southpass, where nobody asks where a
+   * creature came from.
+   */
+  {
+    id: "colour-collector",
+    name: "Colour Collector",
+    kind: "chromabuy",
+    where: { at: "town", town: "town-3", x: 8, y: 8 },
+    lines: [
+      "Colours! I collect the colours. Not the creatures — the colours. The creature is how the colour gets here.",
+      "Chroma Candy for anything wearing one. One for the colour, and one more for every rung of shine on top of it.",
+      "The candy is no good to a shop. The tutor across the way takes it, though. Funny, that.",
+    ],
+  },
+  {
+    id: "ability-tutor",
+    name: "Ability Tutor",
+    kind: "tutor",
+    where: { at: "town", town: "town-3", x: 28, y: 8 },
+    lines: [
+      "Eight on the board. One comes off and a new one goes up every thousand steps, so if you see what you want, do not wander off to think about it.",
+      "The price is the price: money and materials, and I do not haggle. Leave the one who is learning with me — two and a half thousand steps, and it goes home knowing something new.",
+      "One pupil at a time. And nobody learns a fourth, or something they already know.",
+    ],
+  },
+  {
+    id: "therapist",
+    name: "Dr. Couch",
+    kind: "therapy",
+    where: { at: "town", town: "town-1", x: 12, y: 20 },
+    lines: [
+      "Come in, lie down. Not you — them. The one somebody else raised.",
+      "A creature that has been traded carries it around. Who am I to you? Why should I listen? A thousand steps on my couch and we work through it: it listens to you after that, whatever its level, and it throws itself into its training twice as hard.",
+      "Prizes are worse. Won, handed over, never chosen. Those I call redeemed when we are done, and they train three times as hard, effort and all. It is very moving. It is also ten thousand, up front.",
+      "And how did it make you feel when he traded you for a Metapod? Take your time.",
+    ],
+  },
+  {
+    id: "egg-insurance",
+    name: "Egg Insurance Salesman",
+    kind: "insure",
+    where: { at: "town", x: 10, y: 7 },
+    lines: [
+      "Friend! Have you ever hatched an egg, and it was just... a normal one? No shine? No colour? Just a creature?",
+      "Tragic. And completely insurable. Apply one policy at the daycare, and every ordinary egg hatching in an incubator pays out — a Glitter or a Chroma Candy, our choice, no questions.",
+      "Fifty thousand. One payment, covered forever. Terms and conditions apply. The terms are that it is fifty thousand.",
+    ],
+  },
+  {
+    id: "influencer",
+    name: "Skye (@skye.irl)",
+    kind: "influence",
+    where: { at: "socialCabin", spot: 0 },
+    lines: [
+      "OMG hi!! Welcome to the content cabin 📸 don't touch the ring light.",
+      "Leave me something with a bit of sparkle — a shine, a colour, an ability — and I'll post it until it's famous. Famous 1, then 2, all the way to 5. The more special it is, the faster the algorithm loves it.",
+      "Plain ones don't trend, babe. I don't make the rules. The algorithm makes the rules.",
+    ],
+  },
+  {
+    id: "streamer",
+    name: "xX_Stream_Xx",
+    kind: "stream",
+    where: { at: "socialCabin", spot: 1 },
+    lines: [
+      "CHAT. CHAT. Somebody walked in. Hi, walked-in person. Say hi to chat.",
+      "Register one famous creature and I stream every battle it's in. Ten thousand up front for the pool, and the stream costs one a step — bandwidth isn't free. Every foe your team knocks out pays by its level; the famous one fainting costs us.",
+      "If the pool goes negative I pull the plug, no hard feelings. Come back and cash out when you like. The mic is not plugged in. Chat doesn't know that.",
+    ],
+  },
+  {
+    id: "pageant-host",
+    name: "Pageant Host",
+    kind: "pageant",
+    where: { at: "pageantCabin", spot: 0 },
+    lines: [
+      "Welcome, welcome, WELCOME to the pageant! Fifteen of the loveliest on the circuit, and a new line-up every two and a half thousand steps.",
+      "The judges score it plainly: level, shine, colour, abilities, every IV, and a pageant accessory if it suits the wearer's type. Look them over — they are all on the board.",
+      "One entry per line-up, darling. Beat every one of them and you walk out with a Ribbon, and a Ribbon walks out onto a battlefield like it owns the place.",
+    ],
+  },
+  {
+    id: "paparazzo",
+    name: "Paparazzo",
+    kind: "photoshoot",
+    where: { at: "pageantCabin", spot: 1 },
+    lines: [
+      "Well, well — a Ribbon. Don't look at the camera, look at the money. A hundred thousand. Cash. Today.",
+      "Seventy-two hours, tops. Maybe a little longer. They always come back. Mostly the same.",
+      "Paperwork? Sure, sure. Sign here, and here, and — don't worry about that bit. Nobody reads that bit.",
+      "The Ribbon? Oh, that stays with the photos. Everyone knows that. You knew that.",
+    ],
+  },
+  {
+    id: "gift-swapper",
+    name: "Gift Swapper",
+    kind: "giftswap",
+    where: { at: "town", town: "town-1", x: 28, y: 18 },
+    lines: [
+      "A creature for a gift. Any creature. I do not look at them and you do not look in the box until you have walked away.",
+      "Usually it is something useful. Potions, berries. Every so often it is something rather better than you gave me. That is the game.",
+    ],
+  },
   {
     id: "pawn-broker",
     name: "Pawnbroker",
@@ -339,7 +515,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "auctioneer",
     name: "Auctioneer",
     kind: "auction",
-    where: { at: "town", town: "town-2", x: 20, y: 18 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Lots! Rare lots! Nothing on this board was caught by anybody who will admit to it.",
       "Six at a time, each closing on the step. Bid, and your money sits with me until the hammer comes down.",
@@ -355,6 +531,25 @@ export const NPCS: readonly NpcPlacement[] = [
       "Short-handed, as ever. Three jobs going and nobody to do them.",
       "An Ice type on the churn makes ice cream. A Fire type on the spit roasts the chickens. A Water type does the garden, and the garden needs it.",
       "Leave one with me and it learns by doing — a little experience for every step you take, wherever you are. It will not pick up any new moves here, mind, and nobody evolves on my shift. Come and fetch it whenever you like.",
+    ],
+  },
+  /*
+   * The librarian, who gives you the handbook.
+   *
+   * Everything the game knows about shine, colour, abilities and items, in one
+   * key item — handed over in Hearth, before anybody has walked anywhere,
+   * because a reference you only get once you no longer need it is a trophy.
+   */
+  {
+    id: "gift-librarian",
+    name: "Librarian",
+    kind: "gift",
+    item: "handbook",
+    where: { at: "town", x: 12, y: 20 },
+    lines: [
+      "Shh. No — it is fine, it is outdoors, I just say it.",
+      "Here. The Pokémon Handbook. Every shine, every colour and what it does to a stat, every ability anybody has written down, every item on every shelf.",
+      "It is not a story. Nobody reads it front to back. You look things up in it, and then you are right about them.",
     ],
   },
   {
@@ -1274,10 +1469,10 @@ export const NPCS: readonly NpcPlacement[] = [
   /*
    * The man with the printer.
    *
-   * In New Willow, where the future arrived and turned out to be a job — the
-   * same town the Slurm comes from, which is not a coincidence: a failed print
-   * has to hand over *something*, and there was already a can of it on the
-   * shelf.
+   * Somewhere near home the seed decides — a town, or a route in the first two
+   * rings. The Slurm he hands over is New Willow's, wherever he has set up: a
+   * failed print has to hand over *something*, and there was already a can of
+   * it on that town's shelf.
    *
    * See `engine/printer.ts` for the whole shape of him. He is the one NPC in
    * the game whose stock is decided by where you have just been walking.
@@ -1286,12 +1481,12 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "print-ivo",
     name: "Ivo",
     kind: "print",
-    where: { at: "town", town: "town-2", x: 20, y: 14 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Additive chromatic reconstruction. It is a printer. It prints them in colour.",
       "Only one specimen on file at a time, and it is whatever the scanner last picked up out in the grass — so if you want a copy of something, go and stand in front of it first.",
       "Ivory is all I have loaded. Ran the rest dry months ago and the supplier has stopped answering. If you turn up a cartridge out there I will take it and the colour stays unlocked.",
-      "Fair warning: about one in four comes out as sludge. You get a can of Slurm and my sympathies, and the machine needs a while before it will go again.",
+      "Three thousand a go, up front. Fair warning: about one in four comes out as sludge. You get a can of Slurm and my sympathies, the money stays spent, and the machine needs a good long while before it will go again.",
     ],
   },
 
@@ -1303,8 +1498,9 @@ export const NPCS: readonly NpcPlacement[] = [
    * rather not see it — and lets you assemble it yourself, which is both
    * funnier and the only way a joke like this is bearable.
    *
-   * In New Willow, two doors down from the man with the printer, because the
-   * two of them are obviously the same joke told from opposite ends: one turns
+   * Wherever the seed puts him, near home — no longer two doors down from the
+   * man with the printer, though they are still the same joke told from
+   * opposite ends: one turns
    * a scan into a creature and one turns a creature into a resource, and
    * neither will be drawn on the middle step.
    */
@@ -1312,7 +1508,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "shred-marv",
     name: "Marv",
     kind: "shred",
-    where: { at: "town", town: "town-2", x: 24, y: 16 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Bring me one you are finished with and I will see you right. One Rare Candy for every three levels it managed. Cash terms, no haggling, no receipts.",
       "What do I do with them? Reclamation. It is a reclamation business. There is a drum, and the drum turns, and I would honestly rather you waited outside while it does.",
@@ -1324,7 +1520,7 @@ export const NPCS: readonly NpcPlacement[] = [
   /*
    * The lapidary.
    *
-   * Third of the three in New Willow who will take a creature off you, and the
+   * Third of the three who will take a creature off you, and the
    * only one who is entirely candid about what happens to it. The printer
    * makes them, the shredder will not say, and she tells you exactly: it goes
    * on the wheel and it comes off as a stone.
@@ -1337,7 +1533,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "cut-hessa",
     name: "Hessa",
     kind: "cut",
-    where: { at: "town", town: "town-2", x: 16, y: 18 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Bring me one and it comes back a stone. Not a metaphor. It goes on the wheel and what comes off the wheel is a stone.",
       "Which stone is not up to me and it is not up to you either — it is whatever the thing was. Fire comes off fire. Water comes off water.",

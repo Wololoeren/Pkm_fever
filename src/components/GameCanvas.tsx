@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   canSee,
   crittersOn,
+  peopleOn,
   DARK_RADIUS,
   rivalAt,
   rivalCountdown,
   sightCorner,
   tileAt,
   type GameState,
+  wantsRematch,
 } from "@/engine/engine";
 import type { NpcKind } from "@/engine/npc";
 import { TILE } from "@/engine/terrain";
@@ -30,7 +32,16 @@ import { TILE_PX, tileColor, VIEW_TILES_X, VIEW_TILES_Y } from "@/render/tiles";
  * was to stop a place being something you take in at a glance. The camera
  * follows the player and stops at the edges, so you never see past the world.
  */
-export function GameCanvas({ world, state }: { world: World; state: GameState }) {
+export function GameCanvas({
+  world,
+  state,
+  onTileClick,
+}: {
+  world: World;
+  state: GameState;
+  /** A tile tapped or clicked on the map, in route coordinates. */
+  onTileClick?: (x: number, y: number) => void;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const route = world.routes.get(state.route);
   const standing = crittersOn(world, state, state.route);
@@ -120,20 +131,24 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
     }
 
     // Trainers, drawn before the player so walking onto one puts you in front.
+    // Faded only while they are still sore about losing: once they want a
+    // rematch they are a fight again, and look like one. Asked through
+    // `wantsRematch`, the same question walking into them asks.
     for (const trainer of world.trainers.get(route.id) ?? []) {
       if (!inView(trainer.x, trainer.y, camX, camY, viewW, viewH)) continue;
+      const resting = !wantsRematch(state, trainer.id);
       person(
         ctx,
         (trainer.x - camX) * TILE_PX + TILE_PX / 2,
         (trainer.y - camY) * TILE_PX + TILE_PX / 2,
-        state.beaten.includes(trainer.id) ? "#6b7280" : "#4a6fb5",
-        state.beaten.includes(trainer.id) ? 0.35 : 1,
+        resting ? "#6b7280" : "#4a6fb5",
+        resting ? 0.35 : 1,
       );
     }
 
     // People who talk rather than fight, in their own colour so you can tell
     // at a glance which sort of person is standing in your way.
-    for (const who of world.npcs.get(route.id) ?? []) {
+    for (const who of peopleOn(world, state, route.id)) {
       if (!inView(who.x, who.y, camX, camY, viewW, viewH)) continue;
       person(
         ctx,
@@ -261,8 +276,18 @@ export function GameCanvas({ world, state }: { world: World; state: GameState })
       ref={ref}
       width={Math.min(VIEW_TILES_X, route.width) * TILE_PX}
       height={Math.min(VIEW_TILES_Y, route.height) * TILE_PX}
-      className="map"
+      className={`map${onTileClick ? " walkable" : ""}`}
       aria-label={`Map of ${route.label}`}
+      onClick={(event) => {
+        if (!onTileClick) return;
+        // The canvas can be drawn smaller than it is (a phone), so the tap is
+        // scaled back into the canvas's own pixels before it becomes a tile.
+        const box = event.currentTarget.getBoundingClientRect();
+        const px = ((event.clientX - box.left) * event.currentTarget.width) / box.width;
+        const py = ((event.clientY - box.top) * event.currentTarget.height) / box.height;
+        const corner = sightCorner(route, state.x, state.y);
+        onTileClick(corner.x + Math.floor(px / TILE_PX), corner.y + Math.floor(py / TILE_PX));
+      }}
     />
   );
 }
@@ -495,6 +520,21 @@ const NPC_COLOURS: Record<NpcKind, string> = {
   quest: "#c9a83a",
   gym: "#c95a7a",
   buy: "#b09a5a",
+  // Yolk.
+  eggbuy: "#e0b83c",
+  // The three who shape abilities: a candy pink, a chalk-board green and wrapping-paper red.
+  chromabuy: "#d67fb8",
+  tutor: "#5fae8f",
+  giftswap: "#c9504f",
+  // A consulting-room teal, and an insurance-brochure navy.
+  therapy: "#4fa3a8",
+  insure: "#3f5c8c",
+  // Ring-light pink and gamer-chair green.
+  influence: "#e87fc9",
+  stream: "#6bdc7a",
+  // Sash gold and flashbulb white.
+  pageant: "#e0c048",
+  photoshoot: "#e8e8e8",
   // A dull brass, for a man who buys anything.
   pawn: "#8c7a4e",
   // Gavel mahogany.

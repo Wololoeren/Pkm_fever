@@ -5,7 +5,7 @@ import { species as speciesById } from "@/engine/dex";
 import { cleanTrainerName, TRAINER_NAME_MAX, VAULT_LEVEL } from "@/engine/engine";
 import type { Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
-import { randomSeed } from "@/lib/save";
+import { fileStamp, randomSeed } from "@/lib/save";
 import {
   entriesFromSave,
   entriesFromVaultFile,
@@ -107,7 +107,7 @@ export function VaultScreen({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "pkm-fever-vault.json";
+    link.download = `pkm-fever-vault-${fileStamp(new Date().toISOString())}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -208,7 +208,7 @@ export function VaultScreen({
               title={`${displayName(entry.creature)} · Lv${entry.creature.level} · seed ${entry.seed}${entry.proven ? " · proven" : ""}`}
               onClick={() => setPicked(entry.id)}
             >
-              <Sprite speciesId={entry.creature.speciesId} variantId={entry.creature.variantId} size={48} />
+              <Sprite speciesId={entry.creature.speciesId} variantId={entry.creature.variantId} abilities={entry.creature.abilities} heldItem={entry.creature.heldItem} size={48} />
               <span className="boxCellFoot">
                 <span>Lv{entry.creature.level}</span>
                 <GenderMark gender={entry.creature.gender} />

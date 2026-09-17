@@ -5,6 +5,8 @@ import { ALL_SPECIES, baseFormOf, species as speciesById, STARTER_TYPES, starter
 import { INKS, ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
+import { placeNames } from "./placenames";
+import { levelBracket, levelForRing, WILD_LEVEL_SPREAD } from "./levels";
 import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
 import { TOWNS, TOWN_TRAINERS } from "./towns";
 import { dealHints } from "./hints";
@@ -102,7 +104,10 @@ const ENCOUNTER_RATE = 118;
 export type RouteKind = "town" | "route" | "interior";
 
 /** What a building is for. A house is somewhere to look at. */
-export type InteriorRole = "daycare" | "centre" | "mart" | "gym" | "house" | "cup";
+export type InteriorRole = "daycare" | "centre" | "mart" | "gym" | "house" | "cup" | "guest";
+
+/** The rooms in Hearth's two terraces that somebody you have invited can move into. */
+export const GUEST_ROOMS = 10;
 
 /** What the board outside each kind of building says. */
 const SIGN_TEXT: Record<InteriorRole, string> = {
@@ -112,6 +117,7 @@ const SIGN_TEXT: Record<InteriorRole, string> = {
   gym: "Gym",
   house: "House",
   cup: "The Cup",
+  guest: "Guest room",
 };
 
 /** A board beside a door, saying what the building behind it is for. */
@@ -1375,6 +1381,45 @@ function hiddenSpot(rng: Rng, route: Route): { x: number; y: number } {
   return far[intBetween(rng, 0, far.length - 1)];
 }
 
+/**
+ * A tile you can walk to from the entry, on foot, away from the doorstep and
+ * out of the grass.
+ *
+ * `hiddenSpot` only asks whether a tile can be stood on, which is fine for the
+ * people written for one route — somebody checked. A trader the seed drops
+ * into any town has had nobody check, and a town's far corner can be behind a
+ * row of houses: a printer you can see and never reach is worse than none. So
+ * this floods out from the entry first, the way the player would walk, and
+ * picks among what it reached.
+ */
+function walkableSpot(rng: Rng, route: Route): { x: number; y: number } {
+  const seen = new Set<number>([route.entry.y * route.width + route.entry.x]);
+  const queue = [route.entry];
+  const far: { x: number; y: number }[] = [];
+  const near: { x: number; y: number }[] = [];
+
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+      const x = at.x + dx;
+      const y = at.y + dy;
+      if (x < 1 || y < 1 || x >= route.width - 1 || y >= route.height - 1) continue;
+      const index = y * route.width + x;
+      if (seen.has(index)) continue;
+      const tile = route.tiles[index];
+      if (!walkable(tile)) continue;
+      seen.add(index);
+      queue.push({ x, y });
+      if (hidesEncounters(tile)) continue;
+      const away = Math.abs(x - route.entry.x) + Math.abs(y - route.entry.y);
+      (away >= HIDDEN_FROM_ENTRY ? far : near).push({ x, y });
+    }
+  }
+
+  const pool = far.length ? far : near;
+  return pool.length ? pool[intBetween(rng, 0, pool.length - 1)] : route.entry;
+}
+
 /** Puts the roster on the map, each as near their spot as the ground allows. */
 function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpec[]> {
   const placed = new Map<string, NpcSpec[]>();
@@ -1488,6 +1533,18 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
                 : [...routes.values()].find((route) => route.role === role);
           return room ? { route: room, wish: { x: Math.floor(room.width / 2), y: 3 } } : null;
         }
+        case "wander": {
+          // Every town and every route up to the ring asked for, in a fixed
+          // order so the pick depends only on the seed and who is picking.
+          const maxRing = entry.where.maxRing;
+          const choices = [...routes.values()]
+            .filter((place) => place.kind === "town" || (place.kind === "route" && place.ring >= 1 && place.ring <= maxRing))
+            .sort((a, b) => a.id.localeCompare(b.id));
+          if (!choices.length) return null;
+          const rng = rngFor(seed, "npcWander", entry.id);
+          const route = choices[intBetween(rng, 0, choices.length - 1)];
+          return { route, wish: walkableSpot(rng, route) };
+        }
         case "route": {
           const route = routes.get(routeId(entry.where.biome, entry.where.nth));
           if (!route) return null;
@@ -1511,6 +1568,28 @@ function placeNpcs(seed: string, routes: Map<string, Route>): Map<string, NpcSpe
           // stands on the route. Somebody the seed can delete is not somebody.
           if (inside) return { route: inside, wish: { x: Math.floor(inside.width / 2), y: 3 } };
           return outside ? { route: outside, wish: hiddenSpot(rngFor(seed, "npcSpot", entry.id), outside) } : null;
+        }
+        case "pageantCabin": {
+          // Another cabin than the social media one: the next along from it.
+          const cabins = [...routes.values()]
+            .filter((route) => route.kind === "interior" && route.id.endsWith(":cabin"))
+            .sort((a, b) => a.id.localeCompare(b.id));
+          if (!cabins.length) return null;
+          const social = intBelow(rngFor(seed, "social-cabin"), cabins.length);
+          const pick = intBelow(rngFor(seed, "pageant-cabin"), Math.max(1, cabins.length - 1));
+          const cabin = cabins.length > 1 ? cabins[pick >= social ? pick + 1 : pick] : cabins[0];
+          const mid = Math.floor(cabin.width / 2);
+          return { route: cabin, wish: { x: entry.where.spot === 0 ? mid - 2 : mid + 2, y: 3 } };
+        }
+        case "socialCabin": {
+          // One cabin for both, picked by the seed from every cabin there is.
+          const cabins = [...routes.values()]
+            .filter((route) => route.kind === "interior" && route.id.endsWith(":cabin"))
+            .sort((a, b) => a.id.localeCompare(b.id));
+          if (!cabins.length) return null;
+          const cabin = cabins[intBelow(rngFor(seed, "social-cabin"), cabins.length)];
+          const mid = Math.floor(cabin.width / 2);
+          return { route: cabin, wish: { x: entry.where.spot === 0 ? mid - 2 : mid + 2, y: 3 } };
         }
         case "cup": {
           const house = routes.get(`${routeId(CUP_BIOME, CUP_NTH)}:cup`);
@@ -1670,6 +1749,23 @@ const FOUND_STONES: readonly string[] = ITEMS.filter((spec) => {
   .sort();
 
 /**
+ * Whether stepping on this tile takes you somewhere else.
+ *
+ * A door, an exit, a border crossing or the arrival tile. Nothing can be left
+ * lying on one: walking onto it moves you through before the pickup is ever
+ * read, so an item there is an item nobody can collect. Doors were the usual
+ * victim, because a doorway is a dead end and dead ends are exactly where
+ * pickups are aimed.
+ */
+export function passesThrough(route: Route, x: number, y: number): boolean {
+  const tile = route.tiles[y * route.width + x];
+  if (tile === TILE.DOOR || tile === TILE.EXIT) return true;
+  if (x === route.entry.x && y === route.entry.y) return true;
+  const at = (spot: { x: number; y: number }) => spot.x === x && spot.y === y;
+  return route.doors.some(at) || route.borders.some(at) || route.gates.some(at);
+}
+
+/**
  * Items on the floor, placed once when the world is made.
  *
  * Placed rather than rolled, like everything else: the same seed leaves the
@@ -1700,6 +1796,7 @@ function placePickups(
         const tile = route.tiles[y * route.width + x];
         if (!walkable(tile) || hidesEncounters(tile)) continue;
         if (busy.has(`${x},${y}`)) continue;
+        if (passesThrough(route, x, y) || propBlocks(route, x, y)) continue;
 
         const open = [
           [0, -1],
@@ -1796,8 +1893,7 @@ function placeInks(
     for (let y = 1; y < cabin.height - 1; y++) {
       for (let x = 1; x < cabin.width - 1; x++) {
         if (!walkable(cabin.tiles[y * cabin.width + x])) continue;
-        if (x === cabin.entry.x && y === cabin.entry.y) continue;
-        if (cabin.doors.some((door) => door.x === x && door.y === y)) continue;
+        if (passesThrough(cabin, x, y)) continue;
         if (propBlocks(cabin, x, y)) continue;
         open.push({ x, y });
       }
@@ -1861,7 +1957,7 @@ function placeFoundEggs(
         for (let x = 2; x < route.width - 2; x++) {
           const tile = route.tiles[y * route.width + x];
           if (!walkable(tile) || hidesEncounters(tile) || busy.has(`${x},${y}`)) continue;
-          if (propBlocks(route, x, y)) continue;
+          if (propBlocks(route, x, y) || passesThrough(route, x, y)) continue;
           open.push({ x, y });
         }
       }
@@ -1912,6 +2008,7 @@ function placeMasterBall(
       for (let x = 2; x < route.width - 2; x++) {
         const tile = route.tiles[y * route.width + x];
         if (!walkable(tile) || hidesEncounters(tile) || busy.has(`${x},${y}`) || propBlocks(route, x, y)) continue;
+        if (passesThrough(route, x, y)) continue;
         open.push({ x, y });
       }
     }
@@ -2218,11 +2315,19 @@ function buildTown(node: PlanNode, spec: (typeof TOWNS)[number]): {
     house: { x: 26, y: midY + 4, label: spec.id === HUB_ID ? SCHOOL_LABEL : "A house" },
     gym: { x: 5, y: midY - 9, label: "Gym" },
     cup: { x: 5, y: midY - 9, label: CUP_LABEL },
+    // Guest rooms are built with the terraces, never as a corner of their own.
+    guest: { x: 0, y: 0, label: "Guest room" },
   };
 
   const plots = spec.roles.map((role) => ({ role, ...corners[role] }));
 
   for (const plot of plots) {
+    // The daycare is the end house of a terrace rather than a building on its
+    // own: see `buildTerraces`.
+    if (plot.role === "daycare") {
+      buildTerraces(grid, spec.id, midY, doors, signs, interiors);
+      continue;
+    }
     const door = building(grid, plot.x, plot.y, 6, 5, [TILE.MEADOW, TILE.FLOWER]);
     if (!door) continue;
 
@@ -2308,6 +2413,115 @@ function buildTown(node: PlanNode, spec: (typeof TOWNS)[number]): {
   };
 }
 
+
+/**
+ * Hearth's terraces: two rows of joined houses on the north-west corner.
+ *
+ * The front row sits right on the east-west road, low and wide — the daycare
+ * as its end house, six across, and four narrow guest rooms beside it. The
+ * back row, behind it with a path along its doorsteps, is six more guest rooms.
+ * Ten in all (`GUEST_ROOMS`), and the people who run something out in the world
+ * can be invited to live in them once you have used them — see `lodgers` in
+ * engine.ts.
+ *
+ * Drawn here rather than with `building`, because a terrace is one roof with
+ * many doors: a row of separate buildings would each want a sign and a clear
+ * strip either side, and there is no room for either between front doors.
+ */
+function buildTerraces(
+  grid: Grid,
+  townId: string,
+  midY: number,
+  doors: Door[],
+  signs: Sign[],
+  interiors: Route[],
+): void {
+  const frontTop = midY - 4;
+  const backTop = 2;
+  const units: { x: number; y: number; w: number; role: "daycare" | "guest" }[] = [
+    { x: 1, y: frontTop, w: 6, role: "daycare" },
+    ...Array.from({ length: 4 }, (_, at) => ({ x: 7 + 3 * at, y: frontTop, w: 3, role: "guest" as const })),
+    ...Array.from({ length: 6 }, (_, at) => ({ x: 1 + 3 * at, y: backTop, w: 3, role: "guest" as const })),
+  ];
+
+  let guest = 0;
+  for (const unit of units) {
+    // Two rows of roof and a row of wall with the door in it, and a step of
+    // path in front of every door.
+    grid.rect(unit.x, unit.y, unit.w, 2, TILE.ROOF);
+    grid.rect(unit.x, unit.y + 2, unit.w, 1, TILE.WALL);
+    const door = { x: unit.x + Math.floor(unit.w / 2), y: unit.y + 2 };
+    grid.set(door.x, door.y, TILE.DOOR);
+    grid.set(door.x, door.y + 1, TILE.PATH);
+
+    const back = { x: door.x, y: door.y + 1 };
+    // The board goes on the wall beside the door, not on the ground in front:
+    // the front row's doorsteps are the road, and a sign on the road is a
+    // post in the middle of it.
+    const board = { x: door.x + 1, y: door.y };
+    grid.set(board.x, board.y, TILE.SIGN);
+
+    if (unit.role === "daycare") {
+      const id = `${townId}:daycare`;
+      const inside = buildInterior(id, townId, "daycare", "Daycare", back, rngFor("furnish", id));
+      doors.push({ x: door.x, y: door.y, to: id, at: inside.entry });
+      signs.push({ ...board, text: SIGN_TEXT.daycare });
+      interiors.push(inside);
+      continue;
+    }
+
+    const number = guest + 1;
+    const id = `${townId}:guest${guest}`;
+    const inside = buildInterior(id, townId, "guest", `Terrace, No. ${number}`, back, rngFor("furnish", id));
+    doors.push({ x: door.x, y: door.y, to: id, at: inside.entry });
+    // Short, because the doors are three tiles apart and so are their labels.
+    signs.push({ ...board, text: `No. ${number}` });
+    interiors.push(inside);
+    guest++;
+  }
+
+  // The path along the back row's doorsteps, out to the north road, so the
+  // back doors are reached along a path rather than across the grass.
+  grid.rect(1, backTop + 3, 18, 1, TILE.PATH);
+}
+
+/** Every guest room, in number order. */
+export function guestRooms(world: { routes: Map<string, Route> }): Route[] {
+  return [...world.routes.values()]
+    .filter((route) => route.role === "guest")
+    .sort((a, b) => Number(a.id.split(":guest")[1]) - Number(b.id.split(":guest")[1]));
+}
+
+/**
+ * Where a lodger stands in their room: the reachable, unfurnished tile nearest
+ * the middle of the back wall, found by walking in from the door — so a table
+ * the room happened to get cannot put them somewhere you cannot reach.
+ */
+export function lodgerSpot(room: Route): { x: number; y: number } {
+  const want = { x: Math.floor(room.width / 2), y: 2 };
+  const seen = new Set<number>([room.entry.y * room.width + room.entry.x]);
+  const queue = [room.entry];
+  let best = room.entry;
+  let bestAway = Infinity;
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    const away = Math.abs(at.x - want.x) + Math.abs(at.y - want.y);
+    if (away < bestAway && (at.x !== room.entry.x || at.y !== room.entry.y)) {
+      best = at;
+      bestAway = away;
+    }
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+      const x = at.x + dx;
+      const y = at.y + dy;
+      if (x < 1 || y < 1 || x >= room.width - 1 || y >= room.height - 1) continue;
+      const index = y * room.width + x;
+      if (seen.has(index) || !walkable(room.tiles[index]) || propBlocks(room, x, y)) continue;
+      seen.add(index);
+      queue.push({ x, y });
+    }
+  }
+  return best;
+}
 
 /**
  * The loop a roamer walks.
@@ -2877,6 +3091,18 @@ export function generateWorld(
 
   wireBorders(routes, plan);
 
+  // Names last, from their own stream: see placenames.ts. A route's label is
+  // its generated name and the levels its grass holds, "Fields of Static [9-13]".
+  const names = placeNames(
+    seed,
+    [...routes.values()].filter((route) => route.kind === "route"),
+  );
+  for (const [id, name] of names) {
+    const route = routes.get(id)!;
+    const [low, high] = levelBracket(route.ring);
+    routes.set(id, { ...route, label: `${name} [${low}-${high}]` });
+  }
+
   const starters = pickStarters(seed, allSpecies);
 
   // Place the census. Rarer forms are placed further out, so the true shiny
@@ -3002,16 +3228,8 @@ export function generateWorld(
   return { config, seed, starters, routes, census, trainers, npcs, pickups, critters };
 }
 
-/**
- * How strong things are at this distance from the hub.
- *
- * Ring 1 has to sit *below* the level 5 starter, or the first patch of grass
- * outside the hub is unwinnable and the game opens by killing you. Each ring
- * out is worth another eight levels, which puts the outermost in the forties.
- */
-export function levelForRing(ring: number): number {
-  return 3 + (ring - 1) * 8;
-}
+/** Moved to levels.ts; re-exported so existing imports keep working. */
+export { levelForRing, levelBracket, WILD_LEVEL_SPREAD } from "./levels";
 
 /** Names for the people standing on routes. Deliberately plain: a trainer is
  * furniture with a team, and inventing lore for each one is a different job. */
@@ -3209,7 +3427,7 @@ export function wildAt(
   const table = encounterTable(allSpecies, target.biome, target.ring, world.config.rings);
   const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
 
-  const level = Math.max(2, levelForRing(target.ring) + intBetween(rng, -2, 2));
+  const level = Math.max(2, levelForRing(target.ring) + intBetween(rng, -WILD_LEVEL_SPREAD, WILD_LEVEL_SPREAD));
   const exp = level * level * level;
   const ivs = rollWildIvs(rng);
   const natureId = pickNature(rng);

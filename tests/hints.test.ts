@@ -181,7 +181,7 @@ describe("the numbers are the engine's", () => {
     actual: number;
     written: number;
   }[] = [
-    { id: "egg-steps", phrase: "three hundred steps", constant: "STEPS_PER_EGG", actual: STEPS_PER_EGG, written: 300 },
+    { id: "egg-steps", phrase: "six hundred steps", constant: "STEPS_PER_EGG", actual: STEPS_PER_EGG, written: 600 },
     { id: "wild-ivs-cap", phrase: "Nought to six", constant: "WILD_IV_MAX", actual: WILD_IV_MAX, written: 6 },
     { id: "natures-add", phrase: "Twenty-four points", constant: "NATURE_MAGNITUDE", actual: NATURE_MAGNITUDE, written: 24 },
     { id: "effort-from-fighting", phrase: "two hundred and fifty-two", constant: "EV_MAX_PER_STAT", actual: EV_MAX_PER_STAT, written: 252 },
@@ -189,8 +189,8 @@ describe("the numbers are the engine's", () => {
     { id: "rematch", phrase: "a thousand steps", constant: "REMATCH_AFTER", actual: REMATCH_AFTER, written: 1000 },
     { id: "rematch", phrase: "Three levels", constant: "REMATCH_LEVELS", actual: REMATCH_LEVELS, written: 3 },
     { id: "lure-reaches", phrase: "five hundred moves", constant: "LURE_MOVES", actual: LURE_MOVES, written: 500 },
-    { id: "gyms-scale", phrase: "five levels", constant: "LEVELS_PER_BADGE", actual: LEVELS_PER_BADGE, written: 5 },
-    { id: "gyms-scale", phrase: "every thousand moves", constant: "MOVES_PER_LEVEL", actual: MOVES_PER_LEVEL, written: 1000 },
+    { id: "gyms-scale", phrase: "three levels", constant: "LEVELS_PER_BADGE", actual: LEVELS_PER_BADGE, written: 3 },
+    { id: "gyms-scale", phrase: "every twenty-five hundred moves", constant: "MOVES_PER_LEVEL", actual: MOVES_PER_LEVEL, written: 2500 },
     { id: "census-is-placed", phrase: "Fifty-eight", constant: "CENSUS_TOTAL", actual: CENSUS_TOTAL, written: 58 },
     { id: "rival-no-escape", phrase: "three steps behind you for twenty moves", constant: "RIVAL_BEHIND/RIVAL_STALK", actual: RIVAL_BEHIND * 100 + RIVAL_STALK, written: 320 },
     { id: "cup-no-healing", phrase: "five of them, six each", constant: "CUP_SIZE", actual: CUP_SIZE, written: 6 },

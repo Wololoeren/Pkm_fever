@@ -30,10 +30,10 @@ import type { StatTable } from "./types";
 export const TOP_TIER = 5;
 export const TIER_COUNT = TOP_TIER + 1;
 
-const TIER_NAMES = ["Normal", "Faded", "Washed", "Turning", "Nearly", "Shiny"] as const;
+export const TIER_NAMES = ["Normal", "Faded", "Washed", "Turning", "Nearly", "Shiny"] as const;
 
-/** Flat per-stat multiplier for each rung. */
-const TIER_MULT = [1000, 1015, 1030, 1045, 1060, 1085] as const;
+/** Flat per-stat multiplier for each rung, in per mille. */
+export const TIER_MULT = [1000, 1015, 1030, 1045, 1060, 1085] as const;
 
 /** The id fragment each rung contributes to an appearance id. */
 const TIER_IDS = ["normal", "tint1", "tint2", "tint3", "tint4", "shiny"] as const;

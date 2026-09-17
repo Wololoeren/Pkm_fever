@@ -23,6 +23,7 @@ import {
   type BreedingItem,
   type DaycareState,
   type Egg,
+  EGG_INSURANCE,
 } from "./breeding";
 import {
   ALL_SPECIES,
@@ -58,6 +59,8 @@ import {
 } from "./progression";
 import { BIOMES } from "./biomes";
 import { bidWins, board, lot as auctionLot, lotCreature } from "./auction";
+import { PAGEANT_ROUND, pageantRound, pageantScore, pageantToBeat } from "./pageant";
+import { CHROMA_CANDY, chromaCandyFor, giftContents, SECRET_GIFT, TUTOR_STAY, tutorBoard, type PricePart } from "./tutor";
 import { abilitiesOf, FORAGE_EVERY, isAbility, MAX_ABILITIES, pickAbilities, rollAbilities } from "./abilities";
 import { isBracketSize, type BracketSize } from "./bracket";
 import { cheatPrizeOffer, prizeOffer } from "./prize";
@@ -72,7 +75,7 @@ import {
   type CritterSpec,
 } from "./critters";
 import { alignPp, fullPp, maxPp, ppLeft, restorePp, spendPp } from "./pp";
-import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcSpec } from "./npc";
+import { matchesWant, SHINE_GLITTER, SHINE_PRICE, wantText, type NpcKind, type NpcSpec } from "./npc";
 import {
   isQuest,
   progressOf,
@@ -95,7 +98,7 @@ import {
 import { hash32, intBelow, intBetween, rngFor } from "./rng";
 import { clampIvs, computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type StatId, type StatTable } from "./types";
-import { appearanceId, chroma, CHROMA_IDS, variant } from "./variants";
+import { appearanceId, chroma, CHROMA_IDS, TOP_TIER, variant } from "./variants";
 import {
   encounterTriggers,
   fishAt,
@@ -108,6 +111,9 @@ import {
   type World,
   foundEggCreature,
   FOUND_EGG_STEPS,
+  GUEST_ROOMS,
+  guestRooms,
+  lodgerSpot,
 } from "./world";
 import {
   clearedBy,
@@ -137,6 +143,7 @@ import { chippedStat, hasIvsLeft, nextNature, REFORGE_COST } from "./smith";
 import {
   arena,
   arenaBand,
+  ARENA_IV,
   arenaLevel,
   ARENA_POOL,
   ARENA_ROUNDS,
@@ -146,6 +153,7 @@ import {
 import { PRIZE_CHOICES } from "./prize";
 import {
   PRINT_CONSOLATION,
+  PRINT_PRICE,
   PRINT_FAILS,
   PRINT_LEVEL,
   printReady,
@@ -205,7 +213,12 @@ export type Input =
   | { t: "hatch"; index: number; from?: "party" | "incubator" }
   | { t: "toggleItem"; item: BreedingItem }
   /** Moves a creature between the party and the box. */
-  | { t: "store"; index: number }
+  /**
+   * Party to box. `tab` is the box tab it goes in — the one on screen. Left
+   * off, it goes in the first tab with room, which is what every save written
+   * before tabs could be chosen recorded.
+   */
+  | { t: "store"; index: number; tab?: number }
   | { t: "retrieve"; index: number }
   /**
    * A completed trade: `give` leaves the party, `receive` joins it.
@@ -254,10 +267,50 @@ export type Input =
   | { t: "shred"; index: number; confirm: number }
   /** Selling one to the pawnbroker. `confirm` is the uid, the same safety catch. */
   | { t: "pawn"; index: number; confirm: number }
+  /** Selling a carried egg to the egg buyer. `confirm` is its creature's uid, the same catch. */
+  | { t: "sellEgg"; index: number; confirm: number }
+  /** A coloured party member to the Colour Collector, for Chroma Candy. */
+  | { t: "chromaTrade"; index: number; confirm: number }
+  /** A party member left with the Ability Tutor to learn offer `n`, paying its price. */
+  | { t: "tutorLeave"; n: number; index: number; confirm: number }
+  /** Fetching the pupil back from the tutor, once it has learned. */
+  | { t: "tutorTake" }
+  /** A party member to the Gift Swapper, for a Secret Gift. */
+  | { t: "giftSwap"; index: number; confirm: number }
+  /** A traded or prize party member onto the Therapist's couch, paying for the course. */
+  | { t: "therapyLeave"; index: number; confirm: number }
+  /** Fetching the patient back once the course is done. */
+  | { t: "therapyTake" }
+  /** Buying Egg Insurance from its salesman. */
+  | { t: "buyInsurance" }
+  /** A special party member left with the Influencer. */
+  | { t: "influenceLeave"; index: number; confirm: number }
+  /** Fetching it back, with the fame it earned. */
+  | { t: "influenceTake" }
+  /** A famous party member registered with the Streamer, paying the pool in. */
+  | { t: "streamRegister"; index: number; confirm: number }
+  /** What the pool has earned above the stake, taken out. */
+  | { t: "streamCollect" }
+  /** The stream stopped, and whatever is in the pool handed back. */
+  | { t: "streamUnregister" }
+  /** A party member entered in this round's pageant. */
+  | { t: "pageantEnter"; index: number; confirm: number }
+  /** A Ribbon winner sold to the paparazzo's photoshoot. */
+  | { t: "photoshoot"; index: number; confirm: number }
+  /** The person you are talking to moves into a free guest room in Hearth. */
+  | { t: "invite" }
+  /** Locks or unlocks a creature against being given away, by uid. */
+  | { t: "lock"; uid: number }
+  /** Every item held by a creature in this box tab goes back to the bag. */
+  | { t: "takeHeldFromBox"; tab: number }
+  /** A lodger you are talking to goes back to where you found them. */
+  | { t: "sendHome" }
   /** A bid on lot `n` at the auction house, paid now and held until it closes. */
   | { t: "bid"; n: number }
   /** Settling every closed lot you bid on: the creature, or your money back. */
   | { t: "collectBids" }
+  /** A carried egg into a free incubator, at the daycare. */
+  | { t: "incubateEgg"; index: number }
   /** Leaving a party member at one of the workshop's three jobs. */
   | { t: "workshopLeave"; station: WorkshopStation; index: number; confirm: number }
   /** Fetching it back. */
@@ -473,9 +526,14 @@ export type Notice =
   | { t: "found"; item: BreedingItem }
   /** An egg went into the bag, and how long it will take. */
   | { t: "eggTaken"; steps: number }
+  /** An egg put into an incubator, by hand or by the daycare as soon as it was ready. */
+  | { t: "eggIncubated" }
   /** An egg lying on the ground: picked up, or left there for want of room. */
   | { t: "foundEgg"; taken: boolean }
-  | { t: "hatched"; speciesId: string; variantId: string; boxed: boolean }
+  | { t: "hatched"; speciesId: string; variantId: string; boxed: boolean; gift?: string; payout?: string }
+  /** A one-off gadget handed over for something done: the timers feed, for now. */
+  | { t: "gadget"; item: string }
+  | { t: "heldTaken"; count: number }
   /** The Exp. Share, handed over because `on` reached level 40. */
   | { t: "expShare"; on: string }
   | { t: "beatTrainer"; name: string; money: number }
@@ -490,6 +548,24 @@ export type Notice =
   | { t: "shredded"; name: string; level: number; candy: number }
   /** One sold to the pawnbroker, and what it fetched. */
   | { t: "pawned"; name: string; level: number; money: number }
+  | { t: "eggSold"; money: number; count: number }
+  | { t: "chromaTraded"; name: string; candy: number }
+  | { t: "tutorLeft"; name: string; abilityId: string }
+  | { t: "tutorTaken"; name: string; abilityId: string; boxed: boolean }
+  | { t: "giftSwapped"; name: string }
+  | { t: "therapyLeft"; name: string }
+  | { t: "therapyTaken"; name: string; became: "Rehabilitated" | "Redeemed" | "Recovered"; boxed: boolean }
+  | { t: "insured" }
+  | { t: "influenceLeft"; name: string }
+  | { t: "influenceTaken"; name: string; fame: number; boxed: boolean }
+  | { t: "streamRegistered"; name: string }
+  | { t: "streamCashed"; money: number; stopped: boolean }
+  | { t: "streamBroke" }
+  | { t: "pageant"; name: string; score: number; toBeat: number; won: boolean }
+  | { t: "photoshot"; name: string }
+  | { t: "invited"; name: string; room: string }
+  | { t: "sentHome"; name: string }
+  | { t: "giftOpened"; contents: { what: string; count: number }[] }
   /** Left at the workshop, or fetched back and how far it came along. */
   | { t: "workshopLeft"; name: string; station: WorkshopStation }
   | { t: "workshopTaken"; name: string; levels: number; boxed: boolean }
@@ -665,6 +741,18 @@ export interface GameState {
   stepsTaken: number;
   /** `stepsTaken` when the pawnbroker last bought one, or null before the first. */
   pawnedAt: number | null;
+  /** Eggs sold to the egg buyer in New Willow. He only gets talkative from the second. */
+  eggsSold: number;
+  /** The creature with the Ability Tutor, what it is learning, and the step count it arrived at. */
+  tutoring: { creature: Individual; abilityId: string; since: number } | null;
+  /** The creature on the Therapist's couch, and the step count it lay down at. */
+  therapy: { creature: Individual; since: number } | null;
+  /** The creature with the Influencer, and the step count it arrived at. */
+  influencing: { creature: Individual; since: number } | null;
+  /** The famous creature the Streamer streams, by uid, and what is in the pool. */
+  stream: { uid: number; pool: number } | null;
+  /** The pageant round last entered, so each line-up takes one entry. */
+  pageantEntered: number | null;
   /** Bids held by the auction house, by lot number, with what was paid. */
   bids: { n: number; price: number }[];
   /** Who is working at the workshop, and the level each arrived at. */
@@ -731,6 +819,27 @@ export interface GameState {
   talking: string | null;
   /** People whose one-off offer has been taken, sorted. */
   helped: string[];
+  /**
+   * Everybody you have spoken to, sorted. For the region map's hover text,
+   * which names the people who run something at a place once you have met
+   * them. Nothing in the rules reads it, so it is left out of the hash.
+   */
+  spokenTo: string[];
+  /** The people whose service you have used at least once, sorted. Only they can be invited. */
+  served: string[];
+  /**
+   * Who lives in which of Hearth's guest rooms, by room id. A lodger stands in
+   * their room and nowhere else while they are there — see `peopleOn`.
+   */
+  lodgers: Record<string, string>;
+  /** Creatures the player has locked, by uid: nothing that gives a creature away will take these. */
+  locked: number[];
+  /** The box tab incubated eggs hatch into, once it exists. Nothing can be put back into it. */
+  hatchedTab: number | null;
+  /** Eggs hatched, ever. The Egg-o-meter is handed over at `EGGOMETER_AT`. */
+  eggsHatched: number;
+  /** One-off gadgets already handed over, so selling or losing one never earns a second. */
+  given: string[];
   /** Quests accepted, and quests already paid out. Progress itself is never
    * stored — it is asked of the save, so a quest can be retuned without
    * invalidating a single log. */
@@ -997,6 +1106,12 @@ export function initialState(world: World): GameState {
     forageWalk: 0,
     stepsTaken: 0,
     pawnedAt: null,
+    eggsSold: 0,
+    tutoring: null,
+    therapy: null,
+    influencing: null,
+    stream: null,
+    pageantEntered: null,
     bids: [],
     workshop: {},
     poisonedAt: null,
@@ -1010,6 +1125,13 @@ export function initialState(world: World): GameState {
     beaten: [],
     talking: null,
     helped: [],
+    spokenTo: [],
+    served: [],
+    lodgers: {},
+    locked: [],
+    hatchedTab: null,
+    eggsHatched: 0,
+    given: [],
     pendingMoves: [],
     pendingEvolutions: [],
     eggs: [],
@@ -1113,7 +1235,121 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  return grounds(world, signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))))))));
+  const next = acquainted(world, grounds(world, incubated(world, signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))))))))));
+  return servedBy(state, next, input);
+}
+
+/**
+ * The inputs that are somebody's service, used. Doing one of these with a
+ * person is what makes them somebody you can invite to Hearth.
+ */
+const SERVICE_INPUTS: ReadonlySet<Input["t"]> = new Set<Input["t"]>([
+  "npcSell",
+  "print",
+  "shred",
+  "cut",
+  "reforge",
+  "pawn",
+  "bid",
+  "collectBids",
+  "workshopLeave",
+  "workshopTake",
+  "sellEgg",
+  "chromaTrade",
+  "tutorLeave",
+  "tutorTake",
+  "giftSwap",
+  "therapyLeave",
+  "therapyTake",
+  "buyInsurance",
+  "influenceLeave",
+  "influenceTake",
+  "streamRegister",
+  "streamCollect",
+  "streamUnregister",
+  "pageantEnter",
+  "photoshoot",
+]);
+
+/** The one you just did business with has now been used. */
+function servedBy(before: GameState, after: GameState, input: Input): GameState {
+  const who = before.talking;
+  if (!who || !SERVICE_INPUTS.has(input.t) || after.served.includes(who)) return after;
+  return { ...after, served: [...after.served, who].sort() };
+}
+
+/** What every refusal says about a locked creature. */
+export const LOCKED_TEXT = "it is locked — unlock it on its stat screen first";
+
+/** Why this creature cannot be locked or unlocked, or null. */
+export function lockRefusal(state: GameState, uid: number): string | null {
+  if (state.phase === "battle") return "not in the middle of a battle";
+  return [...state.party, ...state.box].some((one) => one.uid === uid) ? null : "nobody like that";
+}
+
+function toggleLock(state: GameState, uid: number): GameState {
+  const refusal = lockRefusal(state, uid);
+  if (refusal) throw new IllegalInput(refusal);
+  // Not a move, for the reason a nickname is not.
+  const locked = state.locked.includes(uid)
+    ? state.locked.filter((one) => one !== uid)
+    : [...state.locked, uid].sort((a, b) => a - b);
+  return { ...state, locked, notice: null };
+}
+
+/** Why the held items in this box tab cannot be taken back, or null. */
+export function takeHeldRefusal(state: GameState, tab: number): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (tab < 0 || tab >= state.boxNames.length) return "no such box";
+  const holding = state.box.some((one) => state.boxOf[one.uid] === tab && one.heldItem);
+  return holding ? null : "nobody in this box is holding anything";
+}
+
+function takeHeldFromBox(state: GameState, tab: number): GameState {
+  const refusal = takeHeldRefusal(state, tab);
+  if (refusal) throw new IllegalInput(refusal);
+  let bag = state.bag;
+  let count = 0;
+  const box = state.box.map((one) => {
+    if (state.boxOf[one.uid] !== tab || !one.heldItem) return one;
+    bag = addItem(bag, one.heldItem);
+    count++;
+    return { ...one, heldItem: null };
+  });
+  return { ...state, tick: state.tick + 1, box, bag, notice: { t: "heldTaken", count } };
+}
+
+/** The Egg-o-meter: a tool that reads an egg's exact steps. */
+export const EGGOMETER = "eggometer";
+/** Handed over when this many eggs have hatched. */
+export const EGGOMETER_AT = 15;
+/** The timers feed. */
+export const DOOMSCROLLER = "doomscroller";
+/** Handed over when you have met this many of the people who run something. */
+export const DOOMSCROLLER_AT = 6;
+
+/** How many of the people who run something you have spoken to. */
+export function specialsMet(world: World, state: GameState): number {
+  return state.spokenTo.filter((id) => {
+    const person = personById(world, id);
+    return person !== null && LODGER_KINDS.has(person.kind);
+  }).length;
+}
+
+/** Whoever you are talking to is somebody you have met. */
+function acquainted(world: World, state: GameState): GameState {
+  const who = state.talking;
+  if (!who || state.spokenTo.includes(who)) return state;
+  const met = { ...state, spokenTo: [...state.spokenTo, who].sort() };
+
+  // Six of them met, and the feed that keeps all their clocks is yours.
+  if (met.given.includes(DOOMSCROLLER) || specialsMet(world, met) < DOOMSCROLLER_AT) return met;
+  return {
+    ...met,
+    bag: addItem(met.bag, DOOMSCROLLER),
+    given: [...met.given, DOOMSCROLLER].sort(),
+    notice: met.notice ?? { t: "gadget", item: DOOMSCROLLER },
+  };
 }
 
 /**
@@ -1236,7 +1472,8 @@ function shelved(before: GameState, state: GameState): GameState {
 
   const boxNames = [...state.boxNames];
   for (const creature of unplaced) {
-    let tab = count.findIndex((n) => n < BOX_SIZE);
+    // Never into the Hatched tab: only a hatching puts anything there.
+    let tab = count.findIndex((n, at) => n < BOX_SIZE && at !== state.hatchedTab);
     if (tab < 0) {
       tab = boxNames.length;
       boxNames.push(defaultBoxName(tab));
@@ -1248,6 +1485,9 @@ function shelved(before: GameState, state: GameState): GameState {
 
   return { ...state, boxNames, boxOf };
 }
+
+/** What the Hatched tab says to anything put back into it. */
+export const HATCHED_TEXT = "only a hatching puts anything in the Hatched box";
 
 /** How many creatures sit in a tab. */
 export function boxCount(state: GameState, tab: number): number {
@@ -1261,11 +1501,13 @@ export function boxRefusal(state: GameState, input: Extract<Input, { t: "addBox"
     case "addBox":
       return state.boxNames.length >= BOX_TABS_MAX ? `no more than ${BOX_TABS_MAX} boxes` : null;
     case "renameBox":
+      if (input.tab === state.hatchedTab) return "the Hatched box keeps its name";
       return input.tab >= 0 && input.tab < state.boxNames.length ? null : "no such box";
     case "moveToBox": {
       if (!state.box.some((one) => one.uid === input.uid)) return "that is not in the box";
       if (input.tab < 0 || input.tab >= state.boxNames.length) return "no such box";
       if (state.boxOf[input.uid] === input.tab) return null;
+      if (input.tab === state.hatchedTab) return HATCHED_TEXT;
       return boxCount(state, input.tab) >= BOX_SIZE ? "that box is full" : null;
     }
   }
@@ -1498,11 +1740,11 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
     case "collectEgg":
       return collectEgg(world, state, input.to ?? "party");
     case "hatch":
-      return hatchEgg(state, input.index, input.from ?? "party");
+      return hatchEgg(world, state, input.index, input.from ?? "party");
     case "toggleItem":
       return toggleItem(world, state, input.item);
     case "store":
-      return moveBetweenParty(state, input.index, "store");
+      return moveBetweenParty(state, input.index, "store", input.tab);
     case "retrieve":
       return moveBetweenParty(state, input.index, "retrieve");
     case "trade":
@@ -1558,10 +1800,50 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return shred(world, state, input.index, input.confirm);
     case "pawn":
       return pawn(world, state, input.index, input.confirm);
+    case "sellEgg":
+      return sellEgg(world, state, input.index, input.confirm);
+    case "chromaTrade":
+      return chromaTrade(world, state, input.index, input.confirm);
+    case "tutorLeave":
+      return tutorLeave(world, state, input.n, input.index, input.confirm);
+    case "tutorTake":
+      return tutorTake(world, state);
+    case "giftSwap":
+      return giftSwap(world, state, input.index, input.confirm);
+    case "therapyLeave":
+      return therapyLeave(world, state, input.index, input.confirm);
+    case "therapyTake":
+      return therapyTake(world, state);
+    case "buyInsurance":
+      return buyInsurance(world, state);
+    case "influenceLeave":
+      return influenceLeave(world, state, input.index, input.confirm);
+    case "influenceTake":
+      return influenceTake(world, state);
+    case "streamRegister":
+      return streamRegister(world, state, input.index, input.confirm);
+    case "streamCollect":
+      return streamCash(world, state, false);
+    case "streamUnregister":
+      return streamCash(world, state, true);
+    case "pageantEnter":
+      return pageantEnter(world, state, input.index, input.confirm);
+    case "photoshoot":
+      return photoshoot(world, state, input.index, input.confirm);
+    case "invite":
+      return invite(world, state);
+    case "lock":
+      return toggleLock(state, input.uid);
+    case "takeHeldFromBox":
+      return takeHeldFromBox(state, input.tab);
+    case "sendHome":
+      return sendHome(world, state);
     case "bid":
       return placeBid(world, state, input.n);
     case "collectBids":
       return collectBids(world, state);
+    case "incubateEgg":
+      return incubateEgg(world, state, input.index);
     case "workshopLeave":
       return workshopLeave(world, state, input.station, input.index, input.confirm);
     case "workshopTake":
@@ -1888,7 +2170,7 @@ function atDaycare(world: World, state: GameState): boolean {
  * counter does not move, so the UI can say why.
  */
 function walked(world: World, start: GameState): GameState {
-  const before = workshopStep(forageStep(world, poisonStep(world, { ...start, stepsTaken: start.stepsTaken + 1 })));
+  const before = streamStep(workshopStep(forageStep(world, poisonStep(world, { ...start, stepsTaken: start.stepsTaken + 1 }))));
   const step = (eggs: Egg[]) => eggs.map((egg) => (egg.steps > 0 ? { ...egg, steps: egg.steps - 1 } : egg));
 
   // Every egg carried is walked, and every egg in an incubator too: the
@@ -2120,6 +2402,7 @@ export function printRefusal(
 
   const ink = inkFor(chromaId);
   if (ink !== null && !hasItem(state.bag, ink)) return `no ${chroma(chromaId).name.toLowerCase()} ink`;
+  if (state.money < PRINT_PRICE) return `a print costs ¤${PRINT_PRICE.toLocaleString("en-US")}`;
   return null;
 }
 
@@ -2141,7 +2424,13 @@ function print3d(world: World, state: GameState, chromaId: string): GameState {
   const refusal = printRefusal(world, state, chromaId);
   if (refusal) throw new IllegalInput(refusal);
 
-  const next = { ...state, tick: state.tick + 1, printedAt: state.tick, talking: state.talking };
+  const next = {
+    ...state,
+    tick: state.tick + 1,
+    printedAt: state.tick,
+    money: state.money - PRINT_PRICE,
+    talking: state.talking,
+  };
   const rng = rngFor(world.seed, "print", state.tick);
 
   // Rolled from the seed and the tick, so a bad print cannot be rerolled by
@@ -2287,7 +2576,7 @@ export function arenaTeam(world: World, state: GameState): Individual[] {
           exp: expForLevel(level),
           // Better bred than a route trainer and short of the Cup, which is
           // where a bracket belongs: somebody who came to win.
-          ivs: { hp: 24, atk: 24, def: 24, spa: 24, spd: 24, spe: 24 },
+          ivs: { hp: ARENA_IV, atk: ARENA_IV, def: ARENA_IV, spa: ARENA_IV, spd: ARENA_IV, spe: ARENA_IV },
           evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
           natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
           variantId: "normal",
@@ -2316,6 +2605,11 @@ export function arenaRefusal(state: GameState, id: string): string | null {
   if (!isArena(id)) return "no such bracket";
   if (state.arena) return "you are already in one";
   const spec = arena(id);
+  // Exactly the format, no more and no fewer: a 3v3 entered with six is a
+  // bench of three to swap in, and nobody else in the draw has one.
+  if (state.party.length !== spec.teamSize) {
+    return `it is ${spec.teamSize}v${spec.teamSize}: bring exactly ${spec.teamSize} (you have ${state.party.length})`;
+  }
   const able = state.party.filter((one) => !isFainted(one)).length;
   if (able < spec.teamSize) {
     return `it is ${spec.teamSize}v${spec.teamSize}, and you have ${able} standing`;
@@ -2445,7 +2739,18 @@ export function collectRefusal(world: World, state: GameState, to: "party" | "in
 function collectEgg(world: World, state: GameState, to: "party" | "incubator"): GameState {
   const refusal = collectRefusal(world, state, to);
   if (refusal) throw new IllegalInput(refusal);
+  const laid = layEgg(world, state, to);
+  return { ...laid.state, tick: state.tick + 1, notice: { t: "eggTaken", steps: laid.steps } };
+}
 
+/**
+ * The waiting egg, made and put where it is going: the party, or an incubator.
+ *
+ * Shared by taking it by hand and by the daycare putting it straight into a
+ * free incubator. Neither the tick nor the notice is decided here, because the
+ * two callers differ on both.
+ */
+function layEgg(world: World, state: GameState, to: "party" | "incubator"): { state: GameState; steps: number } {
   const [first, second] = state.daycare.slots;
   if (!first || !second) throw new IllegalInput("no pair");
 
@@ -2468,19 +2773,61 @@ function collectEgg(world: World, state: GameState, to: "party" | "incubator"): 
     : state.daycare.applied;
 
   return {
+    steps,
+    state: {
+      ...state,
+      eggs: to === "party" ? [...state.eggs, egg] : state.eggs,
+      bag,
+      daycare: {
+        ...state.daycare,
+        incubating: to === "incubator" ? [...state.daycare.incubating, egg] : state.daycare.incubating,
+        applied,
+        eggReady: false,
+        eggIndex: state.daycare.eggIndex + 1,
+        steps: 0,
+      },
+    },
+  };
+}
+
+/**
+ * A waiting egg goes straight into a free incubator, wherever you are.
+ *
+ * In the funnel rather than only in `walked`, because an incubator can become
+ * free in three ways — an egg ready as you walk, an incubated egg hatching,
+ * and an incubator being applied to a pair that already has an egg waiting —
+ * and all three should end the same way. The notice is only written when
+ * nothing else has something to say.
+ */
+function incubated(world: World, state: GameState): GameState {
+  const daycare = state.daycare;
+  if (!daycare.eggReady || !daycare.slots[0] || !daycare.slots[1]) return state;
+  if (daycare.incubating.length >= incubatorSlots(daycare.applied)) return state;
+  const laid = layEgg(world, state, "incubator");
+  return { ...laid.state, notice: state.notice ?? { t: "eggIncubated" } };
+}
+
+/** Why a carried egg cannot go into an incubator, or null. */
+export function incubateRefusal(world: World, state: GameState, index: number): string | null {
+  if (!atDaycare(world, state)) return "you are not in the daycare";
+  if (!state.eggs[index]) return "no such egg";
+  const slots = incubatorSlots(state.daycare.applied);
+  if (!slots) return "no incubator applied";
+  if (state.daycare.incubating.length >= slots) return "every incubator is taken";
+  return null;
+}
+
+/** A carried egg, handed to an incubator: it stops taking a party slot and hatches into the box. */
+function incubateEgg(world: World, state: GameState, index: number): GameState {
+  const refusal = incubateRefusal(world, state, index);
+  if (refusal) throw new IllegalInput(refusal);
+  const egg = state.eggs[index];
+  return {
     ...state,
     tick: state.tick + 1,
-    eggs: to === "party" ? [...state.eggs, egg] : state.eggs,
-    bag,
-    daycare: {
-      ...state.daycare,
-      incubating: to === "incubator" ? [...state.daycare.incubating, egg] : state.daycare.incubating,
-      applied,
-      eggReady: false,
-      eggIndex: state.daycare.eggIndex + 1,
-      steps: 0,
-    },
-    notice: { t: "eggTaken", steps },
+    eggs: state.eggs.filter((_, at) => at !== index),
+    daycare: { ...state.daycare, incubating: [...state.daycare.incubating, egg] },
+    notice: { t: "eggIncubated" },
   };
 }
 
@@ -2504,20 +2851,43 @@ export function readyEgg(state: GameState): { index: number; egg: Egg; from: "pa
   return kept < 0 ? null : { index: kept, egg: state.daycare.incubating[kept], from: "incubator" };
 }
 
-function hatchEgg(state: GameState, index: number, from: "party" | "incubator"): GameState {
+function hatchEgg(world: World, state: GameState, index: number, from: "party" | "incubator"): GameState {
   const refusal = hatchRefusal(state, index, from);
   if (refusal) throw new IllegalInput(refusal);
 
+  const counted = countHatch(state);
+
   if (from === "incubator") {
-    // Into the box always: an incubated egg never had a party slot to hatch into.
+    // Into the box always — into the Hatched tab — because an incubated egg
+    // never had a party slot to hatch into.
     const born = { ...state.daycare.incubating[index].creature, uid: state.nextUid };
+    // Egg Insurance: an ordinary one pays out, Glitter or candy by the seed.
+    const form = variant(born.variantId);
+    const payout =
+      state.daycare.applied.includes(EGG_INSURANCE) && form.tier === 0 && !form.chromaId
+        ? intBelow(rngFor(world.seed, "insurance", born.uid), 2) === 0
+          ? "glitter"
+          : CHROMA_CANDY
+        : null;
+    const insured = payout ? { ...counted.state, bag: addItem(counted.state.bag, payout) } : counted.state;
+    const shelf = hatchedShelf(insured);
     return {
-      ...state,
+      ...shelf,
       tick: state.tick + 1,
       daycare: { ...state.daycare, incubating: state.daycare.incubating.filter((_, at) => at !== index) },
       box: [...state.box, born],
+      boxOf: shelf.hatchedTab !== null && boxCount(shelf, shelf.hatchedTab) < BOX_SIZE
+        ? { ...shelf.boxOf, [born.uid]: shelf.hatchedTab }
+        : shelf.boxOf,
       nextUid: state.nextUid + 1,
-      notice: { t: "hatched", speciesId: born.speciesId, variantId: born.variantId, boxed: true },
+      notice: {
+        t: "hatched",
+        speciesId: born.speciesId,
+        variantId: born.variantId,
+        boxed: true,
+        ...counted.gift,
+        ...(payout ? { payout } : {}),
+      },
     };
   }
 
@@ -2525,13 +2895,34 @@ function hatchEgg(state: GameState, index: number, from: "party" | "incubator"):
 
   // Into the party always: it was already taking the slot it hatches into.
   return {
-    ...state,
+    ...counted.state,
     tick: state.tick + 1,
     eggs: state.eggs.filter((_, at) => at !== index),
     party: [...state.party, hatched],
     nextUid: state.nextUid + 1,
-    notice: { t: "hatched", speciesId: hatched.speciesId, variantId: hatched.variantId, boxed: false },
+    notice: { t: "hatched", speciesId: hatched.speciesId, variantId: hatched.variantId, boxed: false, ...counted.gift },
   };
+}
+
+/** One more egg hatched — and the Egg-o-meter, on the fifteenth. */
+function countHatch(state: GameState): { state: GameState; gift: { gift?: string } } {
+  const eggsHatched = state.eggsHatched + 1;
+  if (eggsHatched < EGGOMETER_AT || state.given.includes(EGGOMETER)) {
+    return { state: { ...state, eggsHatched }, gift: {} };
+  }
+  return {
+    state: { ...state, eggsHatched, bag: addItem(state.bag, EGGOMETER), given: [...state.given, EGGOMETER].sort() },
+    gift: { gift: EGGOMETER },
+  };
+}
+
+/** The name of the box tab hatchlings go into. */
+export const HATCHED_BOX_NAME = "Hatched";
+
+/** The Hatched tab, opened if it does not exist yet and there is room for another tab. */
+function hatchedShelf(state: GameState): GameState {
+  if (state.hatchedTab !== null || state.boxNames.length >= BOX_TABS_MAX) return state;
+  return { ...state, boxNames: [...state.boxNames, HATCHED_BOX_NAME], hatchedTab: state.boxNames.length };
 }
 
 function toggleItem(world: World, state: GameState, item: BreedingItem): GameState {
@@ -2550,17 +2941,33 @@ function toggleItem(world: World, state: GameState, item: BreedingItem): GameSta
 }
 
 /** Party to box, or box to party. */
-function moveBetweenParty(state: GameState, index: number, direction: "store" | "retrieve"): GameState {
+/** Why this party member cannot go into the box — into `tab`, when one is named — or null. */
+export function storeRefusal(state: GameState, index: number, tab?: number): string | null {
+  if (state.phase !== "field") return "not now";
+  if (index < 0 || index >= state.party.length) return "no such creature";
+  if (state.party.length <= 1) return "keep at least one";
+  if (tab !== undefined) {
+    if (!Number.isInteger(tab) || tab < 0 || tab >= state.boxNames.length) return "no such box";
+    if (tab === state.hatchedTab) return HATCHED_TEXT;
+    if (boxCount(state, tab) >= BOX_SIZE) return "that box is full";
+  }
+  return null;
+}
+
+function moveBetweenParty(state: GameState, index: number, direction: "store" | "retrieve", tab?: number): GameState {
   if (state.phase !== "field") throw new IllegalInput("not now");
 
   if (direction === "store") {
-    if (index < 0 || index >= state.party.length) throw new IllegalInput("no such creature");
-    if (state.party.length <= 1) throw new IllegalInput("keep at least one");
+    const refusal = storeRefusal(state, index, tab);
+    if (refusal) throw new IllegalInput(refusal);
+    const going = state.party[index];
     return {
       ...state,
       tick: state.tick + 1,
       party: state.party.filter((_, i) => i !== index),
-      box: [...state.box, state.party[index]],
+      box: [...state.box, going],
+      // Into the tab asked for. Without one, `shelved` finds it a place.
+      boxOf: tab === undefined ? state.boxOf : { ...state.boxOf, [going.uid]: tab },
       notice: null,
     };
   }
@@ -2832,6 +3239,7 @@ export function itemRefusal(
   // record. An Escape Rope is asked where you are standing instead.
   if (spec.repel) return lureLeft(state, itemId) > 0 ? "that one is still working" : null;
   if (spec.escape) return inTown(world, state) ? "you are already in town" : null;
+  if (spec.opens) return null;
 
   const target = state.party[index];
   if (!target) return "nobody there";
@@ -2932,6 +3340,13 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
   // Through the same landing `fly` uses, so there is one place that decides
   // where you end up standing — but not through `fly` itself, which wants a
   // wing you may not have. A rope is not a wing.
+  // A gift opens into whatever the seed put in it on this tick.
+  if (spec.opens) {
+    const contents = giftContents(world.seed, state.tick);
+    const bag = contents.reduce((held, part) => addItem(held, part.what, part.count), removeItem(state.bag, itemId));
+    return { ...state, tick: state.tick + 1, bag, notice: { t: "giftOpened", contents } };
+  }
+
   if (spec.escape) {
     const home = landAt(world, { ...state, bag: removeItem(state.bag, itemId) }, HUB_ID);
     return { ...home, notice: { t: "used", item: itemId, on: "the walk home" } };
@@ -3516,6 +3931,39 @@ function atMart(world: World, state: GameState): boolean {
   return inside(world, state, "mart");
 }
 
+/**
+ * What the Mart will sell you, by price: the cheap shelves for anybody, and
+ * each dearer shelf once you have raised a creature that high, or won that
+ * many badges — whichever you get to first.
+ */
+export const MART_GATES: readonly { upTo: number; level: number; badges: number }[] = [
+  { upTo: 1000, level: 0, badges: 0 },
+  { upTo: 3000, level: 15, badges: 1 },
+  { upTo: 8000, level: 30, badges: 3 },
+  { upTo: 20000, level: 45, badges: 5 },
+  { upTo: Infinity, level: 60, badges: 7 },
+];
+
+/** The highest level of anything you own: party, box, daycare, workshop, tutor, couch. */
+export function highestLevel(state: GameState): number {
+  const owned = [
+    ...state.party,
+    ...state.box,
+    ...state.daycare.slots.flatMap((one) => (one ? [one] : [])),
+    ...WORKSHOP_STATIONS.flatMap((station) => (state.workshop[station] ? [state.workshop[station]!.creature] : [])),
+    ...(state.tutoring ? [state.tutoring.creature] : []),
+    ...(state.therapy ? [state.therapy.creature] : []),
+  ];
+  return Math.max(0, ...owned.map((one) => one.level));
+}
+
+/** Why the Mart will not sell something at this price yet, or null. */
+export function martGateRefusal(state: GameState, price: number): string | null {
+  const gate = MART_GATES.find((one) => price <= one.upTo)!;
+  if (highestLevel(state) >= gate.level || state.badges.length >= gate.badges) return null;
+  return `on the shelf once you have raised one to level ${gate.level} or won ${gate.badges} badge${gate.badges === 1 ? "" : "s"}`;
+}
+
 export function buyRefusal(
   world: World,
   state: GameState,
@@ -3528,6 +3976,8 @@ export function buyRefusal(
 
   const spec = item(itemId);
   if (spec.price <= 0) return "that is not for sale";
+  const gate = martGateRefusal(state, spec.price);
+  if (gate) return gate;
   if (!spec.stacks && hasItem(state.bag, itemId)) return "you already have one";
   if (!spec.stacks && count > 1) return "one is all there is";
   if (spec.price * count > state.money) return "you cannot afford that";
@@ -4018,9 +4468,121 @@ function withMet(state: GameState, id: string | null): string[] {
   return [...state.met, id].sort();
 }
 
-/** Everyone standing on this map. */
-export function npcAt(world: World, route: string, x: number, y: number): NpcSpec | null {
-  return (world.npcs.get(route) ?? []).find((who) => who.x === x && who.y === y) ?? null;
+/** Everyone standing on this map. `state` moves lodgers into their rooms; without it, the world as generated. */
+export function npcAt(world: World, route: string, x: number, y: number, state?: GameState): NpcSpec | null {
+  const here = state ? peopleOn(world, state, route) : (world.npcs.get(route) ?? []);
+  return here.find((who) => who.x === x && who.y === y) ?? null;
+}
+
+/**
+ * The kinds of person who can be invited to live in Hearth: the ones who run
+ * something you come back for. Not quest givers, gyms, the Cup, hints, one-off
+ * trades, brackets, nurses or the Grey Line.
+ */
+export const LODGER_KINDS: ReadonlySet<NpcKind> = new Set<NpcKind>([
+  "buy",
+  "print",
+  "shred",
+  "cut",
+  "forge",
+  "pawn",
+  "auction",
+  "workshop",
+  "eggbuy",
+  "chromabuy",
+  "tutor",
+  "giftswap",
+  "therapy",
+  "insure",
+  "influence",
+  "stream",
+  "pageant",
+  "photoshoot",
+]);
+
+/**
+ * Who is standing on this map right now.
+ *
+ * The world's roster, less anybody who has moved into Hearth, plus the lodger
+ * of this room if it is a guest room. Everything that asks where somebody is —
+ * walking into them, talking, drawing them — asks this, so a lodger is in
+ * exactly one place.
+ */
+export function peopleOn(world: World, state: GameState, routeId: string): NpcSpec[] {
+  const lodging = new Set(Object.values(state.lodgers));
+  const here = (world.npcs.get(routeId) ?? []).filter((who) => !lodging.has(who.id));
+  const lodgerId = state.lodgers[routeId];
+  const room = lodgerId ? world.routes.get(routeId) : undefined;
+  const person = lodgerId ? personById(world, lodgerId) : null;
+  if (room && person) {
+    const spot = lodgerSpot(room);
+    here.push({ ...person, route: routeId, x: spot.x, y: spot.y });
+  }
+  return here;
+}
+
+/** Anybody on the roster, by id, wherever the world put them. */
+function personById(world: World, id: string): NpcSpec | null {
+  for (const here of world.npcs.values()) {
+    const found = here.find((who) => who.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** The guest room this person lives in, if any. */
+export function lodgingOf(state: GameState, id: string): string | null {
+  return Object.keys(state.lodgers).find((room) => state.lodgers[room] === id) ?? null;
+}
+
+/** Why the person you are talking to cannot be invited to Hearth, or null. */
+export function inviteRefusal(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (!LODGER_KINDS.has(person.kind)) return "they have nowhere to be but here";
+  if (lodgingOf(state, person.id)) return "they already live in Hearth";
+  if (!state.served.includes(person.id)) return "do business with them first";
+  if (!guestRooms(world).some((room) => !state.lodgers[room.id])) return `all ${GUEST_ROOMS} guest rooms are taken`;
+  return null;
+}
+
+function invite(world: World, state: GameState): GameState {
+  const refusal = inviteRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+  const person = speakingTo(world, state)!;
+  const room = guestRooms(world).find((one) => !state.lodgers[one.id])!;
+  return {
+    ...state,
+    tick: state.tick + 1,
+    lodgers: { ...state.lodgers, [room.id]: person.id },
+    // They pack up and go: the conversation is over.
+    talking: null,
+    notice: { t: "invited", name: person.name, room: room.label },
+  };
+}
+
+/** Why the person you are talking to cannot be sent back where you found them, or null. */
+export function sendHomeRefusal(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  return lodgingOf(state, person.id) ? null : "they do not live in Hearth";
+}
+
+function sendHome(world: World, state: GameState): GameState {
+  const refusal = sendHomeRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+  const person = speakingTo(world, state)!;
+  const lodgers = { ...state.lodgers };
+  delete lodgers[lodgingOf(state, person.id)!];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    lodgers,
+    talking: null,
+    notice: { t: "sentHome", name: person.name },
+  };
 }
 
 /** The person a save is mid-conversation with, if any. */
@@ -4036,7 +4598,7 @@ export function speakingTo(world: World, state: GameState): NpcSpec | null {
 function talk(world: World, state: GameState, id: string): GameState {
   if (state.phase !== "field") throw new IllegalInput("not right now");
 
-  const person = (world.npcs.get(state.route) ?? []).find((who) => who.id === id);
+  const person = peopleOn(world, state, state.route).find((who) => who.id === id);
   if (!person) throw new IllegalInput("nobody there");
 
   const near = Math.abs(person.x - state.x) + Math.abs(person.y - state.y);
@@ -4158,6 +4720,30 @@ export function offerRefusal(world: World, state: GameState): string | null {
     case "auction":
       return "they want to know which lot, not whether";
 
+    // Which one, not whether — the three who shape abilities.
+    case "chromabuy":
+      return "they want to know which one, not whether";
+    case "tutor":
+      return "they want to know which ability and who, not whether";
+    case "giftswap":
+      return "they want to know which one, not whether";
+    case "therapy":
+      return "they want to know who is lying down, not whether";
+    case "insure":
+      return "they want to know whether you are buying";
+    case "influence":
+      return "they want to know who is going viral, not whether";
+    case "stream":
+      return "they want to know who is going live, not whether";
+    case "pageant":
+      return "they want to know who is walking the stage, not whether";
+    case "photoshoot":
+      return "they want to know who is on the cover, not whether";
+
+    // Which egg, not whether.
+    case "eggbuy":
+      return state.eggs.length ? "they want to know which egg, not whether" : "you are not carrying an egg";
+
     // Which one, not whether — and only once the last one has been sold on.
     case "pawn":
       if (!pawnReady(state.stepsTaken, state.pawnedAt)) {
@@ -4249,6 +4835,7 @@ export function appraiseRefusal(
   const creature = state.party[index];
   if (!creature) return "nobody there";
   if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.locked.includes(creature.uid)) return LOCKED_TEXT;
   if (variant(creature.variantId).tier <= 0) return "there is no shine on that one";
   if (state.party.length <= 1) return "keep something that can fight";
   return null;
@@ -4338,6 +4925,7 @@ export function shredRefusal(
   const creature = state.party[index];
   if (!creature) return "nobody there";
   if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.locked.includes(creature.uid)) return LOCKED_TEXT;
   if (shredValue(creature) < 1) return "it is not worth a candy yet";
   // The same rule the Appraiser follows: walking out of a town with nothing
   // that can fight is a game that has quietly stopped working.
@@ -4616,6 +5204,7 @@ export function pawnRefusal(world: World, state: GameState, index: number, confi
   const creature = state.party[index];
   if (!creature) return "nobody there";
   if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.locked.includes(creature.uid)) return LOCKED_TEXT;
   if (state.party.length <= 1) return "keep something that can fight";
   return null;
 }
@@ -4635,6 +5224,593 @@ function pawn(world: World, state: GameState, index: number, confirm: number): G
     bag: going.heldItem ? addItem(state.bag, going.heldItem) : state.bag,
     pawnedAt: state.stepsTaken,
     notice: { t: "pawned", name: going.nickname ?? speciesById(going.speciesId).name, level: going.level, money: paid },
+  };
+}
+
+/*
+ * ------------------------------------------------------------- the egg buyer
+ *
+ * A man in New Willow who buys eggs unopened, priced on what is inside them:
+ * a thousand for a plain one, up to three thousand for a true shiny in a
+ * colour. What he wants them for he will not say until he has two — see his
+ * lines in npc.ts.
+ */
+
+/** What he pays for an egg with nothing special inside. */
+export const EGG_PRICE_BASE = 1000;
+/** What a true shiny adds, spread evenly across the rungs below it. */
+export const EGG_PRICE_SHINE = 1500;
+/** What a colour adds. */
+export const EGG_PRICE_CHROMA = 500;
+
+/**
+ * What the egg buyer pays for this one: 1000 to 3000.
+ *
+ * Read off the creature inside, which the egg has carried since it was laid —
+ * so the price is the truth about the egg, and selling it unhatched sells
+ * exactly what would have hatched.
+ */
+export function eggValue(egg: Egg): number {
+  const form = variant(egg.creature.variantId);
+  return (
+    EGG_PRICE_BASE +
+    Math.round((EGG_PRICE_SHINE * form.tier) / TOP_TIER) +
+    (form.chromaId ? EGG_PRICE_CHROMA : 0)
+  );
+}
+
+/** Why he will not buy this egg, or null. */
+export function sellEggRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "eggbuy") return "they are not buying eggs";
+  const egg = state.eggs[index];
+  if (!egg) return "no such egg";
+  if (egg.creature.uid !== confirm) return "that is not the egg you were shown";
+  return null;
+}
+
+function sellEgg(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = sellEggRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const paid = eggValue(state.eggs[index]);
+  const count = state.eggsSold + 1;
+  return {
+    ...state,
+    tick: state.tick + 1,
+    eggs: state.eggs.filter((_, at) => at !== index),
+    money: state.money + paid,
+    eggsSold: count,
+    notice: { t: "eggSold", money: paid, count },
+  };
+}
+
+/*
+ * ------------------------------------------------- the ones who shape abilities
+ *
+ * See tutor.ts for the board, the gift and the candy. What lives here is the
+ * trading: creatures in, candy and gifts out, and the tutor's one pupil.
+ */
+
+/** Whether you are talking to somebody of this kind, as a refusal. */
+function talkingToKind(world: World, state: GameState, kind: NpcKind, what: string): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== kind) return what;
+  return null;
+}
+
+/** The party member at `index`, if it is the one you were shown and not your last. */
+function partingWith(state: GameState, index: number, confirm: number): string | null {
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+/** What giving a creature away leaves: its held item back in the bag. */
+function givenAway(state: GameState, index: number): GameState {
+  const going = state.party[index];
+  return {
+    ...state,
+    party: state.party.filter((_, slot) => slot !== index),
+    bag: going.heldItem ? addItem(state.bag, going.heldItem) : state.bag,
+  };
+}
+
+export function chromaTradeRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "chromabuy", "they are not collecting colours");
+  if (talking) return talking;
+  const parting = partingWith(state, index, confirm);
+  if (parting) return parting;
+  if (state.locked.includes(state.party[index].uid)) return LOCKED_TEXT;
+  if (chromaCandyFor(state.party[index]) === 0) return "it is not wearing a colour";
+  return null;
+}
+
+function chromaTrade(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = chromaTradeRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const going = state.party[index];
+  const candy = chromaCandyFor(going);
+  const after = givenAway(state, index);
+  return {
+    ...after,
+    tick: state.tick + 1,
+    bag: addItem(after.bag, CHROMA_CANDY, candy),
+    notice: { t: "chromaTraded", name: going.nickname ?? speciesById(going.speciesId).name, candy },
+  };
+}
+
+export function giftSwapRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "giftswap", "they are not swapping gifts");
+  if (talking) return talking;
+  const parting = partingWith(state, index, confirm);
+  if (parting) return parting;
+  return state.locked.includes(state.party[index].uid) ? LOCKED_TEXT : null;
+}
+
+function giftSwap(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = giftSwapRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const going = state.party[index];
+  const after = givenAway(state, index);
+  return {
+    ...after,
+    tick: state.tick + 1,
+    bag: addItem(after.bag, SECRET_GIFT),
+    notice: { t: "giftSwapped", name: going.nickname ?? speciesById(going.speciesId).name },
+  };
+}
+
+/** Whether the bag holds every part of a price that is an item, and the money. */
+function canPay(state: GameState, price: readonly PricePart[]): string | null {
+  for (const part of price) {
+    if (part.what === "money") {
+      if (state.money < part.count) return `you need ¤${part.count.toLocaleString("en-US")}`;
+    } else if (countOf(state.bag, part.what) < part.count) {
+      return `you need ${part.count} ${item(part.what).name}`;
+    }
+  }
+  return null;
+}
+
+/** Why the tutor will not take this pupil for offer `n`, or null. */
+export function tutorLeaveRefusal(world: World, state: GameState, n: number, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "tutor", "they are not teaching");
+  if (talking) return talking;
+  if (state.tutoring) return "he already has a pupil";
+  const offer = tutorBoard(world.seed, state.stepsTaken).find((one) => one.n === n);
+  if (!offer) return "that one is not on the board any more";
+  const parting = partingWith(state, index, confirm);
+  if (parting) return parting;
+  const pupil = state.party[index];
+  if (pupil.abilities.includes(offer.abilityId)) return "it already has that one";
+  if (pupil.abilities.length >= MAX_ABILITIES) return `nobody learns more than ${MAX_ABILITIES}`;
+  return canPay(state, offer.price);
+}
+
+function tutorLeave(world: World, state: GameState, n: number, index: number, confirm: number): GameState {
+  const refusal = tutorLeaveRefusal(world, state, n, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const offer = tutorBoard(world.seed, state.stepsTaken).find((one) => one.n === n)!;
+  const pupil = state.party[index];
+
+  let bag = state.bag;
+  let money = state.money;
+  for (const part of offer.price) {
+    if (part.what === "money") money -= part.count;
+    else bag = removeItem(bag, part.what, part.count);
+  }
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money,
+    bag,
+    party: state.party.filter((_, slot) => slot !== index),
+    tutoring: { creature: pupil, abilityId: offer.abilityId, since: state.stepsTaken },
+    notice: { t: "tutorLeft", name: pupil.nickname ?? speciesById(pupil.speciesId).name, abilityId: offer.abilityId },
+  };
+}
+
+/** Steps until the pupil has learned, or 0 when it has. */
+export function tutorWait(state: GameState): number {
+  if (!state.tutoring) return 0;
+  return Math.max(0, TUTOR_STAY - (state.stepsTaken - state.tutoring.since));
+}
+
+export function tutorTakeRefusal(world: World, state: GameState): string | null {
+  const talking = talkingToKind(world, state, "tutor", "they are not teaching");
+  if (talking) return talking;
+  if (!state.tutoring) return "he has nobody of yours";
+  const wait = tutorWait(state);
+  if (wait > 0) return `still learning — ${wait} steps`;
+  return null;
+}
+
+function tutorTake(world: World, state: GameState): GameState {
+  const refusal = tutorTakeRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+  const { creature, abilityId } = state.tutoring!;
+  const learned = { ...creature, abilities: [...creature.abilities, abilityId] };
+  const boxed = partyFull(state);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    tutoring: null,
+    party: boxed ? state.party : [...state.party, learned],
+    box: boxed ? [...state.box, learned] : state.box,
+    notice: { t: "tutorTaken", name: learned.nickname ?? speciesById(learned.speciesId).name, abilityId, boxed },
+  };
+}
+
+/*
+ * ------------------------------------------------------------- the Therapist
+ *
+ * A traded creature or a prize, left on the couch for a thousand steps and
+ * ten thousand in money, comes back Rehabilitated or Redeemed — see those two
+ * fields on `Individual` for what each does.
+ */
+
+/** How long a course of therapy takes, in steps. */
+export const THERAPY_STEPS = 1000;
+/** What a course costs. */
+export const THERAPY_PRICE = 10000;
+
+export function therapyLeaveRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "therapy", "they are not a therapist");
+  if (talking) return talking;
+  if (state.therapy) return "the couch is taken";
+  const parting = partingWith(state, index, confirm);
+  if (parting) return parting;
+  const patient = state.party[index];
+  if (!patient.traded && !patient.prize && !patient.burnedOut) {
+    return "it has nothing to work through — only traded creatures, prizes and the burned out";
+  }
+  if (state.money < THERAPY_PRICE) return `a course is ¤${THERAPY_PRICE.toLocaleString("en-US")}`;
+  return null;
+}
+
+function therapyLeave(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = therapyLeaveRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const patient = state.party[index];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money - THERAPY_PRICE,
+    party: state.party.filter((_, slot) => slot !== index),
+    therapy: { creature: patient, since: state.stepsTaken },
+    notice: { t: "therapyLeft", name: patient.nickname ?? speciesById(patient.speciesId).name },
+  };
+}
+
+/** Steps left on the course, or 0 when it is done. */
+export function therapyWait(state: GameState): number {
+  if (!state.therapy) return 0;
+  return Math.max(0, THERAPY_STEPS - (state.stepsTaken - state.therapy.since));
+}
+
+export function therapyTakeRefusal(world: World, state: GameState): string | null {
+  const talking = talkingToKind(world, state, "therapy", "they are not a therapist");
+  if (talking) return talking;
+  if (!state.therapy) return "nobody of yours is on the couch";
+  const wait = therapyWait(state);
+  return wait > 0 ? `still in session — ${wait} steps` : null;
+}
+
+function therapyTake(world: World, state: GameState): GameState {
+  const refusal = therapyTakeRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+  const { creature } = state.therapy!;
+  const became = creature.prize ? "Redeemed" : creature.traded ? "Rehabilitated" : "Recovered";
+  const healed: Individual = {
+    ...creature,
+    traded: false,
+    prize: false,
+    burnedOut: false,
+    ...(creature.traded ? { rehabilitated: true } : {}),
+    ...(creature.prize ? { redeemed: true } : {}),
+  };
+  const boxed = partyFull(state);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    therapy: null,
+    party: boxed ? state.party : [...state.party, healed],
+    box: boxed ? [...state.box, healed] : state.box,
+    notice: { t: "therapyTaken", name: healed.nickname ?? speciesById(healed.speciesId).name, became, boxed },
+  };
+}
+
+/*
+ * ------------------------------------------------- the social media cabin
+ *
+ * The Influencer turns steps into fame for something special, and the
+ * Streamer turns a famous creature's battles into money — or into a debt he
+ * will not carry.
+ */
+
+/**
+ * Steps to each fame level for a creature worth one, each on top of the last:
+ * Famous 1 after 10,000, Famous 2 after 20,000 more, and so on — 150,000 in
+ * all for Famous 5 — every one divided by what the creature is worth.
+ */
+export const FAME_STEP = 10000;
+
+/** Worth-one steps needed to reach fame level `level`: 10,000 × (1 + 2 + … + level). */
+function fameNeeds(level: number): number {
+  return (FAME_STEP * level * (level + 1)) / 2;
+}
+
+/** The fame level a number of steps at a worth comes to. */
+function fameAt(steps: number, worth: number): number {
+  let level = 0;
+  while (level < FAME_MAX && steps * worth >= fameNeeds(level + 1)) level++;
+  return level;
+}
+/** The highest fame there is. */
+export const FAME_MAX = 5;
+/** What a stream pays per level of every foe knocked out, by fame level (index 0 is Famous 1). */
+export const STREAM_EARN: readonly number[] = [1, 3, 9, 27, 81];
+/** What it costs when the famous one faints, by fame level. */
+export const STREAM_FAINT: readonly number[] = [500, 1000, 2000, 4000, 8000];
+/** The stake that opens the pool. */
+export const STREAM_STAKE = 10000;
+
+/**
+ * How much the algorithm likes it: one per shine rung, two for a colour, one
+ * per ability. Nought is a creature the Influencer will not take.
+ */
+export function fameWorth(creature: Individual): number {
+  const form = variant(creature.variantId);
+  return form.tier + (form.chromaId ? 2 : 0) + abilitiesOf(creature.abilities).length;
+}
+
+/** Famous 0 to 5, from all the steps it has spent with the Influencer. */
+export function fameLevel(creature: Individual): number {
+  const worth = fameWorth(creature);
+  if (!worth || !creature.fameSteps) return 0;
+  return fameAt(creature.fameSteps, worth);
+}
+
+/** Steps with the Influencer until the next fame level, or null at the top. */
+export function fameToNext(creature: Individual, extraSteps = 0): number | null {
+  const worth = fameWorth(creature);
+  const steps = (creature.fameSteps ?? 0) + extraSteps;
+  const level = worth ? fameAt(steps, worth) : 0;
+  if (!worth || level >= FAME_MAX) return null;
+  return Math.max(0, Math.ceil(fameNeeds(level + 1) / worth) - steps);
+}
+
+export function influenceLeaveRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "influence", "they are not an influencer");
+  if (talking) return talking;
+  if (state.influencing) return "she is already posting about somebody";
+  const parting = partingWith(state, index, confirm);
+  if (parting) return parting;
+  const one = state.party[index];
+  if (!fameWorth(one)) return "no shine, no colour, no ability — it will not trend";
+  if (fameLevel(one) >= FAME_MAX) return "it is already as famous as it gets";
+  return null;
+}
+
+function influenceLeave(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = influenceLeaveRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const one = state.party[index];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, slot) => slot !== index),
+    influencing: { creature: one, since: state.stepsTaken },
+    // A creature on the stream that goes to be posted about is off the stream.
+    stream: state.stream?.uid === one.uid ? null : state.stream,
+    notice: { t: "influenceLeft", name: one.nickname ?? speciesById(one.speciesId).name },
+  };
+}
+
+export function influenceTakeRefusal(world: World, state: GameState): string | null {
+  const talking = talkingToKind(world, state, "influence", "they are not an influencer");
+  if (talking) return talking;
+  return state.influencing ? null : "she has nobody of yours";
+}
+
+function influenceTake(world: World, state: GameState): GameState {
+  const refusal = influenceTakeRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+  const { creature, since } = state.influencing!;
+  const back = { ...creature, fameSteps: (creature.fameSteps ?? 0) + (state.stepsTaken - since) };
+  const boxed = partyFull(state);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    influencing: null,
+    party: boxed ? state.party : [...state.party, back],
+    box: boxed ? [...state.box, back] : state.box,
+    notice: { t: "influenceTaken", name: back.nickname ?? speciesById(back.speciesId).name, fame: fameLevel(back), boxed },
+  };
+}
+
+export function streamRegisterRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "stream", "they are not streaming");
+  if (talking) return talking;
+  if (state.stream) return "one creature on stream at a time";
+  const one = state.party[index];
+  if (!one) return "nobody there";
+  if (one.uid !== confirm) return "that is not the one you were shown";
+  if (fameLevel(one) < 1) return "nobody tunes in for somebody who is not famous";
+  if (state.money < STREAM_STAKE) return `the pool opens with ¤${STREAM_STAKE.toLocaleString("en-US")}`;
+  return null;
+}
+
+function streamRegister(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = streamRegisterRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const one = state.party[index];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money - STREAM_STAKE,
+    stream: { uid: one.uid, pool: STREAM_STAKE },
+    notice: { t: "streamRegistered", name: one.nickname ?? speciesById(one.speciesId).name },
+  };
+}
+
+/** What collecting takes out: everything above the stake, or everything when stopping. */
+export function streamPayout(state: GameState, stopping: boolean): number {
+  if (!state.stream) return 0;
+  return Math.max(0, stopping ? state.stream.pool : state.stream.pool - STREAM_STAKE);
+}
+
+export function streamCashRefusal(world: World, state: GameState, stopping: boolean): string | null {
+  const talking = talkingToKind(world, state, "stream", "they are not streaming");
+  if (talking) return talking;
+  if (!state.stream) return "nobody of yours is on stream";
+  if (!stopping && streamPayout(state, false) <= 0) return "nothing above the stake to collect yet";
+  return null;
+}
+
+function streamCash(world: World, state: GameState, stopping: boolean): GameState {
+  const refusal = streamCashRefusal(world, state, stopping);
+  if (refusal) throw new IllegalInput(refusal);
+  const money = streamPayout(state, stopping);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money + money,
+    stream: stopping ? null : { ...state.stream!, pool: state.stream!.pool - money },
+    notice: { t: "streamCashed", money, stopped: stopping },
+  };
+}
+
+/** One step's bandwidth out of the pool — and the plug pulled if it goes below nothing. */
+function streamStep(state: GameState): GameState {
+  if (!state.stream) return state;
+  const pool = state.stream.pool - 1;
+  if (pool >= 0) return { ...state, stream: { ...state.stream, pool } };
+  return { ...state, stream: null, notice: state.notice ?? { t: "streamBroke" } };
+}
+
+/**
+ * What a battle turn did to the pool: every foe knocked out pays by its
+ * level, and the famous one fainting costs. Only while the famous one is on
+ * your team in the battle; ends the stream if the pool goes below nothing.
+ */
+function streamed(state: GameState, before: BattleState, after: BattleState): GameState {
+  if (!state.stream) return state;
+  const ours = before.sides[0].team;
+  const star = ours.find((one) => one.uid === state.stream!.uid);
+  if (!star) return state;
+  const fame = fameLevel(star);
+  if (fame < 1) return state;
+
+  let pool = state.stream.pool;
+  before.sides[1].team.forEach((foe, at) => {
+    const now = after.sides[1].team[at];
+    if (foe.hp > 0 && now && now.hp <= 0) pool += STREAM_EARN[fame - 1] * foe.level;
+  });
+  const starNow = after.sides[0].team.find((one) => one.uid === star.uid);
+  if (star.hp > 0 && starNow && starNow.hp <= 0) pool -= STREAM_FAINT[fame - 1];
+
+  if (pool >= 0) return { ...state, stream: { ...state.stream, pool } };
+  return { ...state, stream: null, notice: state.notice ?? { t: "streamBroke" } };
+}
+
+/*
+ * ------------------------------------------------------------- the pageant
+ *
+ * See pageant.ts for the field and the score. One entry per line-up, and a
+ * Ribbon only for beating every one of the fifteen.
+ */
+
+export function pageantEnterRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "pageant", "they are not running a pageant");
+  if (talking) return talking;
+  const round = pageantRound(state.stepsTaken);
+  if (state.pageantEntered === round) {
+    return `one entry per line-up — the next arrives in ${PAGEANT_ROUND - (state.stepsTaken % PAGEANT_ROUND)} steps`;
+  }
+  const one = state.party[index];
+  if (!one) return "nobody there";
+  if (one.uid !== confirm) return "that is not the one you were shown";
+  if (one.ribbon) return "it already has a Ribbon";
+  return null;
+}
+
+function pageantEnter(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = pageantEnterRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const round = pageantRound(state.stepsTaken);
+  const one = state.party[index];
+  const score = pageantScore(one);
+  const toBeat = pageantToBeat(world.seed, round);
+  const won = score > toBeat;
+  const party = won ? state.party.map((each, at) => (at === index ? { ...each, ribbon: true } : each)) : state.party;
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party,
+    pageantEntered: round,
+    notice: { t: "pageant", name: one.nickname ?? speciesById(one.speciesId).name, score, toBeat, won },
+  };
+}
+
+/** What the paparazzo pays for the photoshoot. */
+export const PHOTOSHOOT_PAY = 100000;
+
+export function photoshootRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
+  const talking = talkingToKind(world, state, "photoshoot", "they are not taking pictures");
+  if (talking) return talking;
+  const one = state.party[index];
+  if (!one) return "nobody there";
+  if (one.uid !== confirm) return "that is not the one you were shown";
+  if (state.locked.includes(one.uid)) return LOCKED_TEXT;
+  if (!one.ribbon) return "only a Ribbon winner makes the cover";
+  return null;
+}
+
+function photoshoot(world: World, state: GameState, index: number, confirm: number): GameState {
+  const refusal = photoshootRefusal(world, state, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+  const one = state.party[index];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money + PHOTOSHOOT_PAY,
+    party: state.party.map((each, at) => (at === index ? { ...each, ribbon: false, burnedOut: true } : each)),
+    notice: { t: "photoshot", name: one.nickname ?? speciesById(one.speciesId).name },
+  };
+}
+
+/*
+ * ------------------------------------------------------- the insurance man
+ */
+
+/** What Egg Insurance costs. */
+export const INSURANCE_PRICE = 50000;
+
+export function insuranceRefusal(world: World, state: GameState): string | null {
+  const talking = talkingToKind(world, state, "insure", "they are not selling insurance");
+  if (talking) return talking;
+  if (hasItem(state.bag, EGG_INSURANCE) || state.daycare.applied.includes(EGG_INSURANCE)) return "you are already covered";
+  if (state.money < INSURANCE_PRICE) return `a policy is ¤${INSURANCE_PRICE.toLocaleString("en-US")}`;
+  return null;
+}
+
+function buyInsurance(world: World, state: GameState): GameState {
+  const refusal = insuranceRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money - INSURANCE_PRICE,
+    bag: addItem(state.bag, EGG_INSURANCE),
+    notice: { t: "insured" },
   };
 }
 
@@ -4673,6 +5849,7 @@ export function cutRefusal(
   // The uid, as at the Appraiser and the shredder: this is irreversible and a
   // party list can slide under a click.
   if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.locked.includes(creature.uid)) return LOCKED_TEXT;
   if (state.party.length <= 1) return "keep something that can fight";
   return null;
 }
@@ -5052,6 +6229,7 @@ export function tradeRefusal(world: World, state: GameState, index: number): str
 
   const giving = state.party[index];
   if (!giving) return "nobody there";
+  if (state.locked.includes(giving.uid)) return LOCKED_TEXT;
   if (!matchesWant(giving, person.wants!)) return "they want " + wantText(person.wants!);
   if (state.party.length <= 1) return "keep something that can fight";
   return null;
@@ -5145,6 +6323,7 @@ export function releaseRefusal(
   if (!creature) return "nobody there";
 
   if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (state.locked.includes(creature.uid)) return LOCKED_TEXT;
   if (from === "party" && state.party.length <= 1) return "keep something that can fight";
 
   const inDaycare = state.daycare.slots.some((slot) => slot?.uid === creature.uid);
@@ -5652,7 +6831,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   // Somebody who wants to talk rather than fight. They stand on open ground
   // like a trainer does, so walking into one is a choice and not an ambush,
   // and they do not step aside: the conversation happens where they stand.
-  const person = npcAt(world, state.route, nx, ny);
+  const person = npcAt(world, state.route, nx, ny, state);
   if (person) {
     return { ...state, tick: state.tick + 1, talking: person.id, notice: null };
   }
@@ -5790,6 +6969,21 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   };
 }
 
+/**
+ * The level a traded creature stops obeying at: 20, and 10 more for every
+ * badge. A creature somebody else raised listens to a trainer who has proved
+ * something, and a level 35 from a trade does as it pleases for a trainer with
+ * one badge. Your own catches, hatches and prints always obey.
+ */
+export function obedienceLevel(badges: number): number {
+  return 20 + 10 * badges;
+}
+
+/** Whether this creature will ignore you in battle. */
+export function disobeys(state: GameState, creature: Individual): boolean {
+  return creature.traded && creature.level >= obedienceLevel(state.badges.length);
+}
+
 function battleTurn(world: World, state: GameState, action: BattleAction): GameState {
   if (state.phase !== "battle" || !state.battle) throw new IllegalInput("not in a battle");
 
@@ -5805,7 +6999,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     // to draw the button. A third kind of trainer battle would have walked
     // into the same hole, so the question is now the one that was meant.
     const wild = isWildBattle(state.battle);
-    const rules = wild ? WILD_RULES : TRAINER_RULES;
+    const rules = { ...(wild ? WILD_RULES : TRAINER_RULES), obeysBelow: obedienceLevel(state.badges.length) };
     // The grass picks at random; a person picks. Both are derived from the
     // battle state alone, which is what keeps the other side's choices out of
     // the input log — they are recomputed from it. See src/ai.
@@ -5830,7 +7024,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
   );
 
   const base: GameState = {
-    ...state,
+    ...streamed(state, state.battle, result.battle),
     tick: state.tick + 1,
     // The party fought inside the battle, so it comes back out of it.
     party: result.battle.sides[0].team,
@@ -6077,6 +7271,12 @@ export function stateHash(state: GameState): string {
       // has spent its Surf cannot hash the same as one that has not.
       creature.moves.map((_, at) => ppLeft(creature, at)).join("/"),
       creature.abilities.join("+"),
+      // Therapy changes what it earns, so it is part of what is happening.
+      creature.rehabilitated ? "R" : "",
+      creature.redeemed ? "D" : "",
+      creature.fameSteps ?? 0,
+      creature.ribbon ? "B" : "",
+      creature.burnedOut ? "O" : "",
       // No names: not a nickname and not who caught it. A name is what the
       // player calls something, not what is happening, and two people on
       // today's seed should be able to compare hashes whatever they typed.
@@ -6153,6 +7353,21 @@ export function stateHash(state: GameState): string {
     state.forageWalk,
     state.stepsTaken,
     state.pawnedAt ?? "-",
+    state.eggsSold,
+    state.served.join(","),
+    Object.keys(state.lodgers)
+      .sort()
+      .map((room) => `${room}=${state.lodgers[room]}`)
+      .join(","),
+    state.locked.join(","),
+    state.hatchedTab ?? "-",
+    state.eggsHatched,
+    state.given.join(","),
+    state.tutoring ? `${individual(state.tutoring.creature)}~${state.tutoring.abilityId}@${state.tutoring.since}` : "-",
+    state.therapy ? `${individual(state.therapy.creature)}@${state.therapy.since}` : "-",
+    state.influencing ? `${individual(state.influencing.creature)}@${state.influencing.since}` : "-",
+    state.stream ? `${state.stream.uid}$${state.stream.pool}` : "-",
+    state.pageantEntered ?? "-",
     state.bids.map((bid) => `${bid.n}@${bid.price}`).join(","),
     WORKSHOP_STATIONS.map((station) => {
       const held = state.workshop[station];

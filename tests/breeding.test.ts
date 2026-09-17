@@ -26,7 +26,7 @@ import {
   type DaycareState,
 } from "@/engine/breeding";
 import { ALL_SPECIES } from "@/engine/dex";
-import { applyInput, collectRefusal, depositRefusal, hatchRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
+import { applyInput, collectRefusal, depositRefusal, hatchRefusal, incubateRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
 import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
@@ -446,8 +446,9 @@ describe("the daycare", () => {
     expect(collectRefusal(world, ready, "party")).toMatch(/party is full/);
     expect(collectRefusal(world, ready, "incubator")).toBe("no incubator applied");
 
-    const warmed = applyInput(world, ready, { t: "toggleItem", item: "incubator" });
-    const kept = applyInput(world, warmed, { t: "collectEgg", to: "incubator" });
+    // Applying the incubator to a pair with an egg waiting puts the egg straight in.
+    const kept = applyInput(world, ready, { t: "toggleItem", item: "incubator" });
+    expect(kept.daycare.eggReady).toBe(false);
     expect(kept.eggs).toHaveLength(0);
     expect(kept.daycare.incubating).toHaveLength(1);
     expect(collectRefusal(world, { ...kept, daycare: { ...kept.daycare, eggReady: true } }, "incubator")).toBe("every incubator is taken");
@@ -475,6 +476,57 @@ describe("the daycare", () => {
     expect(hatched.box).toHaveLength(boxBefore + 1);
     expect(hatched.box.at(-1)!.speciesId).toBe("bulbasaur");
     expect(hatched.notice).toMatchObject({ t: "hatched", boxed: true });
+  });
+
+  it("BR24b: a ready egg goes into a free incubator by itself, and a carried one on request", () => {
+    const world = testWorld("PKMFEVER1");
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const inside = standInside(world, {
+      ...base,
+      bag: { ...base.bag, incubator: 1 },
+      daycare: {
+        ...pairing(creature("bulbasaur", { uid: 92, gender: "female" }), creature("oddish", { uid: 93, gender: "male" }), 0),
+        applied: ["incubator"],
+      },
+    }, "daycare");
+    const oneStep = (from: typeof inside) => {
+      for (const dir of ["n", "s", "e", "w"] as const) {
+        try {
+          return applyInput(world, from, { t: "move", dir });
+        } catch {
+          /* walled */
+        }
+      }
+      throw new Error("boxed in");
+    };
+
+    // One step short of an egg: the step that lays it puts it in the incubator.
+    const almost = { ...inside, daycare: { ...inside.daycare, steps: eggSteps(inside.daycare.applied) - 1 } };
+    const laid = oneStep(almost);
+    expect(laid.daycare.eggReady).toBe(false);
+    expect(laid.daycare.incubating).toHaveLength(1);
+    expect(laid.daycare.eggIndex).toBe(1);
+    expect(laid.eggs).toHaveLength(0);
+
+    // The only incubator is taken: the next one waits for you as before.
+    const again = oneStep({ ...laid, daycare: { ...laid.daycare, steps: eggSteps(laid.daycare.applied) - 1 } });
+    expect(again.daycare.eggReady).toBe(true);
+    expect(again.daycare.incubating).toHaveLength(1);
+
+    // Hatching the first frees the incubator, and the waiting egg moves in.
+    const due = { ...again, daycare: { ...again.daycare, incubating: [{ ...again.daycare.incubating[0], steps: 0 }] } };
+    const hatched = applyInput(world, due, { t: "hatch", index: 0, from: "incubator" });
+    expect(hatched.daycare.eggReady).toBe(false);
+    expect(hatched.daycare.incubating).toHaveLength(1);
+    expect(hatched.notice).toMatchObject({ t: "hatched" });
+
+    // A carried egg can be handed over too, freeing its party slot.
+    const carried = { ...inside, eggs: [laid.daycare.incubating[0]] };
+    expect(incubateRefusal(world, { ...carried, daycare: laid.daycare }, 0)).toBe("every incubator is taken");
+    const handed = applyInput(world, carried, { t: "incubateEgg", index: 0 });
+    expect(handed.eggs).toHaveLength(0);
+    expect(handed.daycare.incubating).toHaveLength(1);
+    expect(handed.notice).toEqual({ t: "eggIncubated" });
   });
 
   it("BR14c: the rarer what is inside, the longer the walk", () => {
@@ -720,27 +772,27 @@ describe("colour", () => {
     expect(share("none")).toBe(0);
   });
 
-  it("BR26: a lens is the only way to aim, and it is one chance in five", () => {
+  it("BR26: a lens is the only way to aim, and it is one chance in ten", () => {
     const plain = rollChroma(null, null);
     expect(plain("none")).toBe(1000);
 
     const lensed = rollChroma(null, null, ["lens-onyx"]);
-    expect(lensed("onyx")).toBeGreaterThan(180);
-    expect(lensed("onyx")).toBeLessThan(220);
+    expect(lensed("onyx")).toBeGreaterThan(80);
+    expect(lensed("onyx")).toBeLessThan(120);
 
     // On top of parents rather than instead of them.
     const both = rollChroma("tide", "tide", ["lens-onyx"]);
-    expect(both("onyx")).toBeGreaterThan(180);
-    expect(both("tide")).toBeGreaterThan(760);
+    expect(both("onyx")).toBeGreaterThan(80);
+    expect(both("tide")).toBeGreaterThan(820);
   });
 
   it("BR27: two lenses are two chances, not one shared one", () => {
     const share = rollChroma(null, null, ["lens-onyx", "lens-teal"]);
-    // 20%, then 20% of the remaining 80%.
-    expect(share("none")).toBeGreaterThan(610);
-    expect(share("none")).toBeLessThan(670);
-    expect(share("onyx")).toBeGreaterThan(150);
-    expect(share("teal")).toBeGreaterThan(130);
+    // 10%, then 10% of the remaining 90%.
+    expect(share("none")).toBeGreaterThan(780);
+    expect(share("none")).toBeLessThan(840);
+    expect(share("onyx")).toBeGreaterThan(75);
+    expect(share("teal")).toBeGreaterThan(65);
   });
 });
 

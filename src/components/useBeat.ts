@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import type { Individual } from "@/engine/types";
 import { typeColor } from "@/render/palette";
 import { playStrike } from "./strikes";
 import { BALL_FLIGHT_MS, BALL_SETTLE_MS, CATCH_TAIL_MS, WOBBLE_MS, type Beat, type Catch } from "@/lib/beats";
@@ -101,6 +102,134 @@ export function useEntrance(
 
     return () => animation.cancel();
   }, [sprite, who, facing]);
+}
+
+/** How long the creature going back takes to walk off. */
+export const SWITCH_OUT_MS = 320;
+/** How long the ball takes to arc in and land. */
+export const SWITCH_BALL_MS = 420;
+/** How long the new creature takes to pop out of it. */
+export const SWITCH_POP_MS = 280;
+/** The whole switch, end to end. */
+export const SWITCH_TOTAL_MS = SWITCH_OUT_MS + SWITCH_BALL_MS + SWITCH_POP_MS;
+
+/** The creature that has just been replaced in a slot, for as long as its exit is on screen. */
+export interface Leaving {
+  creature: Individual;
+  /** Unique to this one switch, so the animation plays once per switch. */
+  key: string;
+  /** Already down: nothing to walk off, so the ball comes straight in. */
+  fainted: boolean;
+}
+
+/**
+ * Who was standing in this slot a moment ago, when somebody else is now.
+ *
+ * The state only ever holds who is out *now*, so by the time a switch reaches
+ * the screen the one who went back is already gone from it. This keeps the
+ * last one seen and hands it back for exactly as long as the switch takes to
+ * play — long enough to draw it walking off. A new battle is not a switch.
+ */
+export function useLeaving(tag: string, current: Individual): Leaving | null {
+  const last = useRef({ tag, creature: current });
+  const [leaving, setLeaving] = useState<Leaving | null>(null);
+  last.current.creature = last.current.creature.uid === current.uid ? current : last.current.creature;
+
+  useEffect(() => {
+    const before = last.current;
+    last.current = { tag, creature: current };
+    if (before.tag !== tag || before.creature.uid === current.uid) return;
+
+    setLeaving({
+      creature: before.creature,
+      key: `${tag}:${before.creature.uid}>${current.uid}`,
+      fainted: before.creature.hp <= 0,
+    });
+    const timer = setTimeout(() => setLeaving(null), SWITCH_TOTAL_MS + 50);
+    return () => clearTimeout(timer);
+    // Keyed on who is standing there, not on the creature object, which is a
+    // new object every turn it takes a hit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tag, current.uid]);
+
+  return leaving;
+}
+
+/**
+ * Plays a switch: the one going back walks off, a ball arcs in from the
+ * trainer's side and lands, and the new one pops out of it.
+ *
+ * Only for a switch within a battle — the first creature of a battle still
+ * walks on with `useEntrance`. A fainted creature has already gone down on
+ * screen, so its replacement skips the walk-off and the ball comes straight in.
+ */
+export function useSwitchIn(
+  sprite: RefObject<HTMLElement | null>,
+  ghost: RefObject<HTMLElement | null>,
+  ball: RefObject<HTMLElement | null>,
+  leaving: Leaving | null,
+  facing: Facing,
+): void {
+  const key = leaving?.key ?? null;
+  const fainted = leaving?.fainted ?? false;
+
+  useEffect(() => {
+    if (!key) return;
+    const element = sprite.current;
+    if (!element || typeof element.animate !== "function") return;
+    if (stillness()) return;
+
+    const away = facing === "right" ? -1 : 1;
+    const out = fainted ? 0 : SWITCH_OUT_MS;
+    const total = out + SWITCH_BALL_MS + SWITCH_POP_MS;
+    const running: Animation[] = [];
+
+    // The one going back.
+    if (ghost.current && !fainted) {
+      running.push(
+        ghost.current.animate(
+          [
+            { transform: "translateX(0)", opacity: "1" },
+            { transform: `translateX(${away * 110}%)`, opacity: "0" },
+          ],
+          { duration: SWITCH_OUT_MS, easing: "ease-in", fill: "forwards" },
+        ),
+      );
+    }
+
+    // The ball: thrown from the trainer's side, over the top, down onto the
+    // spot, a spin on the way; then it bursts open and is gone.
+    if (ball.current) {
+      running.push(
+        ball.current.animate(
+          [
+            { transform: `translate(${away * 260}%, -40%) rotate(0deg) scale(0.9)`, opacity: "0" },
+            { transform: `translate(${away * 180}%, -220%) rotate(240deg) scale(1)`, opacity: "1", offset: 0.25 },
+            { transform: "translate(0, 0) rotate(720deg) scale(1)", opacity: "1", offset: SWITCH_BALL_MS / (SWITCH_BALL_MS + SWITCH_POP_MS) },
+            { transform: "translate(0, -10%) rotate(720deg) scale(1.9)", opacity: "0" },
+          ],
+          { duration: SWITCH_BALL_MS + SWITCH_POP_MS, delay: out, easing: "ease-out", fill: "both" },
+        ),
+      );
+    }
+
+    // The new one: nowhere until the ball lands, then out of it — small and
+    // bright, a touch too big, and settled.
+    const landed = (out + SWITCH_BALL_MS) / total;
+    running.push(
+      element.animate(
+        [
+          { transform: "scale(0.1)", opacity: "0", filter: "brightness(3)" },
+          { transform: "scale(0.1)", opacity: "0", filter: "brightness(3)", offset: landed },
+          { transform: "scale(1.12)", opacity: "1", filter: "brightness(1.6)", offset: landed + (1 - landed) * 0.65 },
+          { transform: "scale(1)", opacity: "1", filter: "brightness(1)" },
+        ],
+        { duration: total, easing: "ease-out", fill: "none" },
+      ),
+    );
+
+    return () => running.forEach((one) => one.cancel());
+  }, [sprite, ghost, ball, key, fainted, facing]);
 }
 
 export function useBeat(

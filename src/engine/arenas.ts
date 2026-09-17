@@ -161,8 +161,13 @@ export const ARENA_ROUNDS = 3;
 
 /** The same two dials a gym reads, and the same caps. */
 export const ARENA_MOVE_CAP = 30;
-export const ARENA_MOVES_PER_LEVEL = 1000;
-export const ARENA_PER_BADGE = 5;
+// The gyms' pace, so a bracket and a gym at the same point in a run are the
+// same sort of fight. Were a thousand and five, which made the brackets the
+// hardest thing in the game long before they were meant to be.
+export const ARENA_MOVES_PER_LEVEL = 2500;
+export const ARENA_PER_BADGE = 3;
+/** Every opponent's IV in every stat. Good, not perfect: that is the Cup. */
+export const ARENA_IV = 18;
 
 /**
  * What this bracket is fielding right now.

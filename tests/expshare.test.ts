@@ -4,6 +4,7 @@ import { applyInput, EXP_SHARE, EXP_SHARE_LEVEL, initialState } from "@/engine/e
 import { countOf } from "@/engine/items";
 import { expYield } from "@/engine/progression";
 import type { Individual } from "@/engine/types";
+import { narrate } from "@/lib/narrate";
 import { creature, testWorld } from "./helpers";
 
 /**
@@ -47,6 +48,23 @@ describe("the Exp. Share in battle", () => {
     const { before, after } = knockout([fighter, holder]);
     expect(after.sides[0].team[1].exp).toBe(before.sides[0].team[1].exp);
   });
+
+  it("ES2b: nor is one that fainted earlier in the same battle", () => {
+    const holder = { ...creature("caterpie", { level: 2, moves: ["tackle"], uid: 2 }), heldItem: EXP_SHARE };
+    const fighter = creature("machamp", { level: 60, moves: ["karatechop"], uid: 1 });
+    const foe = creature("machamp", { level: 40, moves: ["karatechop"], uid: 99 });
+    let battle = startBattle("SHARE1", "wild:meadow-1:0", [holder, fighter], [foe]);
+    const start = battle.sides[0].team[0].exp;
+    for (let turn = 0; turn < 10 && !battle.outcome; turn++) {
+      const down = battle.sides[0].team[battle.sides[0].active].hp <= 0;
+      const mine = down ? { t: "switch" as const, partyIndex: 1 } : { t: "fight" as const, moveIndex: 0 };
+      battle = resolveTurn(battle, [mine, { t: "fight", moveIndex: 0 }], WILD_RULES, 0).battle;
+    }
+    expect(battle.outcome).toEqual({ t: "win", side: 0 });
+    expect(battle.sides[0].team[0].hp).toBe(0);
+    expect(battle.sides[0].team[0].exp).toBe(start);
+    expect(battle.sides[0].team[1].exp).toBeGreaterThan(fighter.exp);
+  });
 });
 
 describe("getting the Exp. Share", () => {
@@ -88,5 +106,18 @@ describe("getting the Exp. Share", () => {
     expect(used.notice?.t).toBe("used");
     expect(used.expShareGiven).toBe(false);
     expect(step({ ...used, notice: null }).expShareGiven).toBe(true);
+  });
+});
+
+describe("the log says who", () => {
+  it("ES5: every experience line names the creature that earned it, the bench holder included", () => {
+    const fighter = creature("machamp", { level: 60, moves: ["karatechop"], uid: 1 });
+    const bench = { ...creature("pidgey", { level: 10, moves: ["tackle"], uid: 2 }), heldItem: EXP_SHARE };
+    const { after } = knockout([fighter, bench]);
+    const names: Record<number, string> = { 1: "Machamp", 2: "Pidgey" };
+    const lines = narrate(after.events, () => "somebody", (uid) => names[uid] ?? null);
+    expect(lines.some((line) => /^Machamp gained \d+ EXP\.$/.test(line))).toBe(true);
+    expect(lines.some((line) => /^Pidgey gained \d+ EXP\.$/.test(line))).toBe(true);
+    expect(lines.some((line) => /^Gained/.test(line))).toBe(false);
   });
 });

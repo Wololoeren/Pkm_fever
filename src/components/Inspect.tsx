@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
-import { depositRefusal, MAX_MOVES, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
+import { depositRefusal, disobeys, fameLevel, holdRefusal, lockRefusal, MAX_MOVES, obedienceLevel, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
+import { item as itemSpec } from "@/engine/items";
 import { abilitiesOf, typesWith } from "@/engine/abilities";
 import { displayPower } from "@/engine/moves";
 import { maxPp, ppLeft } from "@/engine/pp";
@@ -251,6 +252,51 @@ function BoxActions({
   );
 }
 
+/**
+ * What it is holding, what that does, and the way to take it back.
+ *
+ * Taking it back puts it in the bag, and only a party member can do it — the
+ * same rule giving one follows, because the bag is a thing you carry and the
+ * box is not. A boxed creature says so rather than showing a button that
+ * would be refused.
+ */
+function HeldLine({
+  world,
+  creature,
+  index,
+  state,
+  onInput,
+}: {
+  world: World;
+  creature: Individual;
+  index: number;
+  state: GameState;
+  onInput: (input: Input) => void;
+}) {
+  if (!creature.heldItem) {
+    return <p className="muted eggLine">Holding nothing — give it something from the Bag.</p>;
+  }
+  const spec = itemSpec(creature.heldItem);
+  const refusal = index >= 0 ? holdRefusal(world, state, index, null) : "take it into the party first";
+  return (
+    <div className="heldLine">
+      <p className="muted eggLine">
+        Holding <strong>{spec.name}</strong> — {spec.blurb}
+      </p>
+      <button
+        type="button"
+        className="ghost"
+        disabled={Boolean(refusal)}
+        title={refusal ?? `Put the ${spec.name} back in the bag`}
+        onClick={() => onInput({ t: "holdItem", index, item: null })}
+      >
+        Take back
+      </button>
+      {refusal && index < 0 ? <span className="muted small">Take it into the party to remove it.</span> : null}
+    </div>
+  );
+}
+
 export function Inspect({
   world,
   creature,
@@ -332,7 +378,7 @@ export function Inspect({
       <section className="cheatPanel">
         <header className="cheatHead">
           <div className="row">
-            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={96} />
+            <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={96} />
             <div>
               <h2>
                 <NameEditor key={creature.uid} creature={creature} state={state} onInput={onInput} />{" "}
@@ -349,14 +395,47 @@ export function Inspect({
                     IN BATTLE: {fighting.length ? fighting.join("/").toUpperCase() : "TYPELESS"}
                   </span>
                 ) : null}
-                {creature.traded ? <span className="tag">TRADED</span> : null}
+                {creature.traded ? (
+                  <span
+                    className={`tag${disobeys(state, creature) ? " fall" : ""}`}
+                    title={`A traded creature obeys you below level ${obedienceLevel(state.badges.length)} (20, and 10 more per badge). At or above it, it picks its own moves in battle or does nothing.`}
+                  >
+                    {disobeys(state, creature) ? "TRADED · WON'T OBEY" : "TRADED"}
+                  </span>
+                ) : null}
                 {creature.prize ? <span className="tag">PRIZE</span> : null}
+                {creature.rehabilitated ? (
+                  <span className="tag rise" title="Through therapy: obeys at any level, and earns double experience">
+                    REHABILITATED
+                  </span>
+                ) : null}
+                {creature.ribbon ? (
+                  <span className="tag rise" title="Pageant winner: three times in ten it charms the foe as it comes out, lowering its Attack">
+                    🎀 RIBBON
+                  </span>
+                ) : null}
+                {creature.burnedOut ? (
+                  <span className="tag fall" title="After the photoshoot: a tenth of the experience, until Dr. Couch has seen it">
+                    BURNED OUT
+                  </span>
+                ) : null}
+                {fameLevel(creature) > 0 ? (
+                  <span className="tag rise" title="Posted by the Influencer. A famous creature can go live with the Streamer.">
+                    FAMOUS {fameLevel(creature)}
+                  </span>
+                ) : null}
+                {creature.redeemed ? (
+                  <span className="tag rise" title="Through therapy: triple experience and triple effort">
+                    REDEEMED
+                  </span>
+                ) : null}
                 {creature.vault ? <span className="tag">VAULT</span> : null}
                 {creature.cheat ? <span className="tag fall">CHEAT</span> : null}
               </div>
               <p className="muted eggLine">
                 Caught by <strong>{creature.caughtBy ?? "you"}</strong>
               </p>
+              <HeldLine world={world} creature={creature} index={index} state={state} onInput={onInput} />
               <p className="muted eggLine">
                 {entry.eggGroups.includes("Undiscovered")
                   ? "Egg group: none — this one cannot breed at all."
@@ -365,6 +444,25 @@ export function Inspect({
             </div>
           </div>
           <div className="row">
+            {/* A lock against every road that gives a creature away — release,
+                the buyers, the shredder, the wheel, a trade, the swapper. Only
+                those: a locked one still goes to the daycare, the workshop and
+                the tutor, because it comes back from all three. */}
+            <button
+              type="button"
+              className={state.locked.includes(creature.uid) ? "primary" : "ghost"}
+              aria-pressed={state.locked.includes(creature.uid)}
+              disabled={Boolean(lockRefusal(state, creature.uid))}
+              title={
+                lockRefusal(state, creature.uid) ??
+                (state.locked.includes(creature.uid)
+                  ? "Locked: it cannot be released, sold, shredded, cut, traded or swapped. Click to unlock."
+                  : "Lock it so nothing can take it away by accident")
+              }
+              onClick={() => onInput({ t: "lock", uid: creature.uid })}
+            >
+              {state.locked.includes(creature.uid) ? "🔒 Locked" : "🔓 Lock"}
+            </button>
             <BoxActions world={world} creature={creature} state={state} onInput={onInput} onClose={onClose} />
             <button type="button" className="ghost" onClick={onClose}>
               Close <kbd>E</kbd>
@@ -439,7 +537,7 @@ export function Inspect({
                       from={`(${nature[stat] > 0 ? "+" : ""}${nature[stat]})`}
                     />
                   )}
-                  <ShareCell now={parts[stat].ev} from={`(${creature.evs[stat]})`} />
+                  <ShareCell now={parts[stat].ev} from={`(${creature.evs[stat]}/${EV_MAX_PER_STAT})`} />
                   <ShareCell now={parts[stat].flat} from={stat === "hp" ? "(Lv+10)" : ""} />
                   <td
                     className={`num ${

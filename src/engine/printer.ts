@@ -35,7 +35,16 @@ import { CHROMA_IDS } from "./variants";
  */
 
 /** How long before the machine will run again, in moves. */
-export const PRINT_COOLDOWN = 600;
+export const PRINT_COOLDOWN = 1500;
+
+/**
+ * What one go costs, paid up front and kept whether it prints or not.
+ *
+ * The cooldown alone made a print cost a walk, and a walk is free to anybody
+ * already out that way. Money makes the quarter that comes out as sludge a
+ * real loss, which is the gamble the machine was meant to be.
+ */
+export const PRINT_PRICE = 3000;
 
 /** The chance a print comes out as nothing, in per mille. */
 export const PRINT_FAILS = 250;

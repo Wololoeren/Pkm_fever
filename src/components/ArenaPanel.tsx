@@ -87,7 +87,7 @@ export function ArenaPanel({
                   title={why ?? entry.name}
                   onClick={() => onInput({ t: "arenaPrize", index })}
                 >
-                  <Sprite speciesId={creature.speciesId} variantId={creature.variantId} size={96} />
+                  <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={96} />
                   <strong>
                     {entry.name} <GenderMark gender={creature.gender} />
                   </strong>

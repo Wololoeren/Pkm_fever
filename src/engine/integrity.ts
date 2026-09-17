@@ -26,8 +26,9 @@ export function teamFlags(team: readonly Individual[]): TeamFlags {
   return {
     cheat: team.filter((one) => one.cheat).length,
     vault: team.filter((one) => one.vault).length,
-    traded: team.filter((one) => one.traded).length,
-    prize: team.filter((one) => one.prize).length,
+    // Therapy changes how a creature behaves, not where it came from.
+    traded: team.filter((one) => one.traded || one.rehabilitated).length,
+    prize: team.filter((one) => one.prize || one.redeemed).length,
   };
 }
 

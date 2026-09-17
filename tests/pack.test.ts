@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyInput, initialState, reduce, stateHash, type Input } from "@/engine/engine";
 import { ENGINE_VERSION } from "@/engine/types";
 import { packInputs, unpackInputs } from "@/lib/pack";
-import { encodeSave, makeSave, parseSave } from "@/lib/save";
+import { encodeSave, fileStamp, makeSave, parseSave } from "@/lib/save";
 import { creature, play, testWorld } from "./helpers";
 
 /**
@@ -92,6 +92,26 @@ describe("packing a log", () => {
       { t: "workshopLeave", station: "ice", index: 1, confirm: 4 },
       { t: "workshopTake", station: "fire" },
       { t: "vaultStart", creature: creature("dratini", { uid: 2 }) },
+      { t: "incubateEgg", index: 0 },
+      { t: "sellEgg", index: 0, confirm: 9 },
+      { t: "chromaTrade", index: 1, confirm: 4 },
+      { t: "tutorLeave", n: 3, index: 1, confirm: 4 },
+      { t: "tutorTake" },
+      { t: "giftSwap", index: 1, confirm: 4 },
+      { t: "invite" },
+      { t: "sendHome" },
+      { t: "lock", uid: 4 },
+      { t: "takeHeldFromBox", tab: 1 },
+      { t: "therapyLeave", index: 1, confirm: 4 },
+      { t: "therapyTake" },
+      { t: "buyInsurance" },
+      { t: "influenceLeave", index: 1, confirm: 4 },
+      { t: "influenceTake" },
+      { t: "streamRegister", index: 0, confirm: 4 },
+      { t: "streamCollect" },
+      { t: "streamUnregister" },
+      { t: "pageantEnter", index: 0, confirm: 4 },
+      { t: "photoshoot", index: 0, confirm: 4 },
       { t: "renameBox", tab: 0, name: "Keepers" },
       { t: "moveToBox", uid: 1, tab: 1 },
       { t: "toggleItem", item: "prism" },
@@ -172,5 +192,31 @@ describe("a save file", () => {
     const written = JSON.parse(encodeSave(makeSave(world.seed, [{ t: "pickStarter", index: 0 }])));
     expect(parseSave(JSON.stringify({ ...written, v: ENGINE_VERSION - 1 }))).toBeNull();
     expect(parseSave(JSON.stringify({ ...written, log: "rubbish" }))).toBeNull();
+  });
+
+  /*
+   * The name a save is downloaded under.
+   *
+   * Two saves of one run used to be one name twice, and the second arrived as
+   * "(1)" — a folder of them told you nothing about which was which. The
+   * moment is in the file as `savedAt` regardless; this is the half you can
+   * read without opening anything, and it sorts by name because it counts
+   * down from the year.
+   */
+  it("PK9: a save's file name carries the seed and the minute it was written", () => {
+    const stamp = fileStamp("2026-09-16T14:32:07.000Z");
+    const local = new Date("2026-09-16T14:32:07.000Z");
+    const pad = (value: number) => String(value).padStart(2, "0");
+    expect(stamp).toBe(
+      `${local.getFullYear()}${pad(local.getMonth() + 1)}${pad(local.getDate())}-${pad(local.getHours())}${pad(local.getMinutes())}`,
+    );
+    expect(stamp).toMatch(/^\d{8}-\d{4}$/);
+
+    // Sortable: a later save never sorts before an earlier one.
+    expect(fileStamp("2026-09-16T14:32:07.000Z") < fileStamp("2026-12-01T09:00:00.000Z")).toBe(true);
+
+    // A file written by something that did not set the time still gets a name.
+    expect(fileStamp("")).toBe("");
+    expect(fileStamp(makeSave("SEED", []).savedAt)).toMatch(/^\d{8}-\d{4}$/);
   });
 });

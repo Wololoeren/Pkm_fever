@@ -64,12 +64,15 @@ describe("gyms", () => {
     const gym = GYMS[0];
 
     expect(gymLevel(gym, 0, 0)).toBe(gym.baseLevel);
-    // One level per thousand moves.
-    expect(gymLevel(gym, 3000, 0)).toBe(gym.baseLevel + 3);
-    // Five per badge already won.
-    expect(gymLevel(gym, 0, 3)).toBe(gym.baseLevel + 3 * LEVELS_PER_BADGE);
+    // One level per 2,500 moves, and not a level before then.
+    expect(MOVES_PER_LEVEL).toBe(2500);
+    expect(gymLevel(gym, 2499, 0)).toBe(gym.baseLevel);
+    expect(gymLevel(gym, 7500, 0)).toBe(gym.baseLevel + 3);
+    // Three per badge already won.
+    expect(LEVELS_PER_BADGE).toBe(3);
+    expect(gymLevel(gym, 0, 3)).toBe(gym.baseLevel + 9);
     // Both together.
-    expect(gymLevel(gym, 2000, 2)).toBe(gym.baseLevel + 2 + 2 * LEVELS_PER_BADGE);
+    expect(gymLevel(gym, 5000, 2)).toBe(gym.baseLevel + 2 + 6);
   });
 
   it("G4: the drift from moves stops, so a gym cannot run away from you", () => {

@@ -45,6 +45,9 @@ export function rosterOf(state: GameState): Individual[] {
     ...state.box,
     ...state.daycare.slots.filter((one): one is Individual => one !== null),
     ...Object.values(state.workshop).flatMap((held) => (held ? [held.creature] : [])),
+    ...(state.tutoring ? [state.tutoring.creature] : []),
+    ...(state.therapy ? [state.therapy.creature] : []),
+    ...(state.influencing ? [state.influencing.creature] : []),
   ];
 }
 

@@ -90,8 +90,8 @@ describe("where the brackets are", () => {
     // made is a wall at hour two and a formality at hour twenty.
     const spec = arena("arena-3");
     expect(arenaLevel(spec, 0, 0)).toBe(spec.baseLevel);
-    expect(arenaLevel(spec, 5_000, 0)).toBe(spec.baseLevel + 5);
-    expect(arenaLevel(spec, 0, 4)).toBe(spec.baseLevel + 20);
+    expect(arenaLevel(spec, 5_000, 0)).toBe(spec.baseLevel + 2);
+    expect(arenaLevel(spec, 0, 4)).toBe(spec.baseLevel + 12);
     // The drift is capped, so it stops climbing long before it is silly.
     expect(arenaLevel(spec, 1_000_000, 0)).toBe(spec.baseLevel + 30);
     expect(arenaLevel(spec, 1_000_000, 8)).toBeLessThanOrEqual(100);
@@ -115,11 +115,15 @@ describe("playing one", () => {
   it("W32: it refuses a field you cannot fill, and one you are already in", () => {
     // A 6v6 with two standing is a walkover in the wrong direction.
     const { world, state } = standing("ARENA1", 2);
-    expect(arenaRefusal(state, "arena-6")).toMatch(/6v6/);
-    expect(arenaRefusal(state, "arena-1")).toBeNull();
+    expect(arenaRefusal(state, "arena-6")).toBe("it is 6v6: bring exactly 6 (you have 2)");
+    // Too many is refused as firmly as too few: a bracket is entered with the format, exactly.
+    expect(arenaRefusal(state, "arena-1")).toBe("it is 1v1: bring exactly 1 (you have 2)");
+    expect(arenaRefusal(state, "arena-2")).toBeNull();
     expect(arenaRefusal(state, "arena-nope")).toBe("no such bracket");
+    const oneDown = { ...state, party: [state.party[0], { ...state.party[1], hp: 0 }] };
+    expect(arenaRefusal(oneDown, "arena-2")).toMatch(/1 standing/);
 
-    const entered = applyInput(world, state, { t: "arenaEnter", id: "arena-1" });
+    const entered = applyInput(world, standing("ARENA1", 1).state, { t: "arenaEnter", id: "arena-1" });
     expect(entered.arena).toEqual({ id: "arena-1", entered: state.tick, round: 0 });
     expect(arenaRefusal(entered, "arena-2")).toBe("you are already in one");
   });

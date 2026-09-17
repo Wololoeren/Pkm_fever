@@ -102,6 +102,11 @@ const ROOM_STYLE: Record<InteriorRole, PropKind[]> = {
     "crate", "barrel", "sack", "shelf", "cabinet", "chest", "bin", "table",
     "clock", "lamp", "basket", "pot", "stool", "mat", "painting",
   ],
+  // A room let to somebody who brought their work with them.
+  guest: [
+    "bed", "table", "chair", "rug", "lamp", "clock", "plant", "shelf",
+    "crate", "chest", "stool", "painting", "basket", "cabinet", "mat",
+  ],
 };
 
 /**

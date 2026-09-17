@@ -1,5 +1,7 @@
 "use client";
 
+import { ability, isAbility } from "@/engine/abilities";
+import { isItem, item as itemSpec } from "@/engine/items";
 import { useEffect, useRef, useState } from "react";
 import { chroma, TOP_TIER, variant, variantSummary } from "@/engine/variants";
 import { creatureSprite } from "@/render/creature";
@@ -19,6 +21,70 @@ import { cachedEgg, cachedSprite, loadEgg, loadSprite, SPRITE_SIZE } from "@/ren
  * have memorised the original to notice, and with eight colours a bare
  * diamond stopped saying which.
  */
+/**
+ * Sergeant's stripes: one chevron for each ability, in the top-left corner.
+ *
+ * Nine creatures in ten have none, so a single chevron is already worth a
+ * second look, and three — which only breeding reaches — reads as the rank it
+ * is. Drawn rather than typed, because a stack of angles says "how many" at a
+ * glance where a number would need reading. Kept to its own corner: the shine
+ * star is top right and the colour letter bottom right.
+ */
+function AbilityMark({ abilities, size }: { abilities: readonly string[]; size: number }) {
+  const count = Math.min(3, abilities.filter(isAbility).length);
+  if (!count) return null;
+
+  // A floor for the small sprites (party, box), where a fifth of 48 is too little to read.
+  const width = Math.max(14, Math.round(size * 0.2));
+  const rise = width * 0.42;
+  const gap = width * 0.3;
+  const stroke = Math.max(2, width * 0.2);
+  const height = rise + gap * (count - 1) + stroke * 1.5;
+  const names = abilities.filter(isAbility).map((id) => ability(id).name).join(", ");
+
+  return (
+    <span className="abilityMark" title={names} aria-label={`${count} ${count === 1 ? "ability" : "abilities"}: ${names}`}>
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
+        {Array.from({ length: count }, (_, at) => {
+          const y = stroke * 0.75 + rise + gap * at;
+          const points = `${stroke * 0.75},${y} ${width / 2},${y - rise} ${width - stroke * 0.75},${y}`;
+          return (
+            <g key={at}>
+              <polyline points={points} fill="none" stroke="#1b1206" strokeWidth={stroke + 2} strokeLinejoin="round" strokeLinecap="round" />
+              <polyline points={points} fill="none" stroke="#f0cd76" strokeWidth={stroke} strokeLinejoin="round" strokeLinecap="round" />
+            </g>
+          );
+        })}
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * A little gift box in the bottom-left corner: it is carrying something.
+ *
+ * The fourth corner, and the last free one — shine top right, colour bottom
+ * right, ability stripes top left. The item's name is the hover text, so the
+ * box says "something" at a glance and "what" on a look.
+ */
+function HeldMark({ itemId, size }: { itemId: string; size: number }) {
+  const width = Math.max(12, Math.round(size * 0.17));
+  const name = isItem(itemId) ? itemSpec(itemId).name : itemId;
+  return (
+    <span className="heldMark" title={`Holding ${name}`} aria-label={`Holding ${name}`}>
+      <svg width={width} height={width} viewBox="0 0 16 16" aria-hidden>
+        {/* The bow. */}
+        <path d="M8 5 C5 1 2 3 4 5 Z M8 5 C11 1 14 3 12 5 Z" fill="#f0cd76" stroke="#1b1206" strokeWidth="1" />
+        {/* The lid, then the box. */}
+        <rect x="2" y="5" width="12" height="3.5" rx="0.6" fill="#d4675a" stroke="#1b1206" strokeWidth="1" />
+        <rect x="3" y="8.5" width="10" height="6.5" rx="0.6" fill="#c9504f" stroke="#1b1206" strokeWidth="1" />
+        {/* The ribbon down the middle. */}
+        <rect x="7" y="5" width="2" height="10" fill="#f0cd76" />
+      </svg>
+    </span>
+  );
+}
+
 function VariantMark({ variantId, size }: { variantId: string; size: number }) {
   const form = variant(variantId);
   if (form.tier === 0 && !form.chromaId) return null;
@@ -94,9 +160,15 @@ export function Sprite({
   flip = false,
   faint = false,
   marks = true,
+  abilities,
+  heldItem,
 }: {
   speciesId: string;
   variantId: string;
+  /** Its abilities, for the chevrons in the corner. Omit where there is no creature, only a species. */
+  abilities?: readonly string[];
+  /** What it is carrying, for the gift box in the corner. */
+  heldItem?: string | null;
   size?: number;
   flip?: boolean;
   faint?: boolean;
@@ -155,6 +227,8 @@ export function Sprite({
     <span className="spriteWrap" style={{ width: drawn, height: drawn }} title={variantSummary(variantId)}>
       <canvas ref={ref} width={drawn} height={drawn} style={{ width: drawn, height: drawn }} />
       {marks ? <VariantMark variantId={variantId} size={drawn} /> : null}
+      {marks && abilities ? <AbilityMark abilities={abilities} size={drawn} /> : null}
+      {marks && heldItem ? <HeldMark itemId={heldItem} size={drawn} /> : null}
     </span>
   );
 }

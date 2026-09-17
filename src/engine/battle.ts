@@ -568,6 +568,10 @@ export type BattleEvent =
   | { t: "catchFailed" }
   | { t: "caught" }
   | { t: "fleeFailed" }
+  /** A traded creature past the level it listens to, doing as it likes: a move of its own choosing, or nothing. */
+  | { t: "disobeyed"; side: SideIndex; moveId: string | null }
+  /** A Ribbon winner charmed the other side as it came out. */
+  | { t: "ribbon"; side: SideIndex }
   | { t: "fled" }
   | { t: "noBalls" }
   | { t: "timeout" };
@@ -706,6 +710,35 @@ export interface BattleRules {
   catchable: boolean;
   /** Whether beating it is worth experience. */
   awardsExp: boolean;
+  /**
+   * The level a traded creature on side 0 stops obeying at. Unset, everybody
+   * obeys — which is every battle that is not the player's own, and a duel.
+   * See `obedienceLevel` in engine.ts and `disobeyed` below.
+   */
+  obeysBelow?: number;
+}
+
+/**
+ * How a creature that is not listening spends its turn.
+ *
+ * It picks for itself: any move it could legally use, each as likely as the
+ * others, or nothing at all — and nothing is twice as likely as any one move.
+ * So a creature with four moves loafs a third of the time, and one with a
+ * single move loafs two turns in three.
+ *
+ * Returns the move it uses instead, or null for a turn spent loafing. Rolled
+ * from the battle's own stream, so a replay disobeys in exactly the same
+ * places.
+ */
+function disobeyed(turn: Turn, side: SideIndex): string | null {
+  const creature = active(turn, side);
+  const usable = creature.moves
+    .map((_move, at) => at)
+    .filter((at) => actionRefusal(turn.battle, side, { t: "fight", moveIndex: at }) === null);
+  const pick = Math.floor(roll(turn, "obey") * (usable.length + 2));
+  const moveId = pick < usable.length ? creature.moves[usable[pick]] : null;
+  turn.events.push({ t: "disobeyed", side, moveId });
+  return moveId;
 }
 
 export const WILD_RULES: BattleRules = { catchable: true, awardsExp: true };
@@ -5660,7 +5693,16 @@ export function resolveTurn(
     }
   }
 
-  const moveA = turn.pursuing === 0 ? null : chosenMove(turn, 0, actions[0]);
+  // A traded creature that does not respect you yet picks its own move, or
+  // loafs. Not while it is mid-Fly or mid-Outrage: that turn is not a choice.
+  const ignoring =
+    rules.obeysBelow !== undefined &&
+    turn.pursuing !== 0 &&
+    actions[0].t === "fight" &&
+    !forcedMove(turn.battle, 0) &&
+    active(turn, 0).traded &&
+    active(turn, 0).level >= rules.obeysBelow;
+  const moveA = turn.pursuing === 0 ? null : ignoring ? disobeyed(turn, 0) : chosenMove(turn, 0, actions[0]);
   const moveB = turn.pursuing === 1 ? null : chosenMove(turn, 1, actions[1]);
 
   const first = firstMover(turn, moveA, moveB);
@@ -5964,6 +6006,9 @@ function clearLock(turn: Turn, side: SideIndex): void {
   turn.battle.sides[side].locked = null;
 }
 
+/** How often a Ribbon charms the other side on arrival. */
+export const RIBBON_CHARM = 0.3;
+
 function onArriving(turn: Turn, side: SideIndex): void {
   clearLock(turn, side);
   // Nothing has had a turn here yet, which is the one thing Fake Out asks and
@@ -5983,6 +6028,12 @@ function onArriving(turn: Turn, side: SideIndex): void {
         ? raiseField(turn, "terrain", effect.terrain)
         : false;
     if (raised) turn.events.push({ t: "ability", side, abilityId: whichAbility(arriving, "summon")! });
+  }
+  // A Ribbon: the crowd's favourite walks out and the other side forgets to
+  // be fierce, three times in ten.
+  if (arriving.ribbon && roll(turn, `ribbon-${side}`) < RIBBON_CHARM) {
+    turn.events.push({ t: "ribbon", side });
+    applyBoosts(turn, other(side), { atk: -1 }, true);
   }
   for (const effect of effects(arriving, "arrival")) {
     // Scrappy is immune to it, as it is in the games.
@@ -6165,6 +6216,12 @@ function settle(turn: Turn, rules: BattleRules): void {
       // than off whoever happened to be standing at the end.
       let amount = share;
       for (const effect of effects(earner, "study")) amount = scaled(amount, effect.mille);
+      // After therapy: a redeemed prize learns three times as fast, a
+      // rehabilitated trade twice. The larger, never both.
+      if (earner.redeemed) amount *= 3;
+      else if (earner.rehabilitated) amount *= 2;
+      // Burned out: a tenth, and never nothing.
+      if (earner.burnedOut) amount = Math.max(1, Math.floor(amount / 10));
 
       const growth = awardExp(earner, amount);
 
@@ -6188,6 +6245,7 @@ function settle(turn: Turn, rules: BattleRules): void {
         };
       }
 
+      if (earner.redeemed) yielded = { ...yielded, amount: yielded.amount * 3 };
       const before = growth.individual.evs;
       const evs = gainEffort(before, yielded);
       turn.battle.sides[0].team[at] = { ...growth.individual, evs };

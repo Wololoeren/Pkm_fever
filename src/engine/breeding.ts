@@ -43,7 +43,7 @@ const INHERITED_SLOTS = 3;
 const INHERITED_SLOTS_WITH_HEIRLOOM = 5;
 
 /** Steps walked before the pair has an egg waiting. */
-export const STEPS_PER_EGG = 300;
+export const STEPS_PER_EGG = 600;
 
 /**
  * The things that make breeding better. They are equipment rather than
@@ -90,6 +90,8 @@ export const MUTATION_ITEMS = ["sporeofchange", "livingamber", "primordialseed"]
  */
 export const HATCH_ITEMS = ["warmblanket", "embercradle"] as const;
 export const INCUBATOR_ITEMS = ["incubator", "broodlamp", "hatcherystone"] as const;
+/** The policy that pays out on an ordinary incubated egg. */
+export const EGG_INSURANCE = "egginsurance";
 export const PAIRING_ITEMS = ["pairingbell", "courtingsong", "roseincense", "moonlitcharm"] as const;
 
 export const BREEDING_ITEMS = [
@@ -100,6 +102,7 @@ export const BREEDING_ITEMS = [
   ...PAIRING_ITEMS,
   ...HATCH_ITEMS,
   ...INCUBATOR_ITEMS,
+  EGG_INSURANCE,
   "prism",
   ...CLIMB_ITEMS,
   GLITTER,
@@ -349,7 +352,7 @@ const BASIS = 10_000;
 const CASCADE = 0.1;
 
 /** How often a lens overrides the colour the parents would have given. */
-const LENS_CHANCE = 0.2;
+const LENS_CHANCE = 0.1;
 
 /**
  * What the child looks like — a rung on the shine ladder, and a colour.
@@ -602,7 +605,28 @@ function inheritIvs(
     ivs[stat] = Math.min(IV_MAX, from.ivs[stat] + boost);
   }
 
+  // The scales, last, and without a roll: they move the numbers drawn above
+  // rather than drawing any of their own.
+  const tilt = ivTilt([first, second]);
+  for (const stat of STAT_IDS) ivs[stat] = Math.max(0, Math.min(IV_MAX, ivs[stat] + tilt[stat]));
+
   return clampIvs(ivs);
+}
+
+/**
+ * What the IV scales the pair are carrying do to each stat of an egg, added
+ * up: +5 where a scale raises it, −5 where one lowers it.
+ */
+export function ivTilt(pair: readonly (Individual | null)[]): StatTable {
+  const tilt: StatTable = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+  for (const parent of pair) {
+    for (const effect of heldEffects(parent?.heldItem ?? null)) {
+      if (effect.t !== "tilt") continue;
+      tilt[effect.up] += effect.amount;
+      tilt[effect.down] -= effect.amount;
+    }
+  }
+  return tilt;
 }
 
 /**
@@ -706,14 +730,19 @@ export function expectedIvs(
   const [low, high] = mutationRange(applied.includes("catalyst"));
   const chance = mutationChance(applied, [first, second]);
   const width = high - low + 1;
+  const tilt = ivTilt([first, second]);
 
   return STAT_IDS.map((stat) => {
+    // Every outcome is inherited, then capped, then moved by the scales and
+    // kept inside the range again — the order `inheritIvs` does it in, so the
+    // expectation is still exact.
+    const scaled = (value: number) => Math.max(0, Math.min(IV_MAX, Math.min(IV_MAX, value) + tilt[stat]));
     let expected = 0;
     for (const parent of [first, second]) {
       const base = parent.ivs[stat];
       let boosted = 0;
-      for (let boost = low; boost <= high; boost++) boosted += Math.min(IV_MAX, base + boost);
-      expected += 0.5 * ((1 - chance) * base + (chance * boosted) / width);
+      for (let boost = low; boost <= high; boost++) boosted += scaled(base + boost);
+      expected += 0.5 * ((1 - chance) * scaled(base) + (chance * boosted) / width);
     }
     const average = (first.ivs[stat] + second.ivs[stat]) / 2;
     return { stat, first: first.ivs[stat], second: second.ivs[stat], expected, gain: expected - average };

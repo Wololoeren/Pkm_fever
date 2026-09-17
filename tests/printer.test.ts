@@ -24,6 +24,7 @@ import {
   printWait,
   PRINT_CONSOLATION,
   PRINT_COOLDOWN,
+  PRINT_PRICE,
   PRINT_FAILS,
   PRINT_LEVEL,
   PRINTER_STOCK,
@@ -79,6 +80,7 @@ function atPrinter(seed: string, lastWild: string | null, bag: Record<string, nu
     talking: IVO,
     lastWild,
     bag: { ...start.bag, ...bag },
+    money: PRINT_PRICE,
   };
   return { world, state };
 }
@@ -189,7 +191,7 @@ describe("the machine", () => {
     expect(after.bag["ink-teal"]).toBe(1);
   });
 
-  it("Q8: one print, then six hundred moves", () => {
+  it("Q8: one print, then fifteen hundred moves", () => {
     const { world, state } = atPrinter("PRINT5", "rattata");
     const after = applyInput(world, state, { t: "print", chromaId: "ivory" });
 
@@ -197,12 +199,22 @@ describe("the machine", () => {
     expect(printReady(after.tick, after.printedAt)).toBe(false);
     expect(printRefusal(world, after, "ivory")).toMatch(/warming up/);
     expect(printWait(after.tick, after.printedAt)).toBeGreaterThan(0);
-    expect(PRINT_COOLDOWN).toBe(600);
+    expect(PRINT_COOLDOWN).toBe(1500);
 
     // And it is ready again exactly then.
-    const later = { ...after, tick: after.printedAt! + PRINT_COOLDOWN };
+    const later = { ...after, tick: after.printedAt! + PRINT_COOLDOWN, money: PRINT_PRICE };
     expect(printReady(later.tick, later.printedAt)).toBe(true);
     expect(printRefusal(world, later, "ivory")).toBeNull();
+  });
+
+  it("Q8b: a go costs three thousand, paid whether it prints or not", () => {
+    const { world, state } = atPrinter("PRINT5", "rattata");
+    expect(PRINT_PRICE).toBe(3000);
+    expect(applyInput(world, state, { t: "print", chromaId: "ivory" }).money).toBe(state.money - PRINT_PRICE);
+
+    const short = { ...state, money: PRINT_PRICE - 1 };
+    expect(printRefusal(world, short, "ivory")).toBe("a print costs ¤3,000");
+    expect(() => applyInput(world, short, { t: "print", chromaId: "ivory" })).toThrow();
   });
 
   it("Q9: a failed print still costs the attempt, and hands over a Slurm", () => {

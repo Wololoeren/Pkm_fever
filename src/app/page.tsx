@@ -25,12 +25,15 @@ import { MartPanel } from "@/components/MartPanel";
 import { MainMenu, rememberedTrainerName, rememberTrainerName } from "@/components/MainMenu";
 import { EggSlots, PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
-import { BALLS, countOf, item } from "@/engine/items";
+import { TouchPad } from "@/components/TouchPad";
+import { stepToward } from "@/lib/pathing";
+import { BALLS, countOf, hasItem, item } from "@/engine/items";
+import { ability } from "@/engine/abilities";
 import { quest as questSpec, rewardText } from "@/engine/quests";
-import { gym as gymSpec } from "@/engine/gyms";
+import { gym as gymSpec, LEVELS_PER_BADGE } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
@@ -38,8 +41,9 @@ import {
   downloadSave,
   flushAutosave,
   normaliseSeed,
-  readAutosave,
+  readAutosaves,
   newRunId,
+  randomSeed,
   readAutosaveRaw,
   scheduleAutosave,
   type SaveFile,
@@ -96,6 +100,7 @@ const STEP_INTERVAL = 120;
  * worst a new sort of room can say is that somebody lives in it.
  */
 const INDOORS_NOTE: Partial<Record<InteriorRole, string>> = {
+  guest: "A guest room in Hearth's terraces. Anybody who runs something out in the world can live here once you have done business with them — talk to them and invite them.",
   house: "Somebody lives here. There is nothing to do but look around — step back out the way you came.",
   gym: "A gym. The leader is in here somewhere, and they are not waiting for you to be ready.",
   cup: "The Cup. Five of them, and whoever keeps the door. Nothing in this house gives a spent move back, so what is in your bag is what you have.",
@@ -112,6 +117,11 @@ const INDOORS_NOTE: Partial<Record<InteriorRole, string>> = {
  * them in its log, and it has to load, replay and verify (as cheated) anywhere.
  */
 const CHEATS_AVAILABLE = process.env.NODE_ENV === "development";
+
+/** Where the auto-continue box is remembered, per browser. Not in the save: it is a preference, not a game. */
+const AUTO_CONTINUE_KEY = "pkm-fever.autoContinue";
+/** How long a quiet battle end stays on screen before continuing by itself. */
+const AUTO_CONTINUE_MS = 900;
 
 /**
  * A save from before trainer names asks for one, once.
@@ -172,7 +182,7 @@ function PoisonFlash({ at }: { at: number | null }) {
 
 export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
-  const [autosave, setAutosave] = useState<SaveFile | null>(null);
+  const [autosaves, setAutosaves] = useState<SaveFile[]>([]);
   const [pvp, setPvp] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
   const [vaultNote, setVaultNote] = useState<string | null>(null);
@@ -195,7 +205,7 @@ export default function Page() {
 
   // localStorage is not available while the static export is being rendered,
   // so the autosave is looked up once the page is actually in a browser.
-  useEffect(() => setAutosave(readAutosave()), []);
+  useEffect(() => setAutosaves(readAutosaves()), []);
 
   const start = useCallback((seed: string, inputs: Input[] = [], run: string = newRunId()) => {
     const clean = normaliseSeed(seed);
@@ -347,6 +357,8 @@ export default function Page() {
    * `state`.
    */
   const canWalk = useRef(false);
+  /** Where a tap or click on a map asked to walk to, on the route it was asked on. */
+  const [walkTarget, setWalkTarget] = useState<{ route: string; x: number; y: number } | null>(null);
   // Not while a hatching or an evolution is on screen: a key still held from
   // the last step would otherwise walk on underneath the scene.
   const sceneUp = Boolean(hatching || offered);
@@ -426,6 +438,8 @@ export default function Page() {
         // racing each other.
         if (event.repeat) return;
         if (!held.current.includes(dir)) held.current.push(dir);
+        // A key always wins over a tap: the walk it started is over.
+        setWalkTarget(null);
         dispatch({ t: "move", dir });
         startWalking();
         return;
@@ -491,6 +505,89 @@ export default function Page() {
     return boxed ? { creature: boxed, index: -1 } : null;
   }, [state, inspecting]);
 
+  /*
+   * Continuing past a battle by itself, for a player who has ticked the box —
+   * off by default, because reading the log back is how some people play.
+   * Only when nothing worth stopping for happened: no level, no move learned
+   * or offered, no evolution. A short pause first, so the last line of the
+   * log is on screen before the field is.
+   */
+  const [autoContinue, setAutoContinue] = useState(false);
+  useEffect(() => {
+    try {
+      setAutoContinue(localStorage.getItem(AUTO_CONTINUE_KEY) === "1");
+    } catch {
+      // No storage: the box simply starts unticked.
+    }
+  }, []);
+  const quietEnd =
+    state?.phase === "battleEnd" &&
+    !(state.battle?.events ?? []).some(
+      (event) => event.t === "exp" && (event.levels > 0 || event.learned.length > 0 || event.offered.length > 0 || Boolean(event.evolved)),
+    );
+  useEffect(() => {
+    if (!autoContinue || !quietEnd) return;
+    const timer = setTimeout(() => dispatch({ t: "continue" }), AUTO_CONTINUE_MS);
+    return () => clearTimeout(timer);
+  }, [autoContinue, quietEnd, state?.tick, dispatch]);
+
+  /*
+   * Tap-to-walk. One ordinary step every `STEP_INTERVAL` toward the tile that
+   * was pointed at, the step worked out again each time from where you are —
+   * so the log holds nothing but moves. It stops on arrival, on anything that
+   * is not walking (a battle, a conversation, a scene, a door into somewhere
+   * else), and when a step goes nowhere, which is the engine refusing it.
+   */
+  useEffect(() => {
+    if (!walkTarget || !state || !session) return;
+    const done =
+      state.phase !== "field" ||
+      state.talking !== null ||
+      sceneUp ||
+      state.route !== walkTarget.route ||
+      (state.x === walkTarget.x && state.y === walkTarget.y);
+    const dir = done ? null : stepToward(session.world, state, walkTarget);
+    if (!dir) {
+      setWalkTarget(null);
+      return;
+    }
+    const step = setTimeout(() => dispatch({ t: "move", dir }), STEP_INTERVAL);
+    // Nothing changed after the step was sent: it was refused, and the walk ends.
+    const stuck = setTimeout(() => setWalkTarget(null), STEP_INTERVAL * 4);
+    return () => {
+      clearTimeout(step);
+      clearTimeout(stuck);
+    };
+  }, [walkTarget, state, session, sceneUp, dispatch]);
+
+  /** A tile pointed at on a map: walk there, or stop if it is where you already are. */
+  const walkTo = useCallback(
+    (x: number, y: number) => {
+      if (!state) return;
+      setWalkTarget(state.x === x && state.y === y ? null : { route: state.route, x, y });
+    },
+    [state],
+  );
+
+  /** The on-screen pad: a direction held down, the same as a key held down. */
+  const padDown = useCallback(
+    (dir: Direction) => {
+      if (!canWalk.current) return;
+      setWalkTarget(null);
+      if (!held.current.includes(dir)) held.current.push(dir);
+      dispatch({ t: "move", dir });
+      startWalking();
+    },
+    [dispatch, startWalking],
+  );
+  const padUp = useCallback(
+    (dir: Direction) => {
+      held.current = held.current.filter((one) => one !== dir);
+      if (!held.current.length) stopWalking();
+    },
+    [stopWalking],
+  );
+
   if ((!session || !state) && vaultOpen) {
     return (
       <main className="shell">
@@ -515,7 +612,7 @@ export default function Page() {
       <main className="shell">
         <MainMenu
           onVault={() => setVaultOpen(true)}
-          autosave={autosave}
+          autosaves={autosaves}
           onNew={(seed, trainer) => {
             clearAutosave();
             // The name is the first input, so it is in the save like
@@ -549,7 +646,17 @@ export default function Page() {
   if (state.phase === "starter") {
     return (
       <main className="shell">
-        <StarterPick world={session.world} onPick={(index) => dispatch({ t: "pickStarter", index })} />
+        <StarterPick
+          world={session.world}
+          onPick={(index) => dispatch({ t: "pickStarter", index })}
+          // A new world on a new seed, keeping what was already decided before
+          // the pick — the trainer's name, a vault creature — so rerolling is
+          // only ever a different three to choose from.
+          onReroll={() => {
+            clearAutosave();
+            start(randomSeed(), session.inputs.filter((input) => input.t !== "pickStarter"));
+          }}
+        />
       </main>
     );
   }
@@ -578,7 +685,7 @@ export default function Page() {
         onInspect={choosing ? undefined : setInspecting}
         onReorder={choosing ? undefined : (from, to) => dispatch({ t: "reorderParty", from, to })}
       />
-      <EggSlots eggs={state.eggs} />
+      <EggSlots eggs={state.eggs} exact={hasItem(state.bag, EGGOMETER)} />
     </section>
   );
 
@@ -638,6 +745,21 @@ export default function Page() {
                 <p className="hint">
                   <kbd>Enter</kbd> or <kbd>Space</kbd>
                 </p>
+                <label className="hint autoContinue">
+                  <input
+                    type="checkbox"
+                    checked={autoContinue}
+                    onChange={(event) => {
+                      setAutoContinue(event.target.checked);
+                      try {
+                        localStorage.setItem(AUTO_CONTINUE_KEY, event.target.checked ? "1" : "0");
+                      } catch {
+                        // Remembered for this session only.
+                      }
+                    }}
+                  />{" "}
+                  Continue by itself when nothing levelled, learned or evolved
+                </label>
               </>
             ) : undefined
           }
@@ -649,8 +771,10 @@ export default function Page() {
               way — a glance while walking, rather than something you stop and
               open a panel for. */}
           <div className="fieldRow">
-            <GameCanvas world={session.world} state={state} />
-            <MiniMap world={session.world} state={state} />
+            <GameCanvas world={session.world} state={state} onTileClick={walkTo} />
+            {/* Straight under the map on a phone, where a thumb is; hidden elsewhere. */}
+            <TouchPad onDown={padDown} onUp={padUp} />
+            <MiniMap world={session.world} state={state} onTileClick={walkTo} />
             <section className="panel questsBeside">
               <h3>Quests</h3>
               <QuestPanel world={session.world} state={state} onInput={dispatch} />
@@ -658,8 +782,8 @@ export default function Page() {
           </div>
           <p className="hint">
             <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to
-            walk. Tall grass has things in it. Every gap in the wall leads somewhere; the small
-            map shows which of them you have taken.
+            walk, or tap or click anywhere on a map you have already seen to walk there. Tall grass has things in it.
+            Every gap in the wall leads somewhere; the small map shows which of them you have taken.
           </p>
           {/* Somebody is behind you. A number counting down, because there is
               nothing to *do* about him except be ready, and a warning you can
@@ -792,6 +916,89 @@ export default function Page() {
               {state.notice.refunded > 0 ? ` ¤${state.notice.refunded.toLocaleString()} came back to you.` : ""}
             </p>
           ) : null}
+          {state.notice?.t === "pageant" ? (
+            <p className={state.notice.won ? "good" : "muted"}>
+              {state.notice.name} scored {state.notice.score} against {state.notice.toBeat}
+              {state.notice.won ? " — and won a Ribbon! 🎀" : ". No Ribbon this time."}
+            </p>
+          ) : null}
+          {state.notice?.t === "photoshot" ? (
+            <p className="good">
+              ¤100,000 for {state.notice.name}&apos;s photoshoot. It came back burned out, and the Ribbon went on the cover.
+            </p>
+          ) : null}
+          {state.notice?.t === "influenceLeft" ? (
+            <p className="good">{state.notice.name} is now being posted about. Walk, and the algorithm does the rest.</p>
+          ) : null}
+          {state.notice?.t === "influenceTaken" ? (
+            <p className="good">
+              {state.notice.name} came back Famous {state.notice.fame}
+              {state.notice.boxed ? " (sent to the box)" : ""}.
+            </p>
+          ) : null}
+          {state.notice?.t === "streamRegistered" ? (
+            <p className="good">{state.notice.name} is live. ¤10,000 in the pool, one a step to keep it going.</p>
+          ) : null}
+          {state.notice?.t === "streamCashed" ? (
+            <p className="good">
+              {state.notice.stopped ? "Stream ended. " : ""}You took ¤{state.notice.money.toLocaleString()} out of the pool.
+            </p>
+          ) : null}
+          {state.notice?.t === "streamBroke" ? (
+            <p className="error">The stream&apos;s pool went below nothing, so the Streamer pulled the plug.</p>
+          ) : null}
+          {state.notice?.t === "therapyLeft" ? (
+            <p className="good">{state.notice.name} lay down on Dr. Couch&apos;s couch. A thousand steps.</p>
+          ) : null}
+          {state.notice?.t === "therapyTaken" ? (
+            <p className="good">
+              {state.notice.name} came back {state.notice.became}
+              {state.notice.became === "Redeemed" ? " — triple experience and effort from now on" : " — it listens to you now, and earns double experience"}
+              {state.notice.boxed ? " (sent to the box)" : ""}.
+            </p>
+          ) : null}
+          {state.notice?.t === "insured" ? (
+            <p className="good">You bought Egg Insurance. Apply it at the daycare and every ordinary incubated egg pays out.</p>
+          ) : null}
+          {state.notice?.t === "invited" ? (
+            <p className="good">
+              {state.notice.name} packed up and moved into {state.notice.room}, in Hearth&apos;s terraces.
+            </p>
+          ) : null}
+          {state.notice?.t === "sentHome" ? (
+            <p className="good">{state.notice.name} went back to where you first found them.</p>
+          ) : null}
+          {state.notice?.t === "chromaTraded" ? (
+            <p className="good">
+              The Colour Collector took {state.notice.name} and paid {state.notice.candy} Chroma Candy.
+            </p>
+          ) : null}
+          {state.notice?.t === "giftSwapped" ? (
+            <p className="good">Swapped {state.notice.name} for a Secret Gift. Open it from the bag.</p>
+          ) : null}
+          {state.notice?.t === "giftOpened" ? (
+            <p className="good">
+              The Secret Gift held{" "}
+              {state.notice.contents.map((part) => `${part.count} × ${item(part.what).name}`).join(", ")}.
+            </p>
+          ) : null}
+          {state.notice?.t === "tutorLeft" ? (
+            <p className="good">
+              {state.notice.name} is staying with the Ability Tutor to learn {ability(state.notice.abilityId).name}.
+            </p>
+          ) : null}
+          {state.notice?.t === "tutorTaken" ? (
+            <p className="good">
+              {state.notice.name} came back knowing {ability(state.notice.abilityId).name}
+              {state.notice.boxed ? " (sent to the box)" : ""}.
+            </p>
+          ) : null}
+          {state.notice?.t === "eggSold" ? (
+            <p className="good">
+              Sold an egg for ¤{state.notice.money.toLocaleString()}.
+              {state.notice.count === 2 ? " He looks at the two of them for a long time." : ""}
+            </p>
+          ) : null}
           {state.notice?.t === "pawned" ? (
             <p className="good">
               Sold {state.notice.name} (Lv{state.notice.level}) to the pawnbroker for ¤
@@ -817,7 +1024,7 @@ export default function Page() {
           {state.notice?.t === "badge" ? (
             <p className="good">
               Beat {gymSpec(state.notice.gym).leader} — the {gymSpec(state.notice.gym).name} badge is
-              yours. Every other gym just got five levels harder.
+              yours. Every other gym just got {LEVELS_PER_BADGE} levels harder.
             </p>
           ) : null}
           {state.notice?.t === "released" ? (
@@ -862,6 +1069,9 @@ export default function Page() {
                 : "There is an egg here, but you have no room to carry it. Make space in your party and come back."}
             </p>
           ) : null}
+          {state.notice?.t === "eggIncubated" ? (
+            <p className="good">An egg went into the incubator. It hatches into the box as you walk.</p>
+          ) : null}
           {state.notice?.t === "eggTaken" ? (
             <p className="good">
               You took the egg. Keep walking with it and see what hatches.
@@ -870,7 +1080,23 @@ export default function Page() {
           {state.notice?.t === "hatched" ? (
             <p className="good">
               {speciesById(state.notice.speciesId).name} hatched from the egg!
-              {state.notice.boxed ? " Party was full, so it went to the box." : ""}
+              {state.notice.boxed ? " It went to the Hatched box." : ""}
+              {state.notice.payout ? ` Nothing special, so the insurance paid out: 1 ${item(state.notice.payout).name}.` : ""}
+              {state.notice.gift
+                ? ` That makes fifteen — the daycare hands you an ${item(state.notice.gift).name}. Every egg now shows its exact steps.`
+                : ""}
+            </p>
+          ) : null}
+          {state.notice?.t === "gadget" ? (
+            <p className="good">
+              You have met six of the people who run something out there, and one of them presses a{" "}
+              {item(state.notice.item).name} into your hand: every clock they keep, in one feed. It is in your bag
+              under Keys.
+            </p>
+          ) : null}
+          {state.notice?.t === "heldTaken" ? (
+            <p className="good">
+              Took back {state.notice.count} held item{state.notice.count === 1 ? "" : "s"} from the box.
             </p>
           ) : null}
         </section>
@@ -1091,7 +1317,7 @@ export default function Page() {
             className="ghost"
             onClick={() => {
               if (confirm("Leave this run? The autosave stays, so you can continue it later.")) {
-                setAutosave(readAutosave());
+                setAutosaves(readAutosaves());
                 setSession(null);
               }
             }}

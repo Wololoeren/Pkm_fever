@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   activeLures,
+  EGGOMETER,
   activeRepel,
   holdRefusal,
   flyRefusal,
@@ -14,9 +15,16 @@ import {
 } from "@/engine/engine";
 import type { World } from "@/engine/world";
 import { holdOf } from "@/engine/carry";
-import { bagEntries, bagUse, item, type ItemKind } from "@/engine/items";
+import { bagEntries, bagUse, hasItem, item, type ItemKind } from "@/engine/items";
 import { displayName } from "@/lib/narrate";
 import { EggSlots } from "./PartyStrip";
+import { RegionMap } from "./MiniMap";
+import { Handbook } from "./Handbook";
+import { Doomscroller } from "./Doomscroller";
+import { canLearnMachine } from "@/engine/dex";
+
+/** The fly map. Narrower than the Grey Line's: the bag is a side column. */
+const FLY_MAP = 240;
 
 /**
  * The bag, and using what is in it.
@@ -66,7 +74,9 @@ export function BagPanel({
   onInput: (input: Input) => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
+  const [reading, setReading] = useState<"handbook" | "feed" | null>(null);
   const [tab, setTab] = useState<ItemKind | null>(null);
+  const [query, setQuery] = useState("");
 
   const held = useMemo(() => {
     const byKind = new Map<ItemKind, [string, number][]>();
@@ -80,7 +90,17 @@ export function BagPanel({
   // The tabs are fixed so they do not rearrange themselves as the bag empties,
   // but which one opens first follows what you actually have.
   const active = tab ?? TABS.find((entry) => held.get(entry.kind)?.length)?.kind ?? "medicine";
-  const rows = held.get(active) ?? [];
+  // A search looks through the whole bag, not the tab: finding a thing is the
+  // point, and knowing which tab it lives in is what you did not know.
+  const searching = query.trim().length > 0;
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = searching
+    ? bagEntries(state.bag).filter(([id]) => {
+        const spec = item(id);
+        const text = `${spec.name} ${spec.blurb}`.toLowerCase();
+        return words.every((word) => text.includes(word));
+      })
+    : (held.get(active) ?? []);
 
   // A selection survives switching tabs only while it is still held; using the
   // last potion should not leave a target picker for a potion you do not have.
@@ -105,7 +125,17 @@ export function BagPanel({
       {/* Eggs sit above the tabs rather than in one. There is nothing to
           press on an egg — you walk, and it opens — so it is something to see
           every time the bag is open rather than something to go looking for. */}
-      <EggSlots eggs={state.eggs} />
+      <EggSlots eggs={state.eggs} exact={hasItem(state.bag, EGGOMETER)} />
+
+      <input
+        type="search"
+        className="boxSearch"
+        placeholder="Search the bag…"
+        value={query}
+        aria-label="Search the bag"
+        spellCheck={false}
+        onChange={(event) => setQuery(event.target.value)}
+      />
 
       <div className="tabs" role="tablist">
         {TABS.map((entry) => {
@@ -154,6 +184,9 @@ export function BagPanel({
                   // A lure, a repel and a rope have no target to pick, so
                   // pressing one *is* using it.
                   if (use === "light") onInput({ t: "useItem", item: id, index: 0 });
+                  // Reading is not an input: nothing about the game changes,
+                  // so nothing goes in the log.
+                  else if (use === "read") setReading(spec.reads ?? "handbook");
                   else setChosen(selected === id ? null : id);
                 }}
                 title={
@@ -166,6 +199,8 @@ export function BagPanel({
                         ? "Use on…"
                         : use === "world"
                           ? "Choose where"
+                          : use === "read"
+                            ? "Open it"
                           : "Nothing to use this on")
                 }
               >
@@ -175,6 +210,20 @@ export function BagPanel({
                 <span className="muted itemBlurb">
                   {burning ? `Burning — ${burning} moves left.` : (why ?? spec.blurb)}
                 </span>
+                {/* Who could learn it, before it is picked: a machine is used on
+                    somebody, and the somebody is the whole question. */}
+                {spec.teaches ? (
+                  <span className="itemBlurb small">
+                    {(() => {
+                      const able = state.party.filter(
+                        (one) => canLearnMachine(one.speciesId, spec.teaches!) && !one.moves.includes(spec.teaches!),
+                      );
+                      return able.length
+                        ? <span className="good">Can learn: {able.map((one) => displayName(one)).join(", ")}</span>
+                        : <span className="muted">Nobody in your party can learn it.</span>;
+                    })()}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -210,11 +259,44 @@ export function BagPanel({
       ) : selected && item(selected).field === "travel" ? (
         <>
           <h4>Fly where?</h4>
+          {/*
+           * The Grey Line's layout, for the same reason: a list of every place
+           * you have walked is fine at five and unreadable at forty. The towns
+           * keep their cards, and everywhere else you can land is ringed green
+           * on the region map. Both read `flyRefusal`, so a place is on the map
+           * exactly when the button for it would have been live.
+           */}
+          {(() => {
+            const landable = state.visited.filter((id) => {
+              const route = world.routes.get(id);
+              return route && route.kind !== "interior" && flyRefusal(world, state, id) === null;
+            });
+            return landable.length ? (
+              <div className="travelMap">
+                <RegionMap
+                  world={world}
+                  state={state}
+                  outer={state.route}
+                  size={FLY_MAP}
+                  reachable={landable}
+                  onPick={(routeId) => {
+                    onInput({ t: "fly", route: routeId });
+                    setChosen(null);
+                  }}
+                />
+                <span className="muted small">
+                  {landable.length} places ringed in green — click one. The towns are below.
+                </span>
+              </div>
+            ) : (
+              <p className="muted">Nowhere to land yet.</p>
+            );
+          })()}
           <div className="items">
             {state.visited
               .flatMap((id) => {
                 const route = world.routes.get(id);
-                return route && route.kind !== "interior" ? [route] : [];
+                return route && route.kind === "town" ? [route] : [];
               })
               .map((route) => {
                 const why = flyRefusal(world, state, route.id);
@@ -299,6 +381,8 @@ export function BagPanel({
           </div>
         </>
       ) : null}
+      {reading === "handbook" ? <Handbook onClose={() => setReading(null)} /> : null}
+      {reading === "feed" ? <Doomscroller world={world} state={state} onClose={() => setReading(null)} /> : null}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   initialState,
   reduce,
   stateHash,
+  storeRefusal,
   type GameState,
   type Input,
 } from "@/engine/engine";
@@ -40,6 +41,24 @@ describe("box tabs", () => {
     const two = { ...started, party: [...started.party, creature("rattata", { uid: 50 })] };
     const stored = applyInput(world, two, { t: "store", index: 1 });
     expect(stored.boxOf[50]).toBe(0);
+  });
+
+  it("BX1b: storing into a named tab puts it there — the one on screen — and a full tab refuses", () => {
+    const tabbed = applyInput(world, applyInput(world, started, { t: "addBox" }), { t: "addBox" });
+    const two = { ...tabbed, party: [...tabbed.party, creature("rattata", { uid: 51 })] };
+    const stored = applyInput(world, two, { t: "store", index: 1, tab: 2 });
+    expect(stored.boxOf[51]).toBe(2);
+    expect(boxCount(stored, 0)).toBe(0);
+
+    const full = {
+      ...two,
+      box: Array.from({ length: BOX_SIZE }, (_, at) => creature("pidgey", { uid: 2000 + at })),
+      boxOf: Object.fromEntries(Array.from({ length: BOX_SIZE }, (_, at) => [2000 + at, 1])),
+    };
+    expect(storeRefusal(full, 1, 1)).toBe("that box is full");
+    expect(() => applyInput(world, full, { t: "store", index: 1, tab: 1 })).toThrow();
+    expect(storeRefusal(full, 1, 7)).toBe("no such box");
+    expect(applyInput(world, full, { t: "store", index: 1, tab: 0 }).boxOf[51]).toBe(0);
   });
 
   it("BX2: a full tab spills into the next, and a new tab opens when every one is full", () => {

@@ -279,7 +279,7 @@ export const HINTS: readonly Hint[] = [
   },
   {
     id: "egg-steps",
-    text: "Leave two at the daycare and walk three hundred steps. Not three hundred seconds — steps. Standing still achieves nothing. I have stood still. It achieved nothing.",
+    text: "Leave two at the daycare and walk six hundred steps. Not six hundred seconds — steps. Standing still achieves nothing. I have stood still. It achieved nothing.",
   },
   {
     id: "daycare-is-a-place",
@@ -449,7 +449,7 @@ export const HINTS: readonly Hint[] = [
   },
   {
     id: "gyms-scale",
-    text: "A gym grows with you. Every badge you already hold adds five levels to every leader still standing, and they climb a level for every thousand moves you walk. Beating them in the wrong order is allowed. It is also harder, and it should be.",
+    text: "A gym grows with you. Every badge you already hold adds three levels to every leader still standing, and they climb a level for every twenty-five hundred moves you walk. Beating them in the wrong order is allowed. It is also harder, and it should be.",
   },
   {
     id: "cup-no-healing",

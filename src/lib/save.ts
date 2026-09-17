@@ -84,11 +84,67 @@ export function encodeSave(save: SaveFile): string {
   });
 }
 
+/** Where the last few runs' autosaves are kept, newest first. */
+const SLOTS_KEY = "pkm-fever.saves";
+
+/** How many runs keep an autosave. Starting a fourth lets the oldest go. */
+export const AUTOSAVE_SLOTS = 3;
+
+/** The stored autosaves as raw strings, newest first, with a single old-style autosave folded in. */
+function readSlots(): string[] {
+  let slots: string[] = [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SLOTS_KEY) ?? "[]");
+    if (Array.isArray(parsed)) slots = parsed.filter((one): one is string => typeof one === "string");
+  } catch {
+    slots = [];
+  }
+  // A browser that saved before there were slots has its one save under the
+  // old key: kept as a slot rather than lost.
+  try {
+    const legacy = localStorage.getItem(KEY);
+    if (legacy && !slots.includes(legacy) && !slots.some((one) => sameRun(one, legacy))) slots.push(legacy);
+  } catch {
+    // No storage at all.
+  }
+  return slots.slice(0, AUTOSAVE_SLOTS);
+}
+
+/** Whether two stored saves are the same run: the run name where both have one, the seed where they do not. */
+function sameRun(a: string, b: string): boolean {
+  try {
+    const one = JSON.parse(a) as { run?: string; seed?: string };
+    const two = JSON.parse(b) as { run?: string; seed?: string };
+    if (one.run && two.run) return one.run === two.run;
+    return !one.run && !two.run && one.seed === two.seed;
+  } catch {
+    return false;
+  }
+}
+
 export function writeAutosave(seed: string, inputs: readonly Input[], roster?: readonly Individual[], run?: string): void {
   try {
-    localStorage.setItem(KEY, encodeSave(makeSave(seed, inputs, roster, run)));
+    const raw = encodeSave(makeSave(seed, inputs, roster, run));
+    // This run's slot moves to the front; the others keep theirs, and the
+    // oldest falls off the end once there are more runs than slots.
+    const slots = [raw, ...readSlots().filter((one) => !sameRun(one, raw))].slice(0, AUTOSAVE_SLOTS);
+    localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
+    // The newest is also kept under the old key, which is what the vault reads.
+    localStorage.setItem(KEY, raw);
   } catch {
     // A full or blocked store costs the autosave, not the session.
+  }
+}
+
+/** Every autosave this browser keeps that this version can open, newest first. */
+export function readAutosaves(): SaveFile[] {
+  try {
+    return readSlots().flatMap((raw) => {
+      const save = parseSave(raw);
+      return save ? [save] : [];
+    });
+  } catch {
+    return [];
   }
 }
 
@@ -166,17 +222,13 @@ export function readAutosave(): SaveFile | null {
 export function clearAutosave(): void {
   // Anything owed is dropped rather than written. Without this, starting a new
   // game inside the debounce window lets the old one land on top of it half a
-  // second later.
+  // second later. The saved slots stay: a new run takes a slot of its own, and
+  // only pushes the oldest out once it has been played.
   if (pending !== null) {
     clearTimeout(pending);
     pending = null;
   }
   owed = null;
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    // Nothing to do; the next write will overwrite it anyway.
-  }
 }
 
 /** Reads an untrusted string into a save, or returns null. Deliberately
@@ -246,13 +298,39 @@ export function parseAnySave(
   };
 }
 
-/** Hands the player a file. The browser owns where it goes. */
+/**
+ * When a save was written, in the shape a filename can carry: `20260916-1432`.
+ *
+ * Local time rather than UTC, and no punctuation beyond the one dash, because
+ * this is read in a folder listing by the person who made it. Sortable by
+ * name, which is the only thing a folder gives you for free.
+ */
+export function fileStamp(savedAt: string): string {
+  const when = new Date(savedAt);
+  if (Number.isNaN(when.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return (
+    `${when.getFullYear()}${pad(when.getMonth() + 1)}${pad(when.getDate())}` +
+    `-${pad(when.getHours())}${pad(when.getMinutes())}`
+  );
+}
+
+/**
+ * Hands the player a file. The browser owns where it goes.
+ *
+ * The name carries the seed and the moment: one run saved twice used to be one
+ * name twice, so the second download became "(1)" and a folder of them was a
+ * folder of guesses. The time is in the file as `savedAt` either way — this is
+ * so it can be read without opening anything.
+ */
 export function downloadSave(seed: string, inputs: readonly Input[], roster?: readonly Individual[], run?: string): void {
-  const blob = new Blob([encodeSave(makeSave(seed, inputs, roster, run))], { type: "application/json" });
+  const save = makeSave(seed, inputs, roster, run);
+  const blob = new Blob([encodeSave(save)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `pkm-fever-${seed}.json`;
+  const stamp = fileStamp(save.savedAt);
+  link.download = `pkm-fever-${seed}${stamp ? `-${stamp}` : ""}.json`;
   link.click();
   URL.revokeObjectURL(url);
 }

@@ -51,6 +51,10 @@ export interface ItemSpec {
   id: string;
   name: string;
   kind: ItemKind;
+  /** Something you open and read from the bag, and which screen it opens. Nothing in the engine reads it. */
+  reads?: "handbook" | "feed";
+  /** Opened from the bag into other items, like a Secret Gift. See `giftContents` in tutor.ts. */
+  opens?: boolean;
   /** What a Mart charges. Zero means it is not for sale at any price. */
   price: number;
   /** What a Mart pays for one. Never above `price`, or a bag is a mint. */
@@ -439,8 +443,27 @@ const ITEM_LIST: ItemSpec[] = [
     kind: "treasure",
     price: 0,
     sell: 1400,
-    blurb: "No use. Sells to a Mart for 1,400.",
+    blurb: "Part of the Ability Tutor's price, now and then. Otherwise sells to a Mart for 1,400.",
     stacks: true,
+  },
+  {
+    id: "chromacandy",
+    name: "Chroma Candy",
+    kind: "treasure",
+    price: 0,
+    sell: 0,
+    blurb: "The Colour Collector pays it for creatures wearing a colour; the Ability Tutor takes it as part of a price. Worth nothing to a Mart.",
+    stacks: true,
+  },
+  {
+    id: "secretgift",
+    name: "Secret Gift",
+    kind: "treasure",
+    price: 0,
+    sell: 0,
+    blurb: "From the Gift Swapper. Open it from the bag: usually potions or berries, sometimes a stone, pearls, Chroma Candy, Glitter or a machine.",
+    stacks: true,
+    opens: true,
   },
 ];
 
@@ -460,6 +483,17 @@ const ITEM_LIST: ItemSpec[] = [
  * every time you move rather than a change to the map.
  */
 const TOOLS: ItemSpec[] = [
+  {
+    // Carried, never used: while it is in the bag every egg shows its exact
+    // steps instead of a guess.
+    id: "eggometer",
+    name: "Egg-o-meter",
+    kind: "hm",
+    price: 0,
+    sell: 0,
+    blurb: "Tool. While you carry it, every egg shows exactly how many steps it has left. Given for hatching fifteen eggs.",
+    stacks: false,
+  },
   {
     id: "hm-cut",
     name: "Cut",
@@ -606,6 +640,28 @@ const KEYS: ItemSpec[] = [
     blurb: "Key item. Given for eight badges; it lets you enter the World Cup.",
     stacks: false,
   },
+  {
+    id: "handbook",
+    name: "Pokémon Handbook",
+    kind: "key",
+    price: 0,
+    sell: 0,
+    blurb: "Key item. Every shine rung and colour and what each does to a stat, every ability, and every item. Open it from the bag.",
+    stacks: false,
+    reads: "handbook",
+  },
+  {
+    // A feed of every clock in the game, which is a joke about a thing you
+    // cannot stop checking, told by a thing you cannot stop checking.
+    id: "doomscroller",
+    name: "Doomscroller",
+    kind: "key",
+    price: 0,
+    sell: 0,
+    blurb: "Key item. A feed of every countdown you have running — the printer, the wheel, the shredder, the pawnbroker, the tutor, the workshop, the auction and your eggs — and posts when a lot you bid on has closed. Given once you have met six of the people who run something.",
+    stacks: false,
+    reads: "feed",
+  },
 ];
 
 /**
@@ -674,7 +730,7 @@ const BREEDING_ITEMS: ItemSpec[] = [
   ...CHROMA_IDS.map((id) => ({
     id: `lens-${id}`,
     name: `${id.charAt(0).toUpperCase()}${id.slice(1)} Lens`,
-    blurb: `Daycare: each egg has a 20% chance to be ${id}, whatever colour its parents are. Never used up.`,
+    blurb: `Daycare: each egg has a 10% chance to be ${id}, whatever colour its parents are. Never used up.`,
   })),
   // The light family: five flat additions to the climb, sitting further and
   // further out. They add to each other and to everything else, which is the
@@ -771,6 +827,14 @@ const DAYCARE_GEAR: ItemSpec[] = [
     sell: 0,
     blurb: "Daycare: two more incubators, up to four in all. Eggs left in them hatch as you walk and go to the box. Never used up.",
     incubatorSlots: 2,
+  },
+  {
+    // Sold by one man in Hearth for fifty thousand, never at a Mart.
+    id: "egginsurance",
+    name: "Egg Insurance",
+    price: 0,
+    sell: 0,
+    blurb: "Daycare: while applied, an ordinary egg — no shine, no colour — hatching in an incubator pays out a Glitter or a Chroma Candy. Never used up. Sold by the Egg Insurance salesman in Hearth.",
   },
 ].map((entry) => ({ ...entry, kind: "breeding" as const, stacks: false }));
 
@@ -1247,10 +1311,14 @@ export type BagUse =
   | "light"
   /** Pick a direction, or a place. */
   | "world"
+  /** Open it and read it. */
+  | "read"
   /** Nothing at all, from the bag. */
   | null;
 
 export function bagUse(spec: ItemSpec): BagUse {
+  if (spec.reads) return "read";
+  if (spec.opens) return "light";
   if (spec.lure) return "light";
   if (spec.repel || spec.escape) return "light";
   if (spec.field === "clear" || spec.field === "travel") return "world";

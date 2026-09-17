@@ -31,12 +31,13 @@ export function rememberTrainerName(name: string): void {
  * "coming soon" dialog is worse than one that says so on its face.
  */
 export function MainMenu({
-  autosave,
+  autosaves,
   onNew,
   onLoad,
   onVault,
 }: {
-  autosave: SaveFile | null;
+  /** The last few runs' autosaves, newest first. */
+  autosaves: readonly SaveFile[];
   /** A new game in this world, played under this trainer name. */
   onNew: (seed: string, trainer: string) => void;
   onLoad: (save: SaveFile) => void;
@@ -128,18 +129,30 @@ export function MainMenu({
 
       <div className="menuCard">
         <h2>Load game</h2>
-        {autosave ? (
-          <p className="muted">
-            Autosave from seed <code>{autosave.seed}</code>, {autosave.inputs.length} moves in
-            {autosave.savedAt ? ` · ${new Date(autosave.savedAt).toLocaleString()}` : ""}.
-          </p>
+        {autosaves.length ? (
+          <>
+            <p className="muted">
+              The last {autosaves.length === 1 ? "run" : `${autosaves.length} runs`} played in this browser, newest first.
+              Starting a new one keeps these; once there are more than three, the oldest goes.
+            </p>
+            <ul className="saveSlots">
+              {autosaves.map((save, at) => (
+                <li key={save.run ?? `${save.seed}-${at}`} className="saveSlot">
+                  <span>
+                    Seed <code>{save.seed}</code> · {save.inputs.length.toLocaleString()} moves
+                    {save.savedAt ? ` · ${new Date(save.savedAt).toLocaleString()}` : ""}
+                  </span>
+                  <button type="button" className={at === 0 ? "primary" : undefined} onClick={() => onLoad(save)}>
+                    Continue
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         ) : (
           <p className="muted">No autosave in this browser yet. You can still open a save file.</p>
         )}
         <div className="row">
-          <button type="button" disabled={!autosave} onClick={() => autosave && onLoad(autosave)}>
-            Continue
-          </button>
           <button type="button" className="ghost" onClick={() => fileRef.current?.click()}>
             Open save file
           </button>
