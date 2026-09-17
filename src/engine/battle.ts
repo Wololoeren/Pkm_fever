@@ -10,7 +10,7 @@ import {
 } from "./dex";
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
-import { abilitiesOf, effectApplies, typesWith, type AbilityEffect } from "./abilities";
+import { abilitiesOf, effectApplies, hasPerk, swappedType, typesWith, type AbilityEffect } from "./abilities";
 import { heldEffects, isConsumedOnUse } from "./carry";
 import { item as itemSpec } from "./items";
 import { canStillEvolve } from "./progression";
@@ -1169,8 +1169,11 @@ export function landsAs(
    */
   defending: Volatiles = {},
 ): number | null {
-  const move = moveById(moveId);
-  if (move.category === "status" || move.id === STRUGGLE) return null;
+  const listed = moveById(moveId);
+  if (listed.category === "status" || listed.id === STRUGGLE) return null;
+  // What the attacker's swaps make of it, so the button promises what lands.
+  const type = swappedType(attacker.abilities, listed.type);
+  const move = type === listed.type ? listed : { ...listed, type };
   if (drinker(defender, move)) return 0;
   if (move.type === "ground" && (defending.afloat ?? 0) > 0) return 0;
   return chartFor(move, typesAgainst(attacker, defender, move, defending));
@@ -1703,10 +1706,13 @@ function landDamage(
 
   // Moxie: the spoils of a knockout.
   if (isFainted(active(turn, other(side)))) {
-    for (const effect of effects(attacker, "spoils")) {
-      applyBoosts(turn, side, { [effect.stat]: effect.delta });
-      const named = whichAbility(attacker, "spoils");
-      if (named) turn.events.push({ t: "ability", side, abilityId: named });
+    // Named first, then the rise, so the log reads "Moxie! Attack rose!"
+    // rather than a rise out of nowhere with its reason after it. Each ability
+    // named once, for a creature carrying more than one of the family.
+    for (const spec of abilitiesOf(attacker.abilities)) {
+      if (spec.effect.t !== "spoils") continue;
+      turn.events.push({ t: "ability", side, abilityId: spec.id });
+      applyBoosts(turn, side, { [spec.effect.stat]: spec.effect.delta });
     }
   }
 
@@ -1914,11 +1920,10 @@ function unmuffle(turn: Turn, side: SideIndex, force = false): void {
 }
 
 /**
- * Remembers what this creature held before a move moved its item, so a
- * battle that is not in the wild can hand it back. The first time only.
+ * Remembers what this creature held before a move moved its item, so the end
+ * of the battle can hand it back. The first time only.
  */
 function lend(turn: Turn, side: SideIndex): void {
-  if (turn.rules.catchable) return;
   const combatant = turn.battle.sides[side];
   const lent = { ...(combatant.lent ?? {}) };
   if (combatant.active in lent) return;
@@ -1928,6 +1933,7 @@ function lend(turn: Turn, side: SideIndex): void {
 
 /** The end of a battle: knocked-off items back, and borrowed ones returned. */
 function returnItems(turn: Turn): void {
+  if (turn.rules.catchable) wildItemsBack(turn);
   for (const side of [0, 1] as SideIndex[]) {
     const combatant = turn.battle.sides[side];
     if (!combatant.knocked && !combatant.lent) continue;
@@ -1939,6 +1945,49 @@ function returnItems(turn: Turn): void {
     });
     combatant.knocked = undefined;
     combatant.lent = undefined;
+  }
+}
+
+/**
+ * The wild version of handing items back, which only runs one way.
+ *
+ * A wild creature is not coming back to return what it took, so for a long
+ * time nothing was returned in the wild at all — and a Lucky Egg that a wild
+ * Thief took, or that your own Trick handed over, was simply gone. Now
+ * whatever *you* lost comes back to you. What you took from a wild one you
+ * keep: Thief on a wild creature is still how you get its berry.
+ *
+ * The other half is making sure a returned item is not also still on the wild
+ * creature, which you might be about to catch. Whatever you were holding
+ * instead goes back to it: a Trick is undone on both sides.
+ */
+function wildItemsBack(turn: Turn): void {
+  const mine = turn.battle.sides[0];
+  const theirs = turn.battle.sides[1];
+  const returned: string[] = [];
+  const handedBack: (string | null)[] = [];
+  if (mine.lent) {
+    mine.team = mine.team.map((one, at) => {
+      const was = mine.lent![at];
+      if (!(at in mine.lent!) || was === null || one.heldItem === was) return one;
+      returned.push(was);
+      handedBack.push(one.heldItem);
+      return { ...one, heldItem: was };
+    });
+    mine.lent = undefined;
+  }
+  if (theirs.lent) {
+    theirs.team = theirs.team.map((one, at) => {
+      if (!(at in theirs.lent!) || !one.heldItem) return one;
+      const gave = returned.indexOf(one.heldItem);
+      if (gave < 0) return one;
+      returned.splice(gave, 1);
+      const was = theirs.lent![at];
+      const back = was !== null && handedBack.includes(was) ? was : null;
+      if (back !== null) handedBack.splice(handedBack.indexOf(back), 1);
+      return { ...one, heldItem: back };
+    });
+    theirs.lent = undefined;
   }
 }
 
@@ -4392,7 +4441,7 @@ function executeMove(
   // a move Me First borrowed is half again as strong.
   const electric = Boolean(volatiles(turn, side).electrified) || (turn.ionDeluge === true && shaped.type === "normal");
   const borrowed = depth === 1 && turn.meFirst === side;
-  const move =
+  const unswapped =
     electric || borrowed
       ? {
           ...shaped,
@@ -4400,6 +4449,12 @@ function executeMove(
           power: borrowed ? Math.floor((shaped.power * 3) / 2) : shaped.power,
         }
       : shaped;
+  // Green Fire and the other swaps: last, so an Electrify still makes the move
+  // Electric first and the swap turns that. Attacks only: Struggle has no type
+  // to trade, and a status move is not an attack.
+  const swapped =
+    moveId === STRUGGLE || unswapped.category === "status" ? unswapped.type : swappedType(active(turn, side).abilities, unswapped.type);
+  const move = swapped === unswapped.type ? unswapped : { ...unswapped, type: swapped };
   const struggling = moveId === STRUGGLE;
 
   // Spent here rather than when the move was chosen: a creature that is
@@ -6031,9 +6086,10 @@ function onArriving(turn: Turn, side: SideIndex): void {
   }
   // A Ribbon: the crowd's favourite walks out and the other side forgets to
   // be fierce, three times in ten.
-  if (arriving.ribbon && roll(turn, `ribbon-${side}`) < RIBBON_CHARM) {
+  const presence = hasPerk(arriving, "stagepresence");
+  if (arriving.ribbon && roll(turn, `ribbon-${side}`) < RIBBON_CHARM * (presence ? 2 : 1)) {
     turn.events.push({ t: "ribbon", side });
-    applyBoosts(turn, other(side), { atk: -1 }, true);
+    applyBoosts(turn, other(side), { atk: presence ? -2 : -1 }, true);
   }
   for (const effect of effects(arriving, "arrival")) {
     // Scrappy is immune to it, as it is in the games.
@@ -6335,6 +6391,9 @@ function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnR
     revertTransform(turn, 0);
     revertTransform(turn, 1);
     returnItems(turn);
+    // What was caught is what the wild side is left holding, now any item of
+    // yours has been taken back off it.
+    if (caught) caught = { ...caught, heldItem: turn.battle.sides[1].team[turn.battle.sides[1].active]?.heldItem ?? null };
   }
   return { battle: { ...turn.battle, events: turn.events }, caught, ballsUsed };
 }

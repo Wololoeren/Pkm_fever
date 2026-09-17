@@ -720,3 +720,54 @@ listed at the end.
 - The request named this person "BIG FAN" paying for a "private session" that leaves the creature
   "Traumatized"; that framing was not used. The mechanic is the same.
 - Tests: `tests/pageant.test.ts`.
+
+## Swap abilities (folded into 37)
+
+- Fifteen `swap-*` abilities (`SWAP_PAIRS` in abilities.ts, effect `{ t: "swap", types: [a, b] }`):
+  Green Fire (Grass⇄Fire), Boiling Tide (Fire⇄Water), Frozen Spark (Electric⇄Ice), Falling Stone
+  (Rock⇄Flying), Iron Brawl (Fighting⇄Steel), Haunted Mind (Ghost⇄Psychic), Night Bloom
+  (Dark⇄Fairy), Tainted Soil (Poison⇄Ground), Dragon Frost (Dragon⇄Ice), Hive Mind (Bug⇄Normal),
+  Charged Surf (Electric⇄Water), Quicksilver (Steel⇄Psychic), Wild Wind (Grass⇄Flying), Spirit Fist
+  (Ghost⇄Fighting), Sweet Venom (Poison⇄Fairy).
+- `swappedType(abilities, type)` applied in `executeMove` last (after Electrify/Ion Deluge), for
+  damaging moves only, and in `landsAs` so the move buttons promise the right effectiveness. The move
+  button shows "grass → fire". The creature's own types, and so its STAB, are unchanged.
+- They join the roll (`ABILITIES` is 196), so rolled abilities differ from here on. docs/abilities.md
+  has a table; docs/abilities.txt regenerated. Tests: `tests/swaps.test.ts`.
+
+## Social perks (folded into 37)
+
+- Fourteen `social-*` abilities, effect `{ t: "perk", perk }`, read through `hasPerk(creature, perk)`:
+  Celebrity (stream earnings ×5), Renowned (×2; the larger wins), Drama Queen (no pool loss when it
+  faints on stream), Low Bandwidth (no per-step stream cost), Pretty (pageant IVs ×5), Photogenic
+  (+150 on stage), Trendsetter (shine rungs 80 on stage), Colour Coordinated (colour ×2 on stage),
+  Humblebrag (pageant item bonus ignores type), Stage Presence (Ribbon charm 60% and −2 Attack),
+  Viral (fame steps count twice, `fameRate`), Thick Skin (no Burned Out from the photoshoot),
+  Paparazzi Magnet (photoshoot pays ×3), Comeback Story (therapy free, `therapyPrice`, and a tenth of
+  the steps). They join the roll (`ABILITIES` is 210). docs/abilities.md has a table;
+  docs/abilities.txt regenerated. Tests: `tests/perks.test.ts`.
+
+## Wild battles give your items back
+
+Thief, Covet, Trick, Switcheroo and Bestow in a wild battle used to be permanent, so a wild Thief could take a Lucky Egg for good. `wildItemsBack` (battle.ts) now returns what the player lost when the battle ends and takes it back off the wild creature (and off a caught one); what the player stole from a wild creature is kept. Folded into ENGINE_VERSION 37. Test LM13b.
+
+## Arena cooldown
+
+Winning an AI bracket (taking its prize) closes that arena for `ARENA_COOLDOWN` = 3000 moves, per arena, stamped in `state.arenaWon`. Losing costs nothing. `arenaWait` / `arenaRefusal` give the reason the Enter button shows. Folded into ENGINE_VERSION 37. Test in W34.
+
+## Starters tripled
+
+Starter shine (21/1000 shiny, tint rungs [18,12,9,3]), chroma (105/1000), held item (`STARTER_HELD_PER_MILLE` 300) and abilities (`STARTER_ABILITY_ODDS`: one 30%, two 6%, three 1%); shine ladder shiny 1%, Nearly 1.5%, Turning 2%, Washed 2.5%, Faded 3% are all three times what they were. Every seed's starters may differ, so folded into ENGINE_VERSION 37.
+
+## Shapers and the foreman wander
+
+The Colour Collector, the Ability Tutor and the Workshop Foreman were fixed in town-3 (Sanchford). They are now `{ at: "wander", maxRing: 2 }` like the Auctioneer, Ivo, Marv and Hessa: a town or a ring 1-2 route picked per seed. Folded into ENGINE_VERSION 37.
+The Pawnbroker, Gift Swapper and Dr. Couch (therapist), fixed in town-1 (Southpass), wander the same way.
+
+## Every evolution
+
+The 84 manifest evolutions that were neither a plain level nor a stone (trade, levelHold, levelFriendship, levelMove, levelExtra, other) now have rules in `src/engine/evolutions.ts`: trades = Linking Cord (used like a stone), trades with an item and levelHold = level-up holding it (item used up; Linking Cord also works while holding), friendship = level-up holding a Soothe Bell (kept; Eevee also needs a Psychic/Dark/Fairy move), levelMove = knowing the move, the rest = nearest equivalent (a move, an item, a level). 15 new evolution-only held items and 6 new stone-kind items (Linking Cord, Peat Block, Strawberry Sweet, Scroll of Darkness, Scroll of Waters, Gimmighoul Coin), all on Mart shelves. `evolveRefusal` refuses an offer whose held item or move went away. Folded into ENGINE_VERSION 37. tests/evolutions.test.ts guards coverage.
+
+## Moxie family
+
+Moxie worked (checked: +1 Atk on a KO, kept for the next foe); its log line now names the ability before the rise. Four siblings added as singles: Grim Neigh (SpA), Trophy Hide (Def), Victor's Calm (SpD), Bloodrush (Spe). ABILITIES 214, singles 95. Adding to the roll changes every rolled ability: folded into ENGINE_VERSION 37.

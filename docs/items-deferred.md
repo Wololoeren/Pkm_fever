@@ -24,7 +24,7 @@ is not, and each is now a small piece of wiring rather than a feature:
 
 | Item | Reads |
 | --- | --- |
-| **King's Rock**, **Razor Fang** | `flinched`, which Iron Head and twenty-seven others already set |
+| **King's Rock**, **Razor Fang** | `flinched`, which Iron Head and twenty-seven others already set. Both are in, as evolution items; only the flinch chance is not |
 | **Persim Berry** | `confusion`, to cure |
 | **Berserk Gene** | `confusion`, to cause |
 | **Binding Band**, **Grip Claw** | `bound` — a harder squeeze, and a longer hold |
@@ -146,8 +146,7 @@ opposite of everything else here being derived from the input log.
 
 | Item | What it does |
 | --- | --- |
-| **Soothe Bell** | Friendship grows faster |
-| Nineteen `levelFriendship` evolutions | Espeon, Umbreon, Togetic, Riolu and the rest |
+| **Soothe Bell** | Friendship grows faster. The bell and its evolutions are in: the nineteen `levelFriendship` evolutions (Espeon, Umbreon, Togetic, Riolu and the rest) happen at a level-up holding it — see `evolutions.ts` |
 
 The nineteen are the loud part. They are in the manifest and unreachable, and
 the honest fix may be a different one entirely — a stone for each, or a

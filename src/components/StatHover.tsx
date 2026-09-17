@@ -1,6 +1,7 @@
 "use client";
 
 import { abilitiesOf, typesWith } from "@/engine/abilities";
+import { isItem, item } from "@/engine/items";
 import { species as speciesById } from "@/engine/dex";
 import { effortSpent, effortYield } from "@/engine/effort";
 import { GENDER_NAMES } from "@/engine/gender";
@@ -132,6 +133,13 @@ export function StatHover({
         Beating one is worth {yielded.amount} {listOf(yielded.stats.map((s) => STAT_LABELS[s]))}.
       </p>
       <p className="muted">Knows {creature.moves.join(", ")}.</p>
+      {/* What it is carrying, and what that does — a starter can arrive holding
+          something, and it is part of the choice. */}
+      {creature.heldItem && isItem(creature.heldItem) ? (
+        <p>
+          Holding <strong>{item(creature.heldItem).name}</strong> — <span className="muted">{item(creature.heldItem).blurb}</span>
+        </p>
+      ) : null}
       {abilitiesOf(creature.abilities).map((spec) => (
         <p key={spec.id} className="good">
           <strong>{spec.name}</strong> — {spec.blurb}

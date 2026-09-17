@@ -61,7 +61,8 @@ import { BIOMES } from "./biomes";
 import { bidWins, board, lot as auctionLot, lotCreature } from "./auction";
 import { PAGEANT_ROUND, pageantRound, pageantScore, pageantToBeat } from "./pageant";
 import { CHROMA_CANDY, chromaCandyFor, giftContents, SECRET_GIFT, TUTOR_STAY, tutorBoard, type PricePart } from "./tutor";
-import { abilitiesOf, FORAGE_EVERY, isAbility, MAX_ABILITIES, pickAbilities, rollAbilities } from "./abilities";
+import { heldAfterEvolving, specialEvolutionLapsed } from "./evolutions";
+import { abilitiesOf, FORAGE_EVERY, hasPerk, isAbility, MAX_ABILITIES, pickAbilities, rollAbilities, STARTER_ABILITY_ODDS } from "./abilities";
 import { isBracketSize, type BracketSize } from "./bracket";
 import { cheatPrizeOffer, prizeOffer } from "./prize";
 import { heldEffects, holdOf, rollHeld, STARTER_HELD_ITEMS, STARTER_HELD_PER_MILLE } from "./carry";
@@ -907,6 +908,11 @@ export interface GameState {
    */
   arena: { id: string; entered: number; round: number } | null;
   /**
+   * The tick each arena was last won on, by arena id. A bracket you have
+   * won is closed to you for `ARENA_COOLDOWN` moves; losing costs nothing.
+   */
+  arenaWon: Record<string, number>;
+  /**
    * The tick of the last print, or null before the first.
    *
    * A stamp rather than a countdown, the same shape a rematch uses: a number
@@ -1140,6 +1146,7 @@ export function initialState(world: World): GameState {
     shreddedAt: null,
     cutAt: null,
     arena: null,
+    arenaWon: {},
     lures: {},
     questsTaken: [],
     questsDone: [],
@@ -2599,11 +2606,22 @@ export function arenaTeam(world: World, state: GameState): Individual[] {
   return team;
 }
 
+/** How many moves a bracket stays closed after you win it. */
+export const ARENA_COOLDOWN = 3000;
+
+/** Moves until this arena will take you again after a win; 0 when it will now. */
+export function arenaWait(state: GameState, id: string): number {
+  const won = state.arenaWon?.[id];
+  return won === undefined ? 0 : Math.max(0, won + ARENA_COOLDOWN - state.tick);
+}
+
 /** Why you cannot enter, or null. */
 export function arenaRefusal(state: GameState, id: string): string | null {
   if (state.phase !== "field") return "not in the middle of this";
   if (!isArena(id)) return "no such bracket";
   if (state.arena) return "you are already in one";
+  const wait = arenaWait(state, id);
+  if (wait > 0) return `you won the last one — the next draw is in ${wait.toLocaleString()} moves`;
   const spec = arena(id);
   // Exactly the format, no more and no fewer: a 3v3 entered with six is a
   // bench of three to swap in, and nobody else in the draw has one.
@@ -2718,6 +2736,9 @@ function takeArenaPrize(world: World, state: GameState, index: number): GameStat
     // The bracket is over the moment its prize is taken. Left standing, the
     // panel would go on offering three creatures for ever.
     arena: null,
+    // Won: this bracket closes for a while. Stamped at the prize, which is
+    // the only way out of a won bracket.
+    arenaWon: { ...(state.arenaWon ?? {}), [state.arena!.id]: state.tick },
     party: boxed ? state.party : [...state.party, arrival],
     box: boxed ? [...state.box, arrival] : state.box,
     nextUid: state.nextUid + 1,
@@ -3005,7 +3026,8 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
     withMoves({
       pp: [],
       // Starters roll like anything else in the world does.
-      abilities: rollAbilities(rng),
+      // Better odds than the wild: see `STARTER_ABILITY_ODDS`.
+      abilities: rollAbilities(rng, STARTER_ABILITY_ODDS),
       uid,
       speciesId: world.starters[index],
       level: 5,
@@ -3391,7 +3413,7 @@ function applyItem(world: World, state: GameState, itemId: string, index: number
     // keeps it: a stone is not a free potion, and a Magikarp on one hit point
     // should come out of it a Gyarados on very few.
     const before = maxHp(target);
-    const grown: Individual = { ...target, speciesId: into };
+    const grown: Individual = { ...target, speciesId: into, heldItem: heldAfterEvolving(target, into) };
     const after = maxHp(grown);
     party[index] = { ...grown, hp: Math.max(1, Math.round((target.hp * after) / Math.max(1, before))) };
 
@@ -5471,8 +5493,13 @@ export function therapyLeaveRefusal(world: World, state: GameState, index: numbe
   if (!patient.traded && !patient.prize && !patient.burnedOut) {
     return "it has nothing to work through — only traded creatures, prizes and the burned out";
   }
-  if (state.money < THERAPY_PRICE) return `a course is ¤${THERAPY_PRICE.toLocaleString("en-US")}`;
+  if (state.money < therapyPrice(patient)) return `a course is ¤${THERAPY_PRICE.toLocaleString("en-US")}`;
   return null;
+}
+
+/** What a course costs this one: nothing for a Comeback Story. */
+export function therapyPrice(patient: Individual): number {
+  return hasPerk(patient, "comebackstory") ? 0 : THERAPY_PRICE;
 }
 
 function therapyLeave(world: World, state: GameState, index: number, confirm: number): GameState {
@@ -5482,7 +5509,7 @@ function therapyLeave(world: World, state: GameState, index: number, confirm: nu
   return {
     ...state,
     tick: state.tick + 1,
-    money: state.money - THERAPY_PRICE,
+    money: state.money - therapyPrice(patient),
     party: state.party.filter((_, slot) => slot !== index),
     therapy: { creature: patient, since: state.stepsTaken },
     notice: { t: "therapyLeft", name: patient.nickname ?? speciesById(patient.speciesId).name },
@@ -5492,7 +5519,8 @@ function therapyLeave(world: World, state: GameState, index: number, confirm: nu
 /** Steps left on the course, or 0 when it is done. */
 export function therapyWait(state: GameState): number {
   if (!state.therapy) return 0;
-  return Math.max(0, THERAPY_STEPS - (state.stepsTaken - state.therapy.since));
+  const course = hasPerk(state.therapy.creature, "comebackstory") ? THERAPY_STEPS / 10 : THERAPY_STEPS;
+  return Math.max(0, course - (state.stepsTaken - state.therapy.since));
 }
 
 export function therapyTakeRefusal(world: World, state: GameState): string | null {
@@ -5575,16 +5603,22 @@ export function fameWorth(creature: Individual): number {
 export function fameLevel(creature: Individual): number {
   const worth = fameWorth(creature);
   if (!worth || !creature.fameSteps) return 0;
-  return fameAt(creature.fameSteps, worth);
+  return fameAt(creature.fameSteps * fameRate(creature), worth);
+}
+
+/** How many times a step counts towards fame: twice for Viral. */
+function fameRate(creature: Individual): number {
+  return hasPerk(creature, "viral") ? 2 : 1;
 }
 
 /** Steps with the Influencer until the next fame level, or null at the top. */
 export function fameToNext(creature: Individual, extraSteps = 0): number | null {
   const worth = fameWorth(creature);
+  const rate = fameRate(creature);
   const steps = (creature.fameSteps ?? 0) + extraSteps;
-  const level = worth ? fameAt(steps, worth) : 0;
+  const level = worth ? fameAt(steps * rate, worth) : 0;
   if (!worth || level >= FAME_MAX) return null;
-  return Math.max(0, Math.ceil(fameNeeds(level + 1) / worth) - steps);
+  return Math.max(0, Math.ceil(fameNeeds(level + 1) / (worth * rate)) - steps);
 }
 
 export function influenceLeaveRefusal(world: World, state: GameState, index: number, confirm: number): string | null {
@@ -5688,9 +5722,17 @@ function streamCash(world: World, state: GameState, stopping: boolean): GameStat
   };
 }
 
+/** What a stream's earnings are multiplied by: 5 for a Celebrity, 2 for the Renowned — the larger. */
+export function streamMultiplier(star: Individual): number {
+  return hasPerk(star, "celebrity") ? 5 : hasPerk(star, "renowned") ? 2 : 1;
+}
+
 /** One step's bandwidth out of the pool — and the plug pulled if it goes below nothing. */
 function streamStep(state: GameState): GameState {
   if (!state.stream) return state;
+  // Low Bandwidth: the one on stream costs nothing to carry.
+  const star = [...state.party, ...state.box].find((one) => one.uid === state.stream!.uid);
+  if (star && hasPerk(star, "lowbandwidth")) return state;
   const pool = state.stream.pool - 1;
   if (pool >= 0) return { ...state, stream: { ...state.stream, pool } };
   return { ...state, stream: null, notice: state.notice ?? { t: "streamBroke" } };
@@ -5712,10 +5754,10 @@ function streamed(state: GameState, before: BattleState, after: BattleState): Ga
   let pool = state.stream.pool;
   before.sides[1].team.forEach((foe, at) => {
     const now = after.sides[1].team[at];
-    if (foe.hp > 0 && now && now.hp <= 0) pool += STREAM_EARN[fame - 1] * foe.level;
+    if (foe.hp > 0 && now && now.hp <= 0) pool += STREAM_EARN[fame - 1] * foe.level * streamMultiplier(star);
   });
   const starNow = after.sides[0].team.find((one) => one.uid === star.uid);
-  if (star.hp > 0 && starNow && starNow.hp <= 0) pool -= STREAM_FAINT[fame - 1];
+  if (star.hp > 0 && starNow && starNow.hp <= 0 && !hasPerk(star, "dramaqueen")) pool -= STREAM_FAINT[fame - 1];
 
   if (pool >= 0) return { ...state, stream: { ...state.stream, pool } };
   return { ...state, stream: null, notice: state.notice ?? { t: "streamBroke" } };
@@ -5781,8 +5823,11 @@ function photoshoot(world: World, state: GameState, index: number, confirm: numb
   return {
     ...state,
     tick: state.tick + 1,
-    money: state.money + PHOTOSHOOT_PAY,
-    party: state.party.map((each, at) => (at === index ? { ...each, ribbon: false, burnedOut: true } : each)),
+    money: state.money + PHOTOSHOOT_PAY * (hasPerk(one, "paparazzimagnet") ? 3 : 1),
+    // Thick Skin: the Ribbon still goes on the cover, but it shrugs the rest off.
+    party: state.party.map((each, at) =>
+      at === index ? { ...each, ribbon: false, burnedOut: !hasPerk(each, "thickskin") } : each,
+    ),
     notice: { t: "photoshot", name: one.nickname ?? speciesById(one.speciesId).name },
   };
 }
@@ -6138,7 +6183,7 @@ export function evolveRefusal(state: GameState, uid: number, to: string): string
     state.party.find((one) => one.uid === uid) ?? state.box.find((one) => one.uid === uid);
   if (!creature) return "it is not here any more";
   if (creature.speciesId === to) return "it is already that";
-  return null;
+  return specialEvolutionLapsed(creature, to);
 }
 
 /**
@@ -7368,6 +7413,10 @@ export function stateHash(state: GameState): string {
     state.influencing ? `${individual(state.influencing.creature)}@${state.influencing.since}` : "-",
     state.stream ? `${state.stream.uid}$${state.stream.pool}` : "-",
     state.pageantEntered ?? "-",
+    Object.keys(state.arenaWon ?? {})
+      .sort()
+      .map((id) => `${id}@${state.arenaWon[id]}`)
+      .join(","),
     state.bids.map((bid) => `${bid.n}@${bid.price}`).join(","),
     WORKSHOP_STATIONS.map((station) => {
       const held = state.workshop[station];

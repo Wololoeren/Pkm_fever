@@ -9,6 +9,7 @@ import {
   type Combatant,
   type SideIndex,
 } from "@/engine/battle";
+import { swappedType } from "@/engine/abilities";
 import { move as moveById, species as speciesById, type MoveEntry } from "@/engine/dex";
 import { displayPower } from "@/engine/moves";
 import { anyPp, ppLeft, maxPp } from "@/engine/pp";
@@ -473,6 +474,8 @@ export function BattleView({
               {player.moves.map((moveId, index) => {
                 const entry = moveById(moveId);
                 const left = ppLeft(player, index);
+                // The type it goes out as, after any swap ability.
+                const goesAs = entry.category === "status" ? entry.type : swappedType(player.abilities, entry.type);
                 // Asked once and handed to both the arrow and the tooltip
                 // under it, so the two cannot disagree about the same move.
                 const lands = landsAs(player, foe, moveId, battle.sides[them].volatiles);
@@ -483,7 +486,7 @@ export function BattleView({
                     className={`moveBtn${left === 0 ? " spent" : ""}${
                       committed && committed !== moveId ? " overridden" : ""
                     }`}
-                    style={{ borderLeftColor: typeColor(entry.type) }}
+                    style={{ borderLeftColor: typeColor(goesAs) }}
                     disabled={left === 0 && !committed}
                     title={
                       committed
@@ -504,7 +507,7 @@ export function BattleView({
                       <EffectMark quarters={lands} />
                     </span>
                     <span className="moveMeta">
-                      {entry.type} · {powerText(entry)}
+                      {goesAs === entry.type ? entry.type : `${entry.type} → ${goesAs}`} · {powerText(entry)}
                     </span>
                     {/* Uses left, on the button rather than in the tooltip: it
                         is the number that decides whether you can press it. */}

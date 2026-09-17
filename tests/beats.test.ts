@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiAction, resolveTurn, startBattle, WILD_RULES, type BattleEvent } from "@/engine/battle";
-import { BEAT_MS, BLOW_GAP_MS, beatLength, beatsFor, catchFor } from "@/lib/beats";
+import { BEAT_MS, BLOW_GAP_MS, beatLength, beatsFor, catchFor, SWITCH_TOTAL_MS } from "@/lib/beats";
 import { cuesFor } from "@/lib/sound";
 import { creature } from "./helpers";
 
@@ -244,5 +244,16 @@ describe("a ball thrown", () => {
     expect(shifted[1].lungeAt).toBe(attempt.length);
     expect(shifted[0].hitAt).toBe(attempt.length + (plain[0].hitAt ?? 0));
     expect(beatLength(shifted)).toBeGreaterThan(attempt.length);
+  });
+
+  it("A15: a creature switched in and knocked out on the same turn is hit and falls after it has popped out", () => {
+    const [, theirs] = beatsFor([
+      { t: "switch", side: 1, partyIndex: 1 },
+      { t: "use", side: 0, moveId: "tackle" },
+      { t: "damage", side: 1, amount: 99, quarters: 4, crit: false },
+      { t: "faint", side: 1 },
+    ]);
+    expect(theirs.hitAt).toBeGreaterThanOrEqual(SWITCH_TOTAL_MS);
+    expect(theirs.faintAt).toBeGreaterThan(theirs.hitAt!);
   });
 });

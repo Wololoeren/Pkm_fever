@@ -915,7 +915,75 @@ function stoneItems(): ItemSpec[] {
     });
 }
 
-const STONES: ItemSpec[] = stoneItems();
+/**
+ * Used like a stone, for the evolutions that were not a stone: the trades, and
+ * a few that wanted something this game has no other way to give. The rules
+ * are in evolutions.ts, matched on these names.
+ */
+const EVOLUTION_USE_ITEMS: ItemSpec[] = [
+  {
+    id: "stone-linkingcord",
+    name: "Linking Cord",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Stands in for a trade: evolves Kadabra, Machoke, Graveler, Haunter and the rest of the trade evolutions — and the ones that wanted an item, if it is holding that item. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+  {
+    id: "stone-peatblock",
+    name: "Peat Block",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Evolves Ursaring into Ursaluna. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+  {
+    id: "stone-strawberrysweet",
+    name: "Strawberry Sweet",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Evolves Milcery into Alcremie. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+  {
+    id: "stone-scrollofdarkness",
+    name: "Scroll of Darkness",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Evolves Kubfu into Single Strike Urshifu. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+  {
+    id: "stone-scrollofwaters",
+    name: "Scroll of Waters",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Evolves Kubfu into Rapid Strike Urshifu. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+  {
+    id: "stone-gimmighoulcoin",
+    name: "Gimmighoul Coin",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Evolves Gimmighoul into Gholdengo. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+];
+
+const STONES: ItemSpec[] = [...stoneItems(), ...EVOLUTION_USE_ITEMS];
 
 /**
  * The vitamins, and the berries that undo them.

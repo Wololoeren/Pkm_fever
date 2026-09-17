@@ -395,27 +395,27 @@ export const NPCS: readonly NpcPlacement[] = [
     ],
   },
   /*
-   * The three who shape abilities — see tutor.ts. Two in Sanchford, where the
-   * tutor keeps his board and the collector who pays in his currency stands
-   * across the square; the swapper in Southpass, where nobody asks where a
+   * The three who shape abilities — see tutor.ts. The tutor and the collector
+   * who pays in his currency wander, each to a town or a route of the first
+   * two rings of their own; so does the swapper, somewhere nobody asks where a
    * creature came from.
    */
   {
     id: "colour-collector",
     name: "Colour Collector",
     kind: "chromabuy",
-    where: { at: "town", town: "town-3", x: 8, y: 8 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Colours! I collect the colours. Not the creatures — the colours. The creature is how the colour gets here.",
       "Chroma Candy for anything wearing one. One for the colour, and one more for every rung of shine on top of it.",
-      "The candy is no good to a shop. The tutor across the way takes it, though. Funny, that.",
+      "The candy is no good to a shop. The Ability Tutor takes it, though, wherever they have set up. Funny, that.",
     ],
   },
   {
     id: "ability-tutor",
     name: "Ability Tutor",
     kind: "tutor",
-    where: { at: "town", town: "town-3", x: 28, y: 8 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Eight on the board. One comes off and a new one goes up every thousand steps, so if you see what you want, do not wander off to think about it.",
       "The price is the price: money and materials, and I do not haggle. Leave the one who is learning with me — two and a half thousand steps, and it goes home knowing something new.",
@@ -426,7 +426,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "therapist",
     name: "Dr. Couch",
     kind: "therapy",
-    where: { at: "town", town: "town-1", x: 12, y: 20 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Come in, lie down. Not you — them. The one somebody else raised.",
       "A creature that has been traded carries it around. Who am I to you? Why should I listen? A thousand steps on my couch and we work through it: it listens to you after that, whatever its level, and it throws itself into its training twice as hard.",
@@ -494,7 +494,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "gift-swapper",
     name: "Gift Swapper",
     kind: "giftswap",
-    where: { at: "town", town: "town-1", x: 28, y: 18 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "A creature for a gift. Any creature. I do not look at them and you do not look in the box until you have walked away.",
       "Usually it is something useful. Potions, berries. Every so often it is something rather better than you gave me. That is the game.",
@@ -504,7 +504,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "pawn-broker",
     name: "Pawnbroker",
     kind: "pawn",
-    where: { at: "town", town: "town-1", x: 20, y: 16 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Creatures bought. Fifty a level, cash, no questions asked and none answered.",
       "One at a time, mind. I need to walk each one to a buyer before I take the next, and the buyers do not live close.",
@@ -526,7 +526,7 @@ export const NPCS: readonly NpcPlacement[] = [
     id: "workshop-foreman",
     name: "Workshop Foreman",
     kind: "workshop",
-    where: { at: "town", town: "town-3", x: 12, y: 13 },
+    where: { at: "wander", maxRing: 2 },
     lines: [
       "Short-handed, as ever. Three jobs going and nobody to do them.",
       "An Ice type on the churn makes ice cream. A Fire type on the spit roasts the chickens. A Water type does the garden, and the garden needs it.",

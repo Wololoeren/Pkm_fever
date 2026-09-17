@@ -90,6 +90,11 @@ kbd {
 }
 .menuCard h2 { font-size: 1.05rem; }
 .menuCard.dim { opacity: 0.72; }
+/* The vault with a save's creatures waiting beside it: wider, two columns. */
+.vaultSplit { display: flex; flex-direction: column; gap: 18px; }
+.menu.vault.staging { max-width: 1100px; }
+.menu.vault.staging .vaultSplit { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+@media (max-width: 900px) { .menu.vault.staging .vaultSplit { grid-template-columns: 1fr; } }
 .menuCard.dropZone { border-style: dashed; }
 .menuCard.dropZone.over { border-color: var(--accent); }
 .linkButton { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
@@ -1120,7 +1125,8 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   padding: 6px;
   flex: none;
 }
-.mapPop { width: 100%; margin-top: 6px; }
+.mapPops { display: flex; gap: 4px; margin-top: 6px; }
+.mapPop { flex: 1; padding-left: 4px; padding-right: 4px; }
 /* The body of the window the big map lives in. It is a document of its own, so
    it carries the page background itself rather than inheriting one. */
 .bigMap {

@@ -8,7 +8,7 @@ import { Inspect } from "@/components/Inspect";
 import { DexPanel } from "@/components/DexPanel";
 import { JournalPanel } from "@/components/JournalPanel";
 import { isMuted, setMuted } from "@/lib/sound";
-import { MiniMap } from "@/components/MiniMap";
+import { BigMaps, MiniMap, type BigMapsOpen } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
 import { ArenaPanel } from "@/components/ArenaPanel";
@@ -27,6 +27,7 @@ import { EggSlots, PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
 import { TouchPad } from "@/components/TouchPad";
 import { stepToward } from "@/lib/pathing";
+import { beatLength, beatsFor, catchFor } from "@/lib/beats";
 import { BALLS, countOf, hasItem, item } from "@/engine/items";
 import { ability } from "@/engine/abilities";
 import { quest as questSpec, rewardText } from "@/engine/quests";
@@ -359,6 +360,8 @@ export default function Page() {
   const canWalk = useRef(false);
   /** Where a tap or click on a map asked to walk to, on the route it was asked on. */
   const [walkTarget, setWalkTarget] = useState<{ route: string; x: number; y: number } | null>(null);
+  const [bigMaps, setBigMaps] = useState<BigMapsOpen>({ local: false, region: false });
+  const changeBigMaps = useCallback((change: Partial<BigMapsOpen>) => setBigMaps((open) => ({ ...open, ...change })), []);
   // Not while a hatching or an evolution is on screen: a key still held from
   // the last step would otherwise walk on underneath the scene.
   const sceneUp = Boolean(hatching || offered);
@@ -525,25 +528,37 @@ export default function Page() {
     !(state.battle?.events ?? []).some(
       (event) => event.t === "exp" && (event.levels > 0 || event.learned.length > 0 || event.offered.length > 0 || Boolean(event.evolved)),
     );
+  // The last turn's animation first — a ball's flight, wobbles and stars, or a
+  // faint — so a catch is seen landing rather than cut off by the field.
+  const lastTurn = state?.phase === "battleEnd" && state.battle ? state.battle : null;
+  const lastCatch = lastTurn ? catchFor(lastTurn.events, lastTurn.turn) : null;
+  const tail = lastTurn
+    ? Math.max(
+        lastCatch?.length ?? 0,
+        beatLength(beatsFor(lastTurn.events, lastCatch?.outcome === "escaped" ? lastCatch.length : 0)),
+      )
+    : 0;
   useEffect(() => {
     if (!autoContinue || !quietEnd) return;
-    const timer = setTimeout(() => dispatch({ t: "continue" }), AUTO_CONTINUE_MS);
+    const timer = setTimeout(() => dispatch({ t: "continue" }), AUTO_CONTINUE_MS + tail);
     return () => clearTimeout(timer);
-  }, [autoContinue, quietEnd, state?.tick, dispatch]);
+  }, [autoContinue, quietEnd, state?.tick, dispatch, tail]);
 
   /*
    * Tap-to-walk. One ordinary step every `STEP_INTERVAL` toward the tile that
    * was pointed at, the step worked out again each time from where you are —
-   * so the log holds nothing but moves. It stops on arrival, on anything that
-   * is not walking (a battle, a conversation, a scene, a door into somewhere
-   * else), and when a step goes nowhere, which is the engine refusing it.
+   * so the log holds nothing but moves. It stops on arrival, on a
+   * conversation or a door into somewhere else, and when a step goes nowhere,
+   * which is the engine refusing it. A battle or a hatching only pauses it:
+   * the walk picks up where it left off once you are back on the field — unless
+   * the battle ended somewhere else, at a nurse, which is a different route.
    */
   useEffect(() => {
     if (!walkTarget || !state || !session) return;
+    if (state.phase === "battle" || state.phase === "battleEnd" || sceneUp) return;
     const done =
       state.phase !== "field" ||
       state.talking !== null ||
-      sceneUp ||
       state.route !== walkTarget.route ||
       (state.x === walkTarget.x && state.y === walkTarget.y);
     const dir = done ? null : stepToward(session.world, state, walkTarget);
@@ -718,6 +733,9 @@ export default function Page() {
         </div>
       </header>
 
+      {/* Out here rather than in the field, so a battle does not close them. */}
+      <BigMaps world={session.world} state={state} open={bigMaps} onOpen={changeBigMaps} onTileClick={walkTo} />
+
       {state.phase === "battle" || state.phase === "battleEnd" ? (
         <BattleView
           aside={partyPanel}
@@ -774,7 +792,7 @@ export default function Page() {
             <GameCanvas world={session.world} state={state} onTileClick={walkTo} />
             {/* Straight under the map on a phone, where a thumb is; hidden elsewhere. */}
             <TouchPad onDown={padDown} onUp={padUp} />
-            <MiniMap world={session.world} state={state} onTileClick={walkTo} />
+            <MiniMap world={session.world} state={state} onTileClick={walkTo} bigMaps={bigMaps} onBigMaps={changeBigMaps} />
             <section className="panel questsBeside">
               <h3>Quests</h3>
               <QuestPanel world={session.world} state={state} onInput={dispatch} />

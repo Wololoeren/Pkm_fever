@@ -132,11 +132,11 @@ describe("the catalogue", () => {
 
     // And the counts it opens with have to be the real ones.
     const singles = ABILITIES.filter(
-      (spec) => !/^(cornered|absorb|ward|lack|affinity)-/.test(spec.id),
+      (spec) => !/^(cornered|absorb|ward|lack|affinity|swap|social)-/.test(spec.id),
     ).length;
-    expect(doc).toContain(`## The ninety-one singles`);
-    expect(singles).toBe(91);
-    expect(ABILITIES.length).toBe(181);
+    expect(doc).toContain(`## The ninety-five singles`);
+    expect(singles).toBe(95);
+    expect(ABILITIES.length).toBe(214);
   });
 });
 
@@ -410,3 +410,20 @@ describe("what they do in a battle", () => {
 function wildOf(world: ReturnType<typeof testWorld>, route: string, slot: number): string[] {
   return wildAt(world, ALL_SPECIES, route, slot, 1).abilities;
 }
+
+describe("the spoils family", () => {
+  it("AB-SP1: Moxie and its four siblings each raise their own stat on a knockout, named before the rise", async () => {
+    const { resolveTurn, startBattle, TRAINER_RULES } = await import("@/engine/battle");
+    const { creature } = await import("./helpers");
+    for (const [id, stat] of [["moxie", "atk"], ["grimneigh", "spa"], ["trophyhide", "def"], ["victorscalm", "spd"], ["bloodrush", "spe"]] as const) {
+      const me = { ...creature("gyarados", { uid: 1, level: 80, moves: ["waterfall"] }), abilities: [id] };
+      const foes = [creature("magikarp", { uid: 2, level: 5, moves: ["splash"] }), creature("magikarp", { uid: 3, level: 5, moves: ["splash"] })];
+      const after = resolveTurn(startBattle("SPOILS", `trainer:${id}`, [me], foes), [{ t: "fight", moveIndex: 0 }, { t: "fight", moveIndex: 0 }], TRAINER_RULES).battle;
+      expect(after.sides[0].stages[stat], id).toBe(1);
+      const named = after.events.findIndex((event) => event.t === "ability" && event.abilityId === id);
+      const rose = after.events.findIndex((event) => event.t === "boost" && event.side === 0);
+      expect(named, id).toBeGreaterThanOrEqual(0);
+      expect(named, id).toBeLessThan(rose);
+    }
+  });
+});

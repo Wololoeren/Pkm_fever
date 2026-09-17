@@ -146,6 +146,10 @@ type EffectShape =
   /** Inherited stat slots, for a pairing — the Heirloom's shape, as an item
    * something can carry rather than one applied to the daycare. */
   | { t: "lineage"; slots: number }
+  /** Nothing in battle: a perk read by the social media cabin, the pageant, the paparazzo or Dr. Couch. See `hasPerk`. */
+  | { t: "perk"; perk: SocialPerk }
+  /** Its attacks of one of these two types become the other: a Grass move goes out Fire, a Fire move Grass. */
+  | { t: "swap"; types: [string, string] }
   /** A pageant item: this much on stage for a carrier of one of these types. Nothing in battle. */
   | { t: "pageant"; types: string[]; bonus: number }
   /**
@@ -558,6 +562,32 @@ const SINGLES: AbilitySpec[] = [
     blurb: "Its Attack rises one stage each time one of its damaging moves knocks out the foe.",
     effect: { t: "spoils", stat: "atk", delta: 1 },
   },
+  // Moxie for the other four stats. Grim Neigh is the games' own; the other
+  // three are this game's, so a knockout can feed whatever the build runs on.
+  {
+    id: "grimneigh",
+    name: "Grim Neigh",
+    blurb: "Its Sp. Atk rises one stage each time one of its damaging moves knocks out the foe.",
+    effect: { t: "spoils", stat: "spa", delta: 1 },
+  },
+  {
+    id: "trophyhide",
+    name: "Trophy Hide",
+    blurb: "Its Defense rises one stage each time one of its damaging moves knocks out the foe.",
+    effect: { t: "spoils", stat: "def", delta: 1 },
+  },
+  {
+    id: "victorscalm",
+    name: "Victor's Calm",
+    blurb: "Its Sp. Def rises one stage each time one of its damaging moves knocks out the foe.",
+    effect: { t: "spoils", stat: "spd", delta: 1 },
+  },
+  {
+    id: "bloodrush",
+    name: "Bloodrush",
+    blurb: "Its Speed rises one stage each time one of its damaging moves knocks out the foe.",
+    effect: { t: "spoils", stat: "spe", delta: 1 },
+  },
   {
     id: "intimidate",
     name: "Intimidate",
@@ -687,6 +717,88 @@ const AFFINITY: AbilitySpec[] = FAMILY_TYPES.map((type) => ({
   effect: { t: "affinity" as const, type },
 }));
 
+/**
+ * The swaps: two types trade places on its own attacks.
+ *
+ * Not a change to the creature — it is still its own types, takes hits as
+ * them and gets its same-type bonus for them — only to what its moves are
+ * when they leave it. So a Grass type with Green Fire loses the bonus on its
+ * Grass moves, now Fire, unless it is Fire too; and that is the build: a Fire
+ * type whose best moves are Grass ones.
+ */
+const SWAP_PAIRS: [string, string, string, string][] = [
+  ["greenfire", "Green Fire", "grass", "fire"],
+  ["boilingtide", "Boiling Tide", "fire", "water"],
+  ["frozenspark", "Frozen Spark", "electric", "ice"],
+  ["fallingstone", "Falling Stone", "rock", "flying"],
+  ["ironbrawl", "Iron Brawl", "fighting", "steel"],
+  ["hauntedmind", "Haunted Mind", "ghost", "psychic"],
+  ["nightbloom", "Night Bloom", "dark", "fairy"],
+  ["taintedsoil", "Tainted Soil", "poison", "ground"],
+  ["dragonfrost", "Dragon Frost", "dragon", "ice"],
+  ["hivemind", "Hive Mind", "bug", "normal"],
+  ["chargedsurf", "Charged Surf", "electric", "water"],
+  ["quicksilver", "Quicksilver", "steel", "psychic"],
+  ["wildwind", "Wild Wind", "grass", "flying"],
+  ["spiritfist", "Spirit Fist", "ghost", "fighting"],
+  ["sweetvenom", "Sweet Venom", "poison", "fairy"],
+];
+
+const SWAPS: AbilitySpec[] = SWAP_PAIRS.map(([id, name, first, second]) => ({
+  id: `swap-${id}`,
+  name,
+  blurb: `Its ${titleCase(first)} attacks become ${titleCase(second)}, and its ${titleCase(second)} attacks become ${titleCase(first)} — for damage, same-type bonus and how they land.`,
+  effect: { t: "swap" as const, types: [first, second] as [string, string] },
+}));
+
+/** What type a move of `type` is when this creature uses it, after its swaps. */
+export function swappedType(abilityIds: readonly string[], type: string): string {
+  let out = type;
+  for (const spec of abilitiesOf(abilityIds)) {
+    if (spec.effect.t !== "swap") continue;
+    const [first, second] = spec.effect.types;
+    if (out === first) out = second;
+    else if (out === second) out = first;
+  }
+  return out;
+}
+
+/** The perks the social media cabin, the pageant, the paparazzo and Dr. Couch read. */
+export type SocialPerk = "celebrity" | "renowned" | "pretty" | "dramaqueen" | "viral" | "photogenic" | "stagepresence" | "thickskin" | "trendsetter" | "colourcoordinated" | "lowbandwidth" | "humblebrag" | "comebackstory" | "paparazzimagnet";
+
+/**
+ * The social family: fourteen abilities that do nothing in a fight and a great
+ * deal around one — on stream, on stage, in front of a camera and on a couch.
+ */
+const SOCIAL_PERKS: [SocialPerk, string, string][] = [
+  ["celebrity", "Celebrity", "Everything it earns on stream is multiplied by 5. The larger of this and Renowned, never both."],
+  ["renowned", "Renowned", "Everything it earns on stream is doubled."],
+  ["pretty", "Pretty", "At the beauty pageant its IVs count five times over."],
+  ["dramaqueen", "Drama Queen", "When it faints on stream, the pool loses nothing — the crowd loves it more."],
+  ["viral", "Viral", "At the Influencer every step counts twice towards its fame."],
+  ["photogenic", "Photogenic", "At the beauty pageant it scores 150 more."],
+  ["stagepresence", "Stage Presence", "A Ribbon on it charms twice as often (60%) and drops the foe's Attack two stages instead of one."],
+  ["thickskin", "Thick Skin", "The paparazzo's photoshoot still takes its Ribbon, but it never comes back Burned Out."],
+  ["trendsetter", "Trendsetter", "At the beauty pageant each shine rung is worth 80 instead of 40."],
+  ["colourcoordinated", "Colour Coordinated", "At the beauty pageant its colour scores double."],
+  ["lowbandwidth", "Low Bandwidth", "While it is on stream, walking costs the pool nothing."],
+  ["humblebrag", "Humblebrag", "At the beauty pageant its pageant item's bonus counts whatever its type."],
+  ["comebackstory", "Comeback Story", "Dr. Couch sees it for free, and its course takes a tenth of the steps."],
+  ["paparazzimagnet", "Paparazzi Magnet", "The paparazzo pays three times as much for its photoshoot."],
+];
+
+const SOCIAL: AbilitySpec[] = SOCIAL_PERKS.map(([perk, name, blurb]) => ({
+  id: `social-${perk}`,
+  name,
+  blurb,
+  effect: { t: "perk" as const, perk },
+}));
+
+/** Whether a creature has this social perk. */
+export function hasPerk(creature: { abilities: readonly string[] }, perk: SocialPerk): boolean {
+  return abilitiesOf(creature.abilities).some((spec) => spec.effect.t === "perk" && spec.effect.perk === perk);
+}
+
 /** Effort: more of it, and some of it aimed. */
 const EFFORT_STATS: [string, string, StageStat | "hp"][] = [
   ["marathoner", "Marathoner", "hp"],
@@ -759,6 +871,8 @@ export const ABILITIES: readonly AbilitySpec[] = [
   ...FORAGE,
   ...LACK,
   ...AFFINITY,
+  ...SWAPS,
+  ...SOCIAL,
 ];
 
 /**
@@ -827,10 +941,29 @@ export const MAX_ABILITIES = 3;
  * abilities on the creature in encounter slot forty of the marsh's third ring
  * are as fixed as its nature and as unrerollable as its IVs.
  */
-export function rollAbilities(rng: Rng): string[] {
+export function rollAbilities(rng: Rng, odds: AbilityOdds = WILD_ABILITY_ODDS): string[] {
   const roll = intBelow(rng, 1000);
-  return pickAbilities(rng, roll < NONE_UP_TO ? 0 : roll < ONE_UP_TO ? 1 : 2);
+  // Counted down from the top: the last `three` per mille get three, the
+  // `two` below them two, and so on. One draw whatever the odds, so a
+  // different table moves nothing else rolled after it.
+  const threeFrom = 1000 - odds.three;
+  const twoFrom = threeFrom - odds.two;
+  const oneFrom = twoFrom - odds.one;
+  return pickAbilities(rng, roll < oneFrom ? 0 : roll < twoFrom ? 1 : roll < threeFrom ? 2 : 3);
 }
+
+/** Per mille chances of being born with one, two and three abilities. */
+export interface AbilityOdds {
+  one: number;
+  two: number;
+  three: number;
+}
+
+/** Everything in the world: ten percent one, one percent two. */
+export const WILD_ABILITY_ODDS: AbilityOdds = { one: ONE_UP_TO - NONE_UP_TO, two: 1000 - ONE_UP_TO, three: 0 };
+
+/** A starter: thirty percent one, six percent two, one percent three. */
+export const STARTER_ABILITY_ODDS: AbilityOdds = { one: 300, two: 60, three: 10 };
 
 /**
  * Exactly this many, drawn distinct.

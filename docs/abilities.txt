@@ -1,4 +1,4 @@
-Pkm Fever — every ability (181)
+Pkm Fever — every ability (214)
 Generated from src/engine/abilities.ts. Alphabetical.
 
 Adaptability         Its same-type attack bonus is ×2 instead of ×1.5.
@@ -10,15 +10,21 @@ Bard                 Its Disarming Voice does double damage (every hit, for a mu
 Berry Picker         Every 500 steps you walk with it in your party, it finds one item, picked at random with equal odds from: Oran, Sitrus, Figy, Wiki, Mago, Aguav, Iapapa, Cheri, Chesto, Pecha, Rawst, Aspear and Lum Berries. Eggs and creatures in the box find nothing.
 Big Pecks            Defence drops caused by the foe are blocked. Drops from its own moves still happen.
 Blaze                Its Fire moves do 50% more damage while its HP is at or below 1/3 of its maximum.
+Bloodrush            Its Speed rises one stage each time one of its damaging moves knocks out the foe.
+Boiling Tide         Its Fire attacks become Water, and its Water attacks become Fire — for damage, same-type bonus and how they land.
 Bug Affinity         In battle it is also Bug type: its Bug moves get the same-type bonus, and it takes and resists hits as a Bug type too. No effect if it is already Bug.
 Bug Deficiency       In battle it is not Bug type: Bug moves get no same-type bonus from it, and the type chart ignores Bug when it is hit. A pure Bug type becomes typeless. No effect if it is not Bug.
 Bug Drinker          Damaging Bug moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Bug status moves still affect it.
 Bug Guard            It takes 50% less damage from Bug moves.
 Bulwark Drill        All the EVs it earns from each defeated foe go into Defence, doubled, whatever the foe would normally teach. A held Macho Brace or Power item that picks a stat overrides which stat. The limits of 252 per stat and 510 in total still apply.
+Celebrity            Everything it earns on stream is multiplied by 5. The larger of this and Renowned, never both.
+Charged Surf         Its Electric attacks become Water, and its Water attacks become Electric — for damage, same-type bonus and how they land.
 Chlorophyll          Its Speed stat is doubled while harsh sunlight is active.
 Clear Body           Stat drops caused by the foe (its moves, Intimidate) are blocked. Drops from its own moves still happen.
 Cleric               Its Dazzling Gleam does double damage (every hit, for a multi-hit move). No effect on its other moves.
 Cloud Nine           While it is in battle and not fainted, every effect of the weather is ignored for both sides. The weather's remaining turns still count down.
+Colour Coordinated   At the beauty pageant its colour scores double.
+Comeback Story       Dr. Couch sees it for free, and its course takes a tenth of the steps.
 Compound Eyes        Its moves' accuracy is multiplied by 1.3, up to 100%.
 Dark Affinity        In battle it is also Dark type: its Dark moves get the same-type bonus, and it takes and resists hits as a Dark type too. No effect if it is already Dark.
 Dark Deficiency      In battle it is not Dark type: Dark moves get no same-type bonus from it, and the type chart ignores Dark when it is hit. A pure Dark type becomes typeless. No effect if it is not Dark.
@@ -30,8 +36,10 @@ Diligent             The EVs it earns from each defeated foe are multiplied by 1
 Dragon Affinity      In battle it is also Dragon type: its Dragon moves get the same-type bonus, and it takes and resists hits as a Dragon type too. No effect if it is already Dragon.
 Dragon Deficiency    In battle it is not Dragon type: Dragon moves get no same-type bonus from it, and the type chart ignores Dragon when it is hit. A pure Dragon type becomes typeless. No effect if it is not Dragon.
 Dragon Drinker       Damaging Dragon moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Dragon status moves still affect it.
+Dragon Frost         Its Dragon attacks become Ice, and its Ice attacks become Dragon — for damage, same-type bonus and how they land.
 Dragon Fury          Its Dragon moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Dragon Guard         It takes 50% less damage from Dragon moves.
+Drama Queen          When it faints on stream, the pool loses nothing — the crowd loves it more.
 Drizzle              When it enters battle, starts rain for 5 turns, unless it is already raining.
 Drought              When it enters battle, starts harsh sunlight for 5 turns, unless it is already sunny.
 Druid                Its Razor Leaf does double damage (every hit, for a multi-hit move). No effect on its other moves.
@@ -46,6 +54,7 @@ Fairy Deficiency     In battle it is not Fairy type: Fairy moves get no same-typ
 Fairy Drinker        Damaging Fairy moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Fairy status moves still affect it.
 Fairy Fury           Its Fairy moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Fairy Guard          It takes 50% less damage from Fairy moves.
+Falling Stone        Its Rock attacks become Flying, and its Flying attacks become Rock — for damage, same-type bonus and how they land.
 Fervent              Its nature's bonus to the raised stat is tripled (about +30% instead of +10%). The lowered stat is lowered as usual. A neutral nature is unaffected.
 Fighter              Its Quick Attack does double damage (every hit, for a multi-hit move). No effect on its other moves.
 Fighting Affinity    In battle it is also Fighting type: its Fighting moves get the same-type bonus, and it takes and resists hits as a Fighting type too. No effect if it is already Fighting.
@@ -62,6 +71,7 @@ Flying Deficiency    In battle it is not Flying type: Flying moves get no same-t
 Flying Drinker       Damaging Flying moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Flying status moves still affect it.
 Flying Fury          Its Flying moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Flying Guard         It takes 50% less damage from Flying moves.
+Frozen Spark         Its Electric attacks become Ice, and its Ice attacks become Electric — for damage, same-type bonus and how they land.
 Ghost Affinity       In battle it is also Ghost type: its Ghost moves get the same-type bonus, and it takes and resists hits as a Ghost type too. No effect if it is already Ghost.
 Ghost Deficiency     In battle it is not Ghost type: Ghost moves get no same-type bonus from it, and the type chart ignores Ghost when it is hit. A pure Ghost type becomes typeless. No effect if it is not Ghost.
 Ghost Drinker        Damaging Ghost moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Ghost status moves still affect it.
@@ -73,6 +83,8 @@ Grass Drinker        Damaging Grass moves do nothing to it and instead restore 1
 Grass Guard          It takes 50% less damage from Grass moves.
 Grass Pelt           Its Defence stat is 50% higher on Grassy Terrain while it is grounded.
 Grassy Surge         When it enters battle, starts Grassy Terrain for 5 turns, unless it is already up.
+Green Fire           Its Grass attacks become Fire, and its Fire attacks become Grass — for damage, same-type bonus and how they land.
+Grim Neigh           Its Sp. Atk rises one stage each time one of its damaging moves knocks out the foe.
 Ground Affinity      In battle it is also Ground type: its Ground moves get the same-type bonus, and it takes and resists hits as a Ground type too. No effect if it is already Ground.
 Ground Deficiency    In battle it is not Ground type: Ground moves get no same-type bonus from it, and the type chart ignores Ground when it is hit. A pure Ground type becomes typeless. No effect if it is not Ground.
 Ground Drinker       Damaging Ground moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Ground status moves still affect it.
@@ -81,10 +93,13 @@ Ground Guard         It takes 50% less damage from Ground moves.
 Guts                 While it has a status condition (burn, poison, paralysis, sleep or freeze), its Attack stat is 50% higher, and a burn no longer halves its physical damage.
 Gym Rat              Every 500 steps you walk with it in your party, it finds one item, picked at random with equal odds from: HP Up, Protein, Iron, Calcium, Zinc, Carbos. Eggs and creatures in the box find nothing.
 Hard Worker          The EVs it earns from each defeated foe are doubled. The limits of 252 per stat and 510 in total still apply.
+Haunted Mind         Its Ghost attacks become Psychic, and its Psychic attacks become Ghost — for damage, same-type bonus and how they land.
 Headstrong           Its nature counts double both ways: the raised stat about +20% and the lowered stat about −20%, instead of 10% each. A neutral nature is unaffected.
 Heatproof            It takes 50% less damage from Fire moves.
 Herbalist            Every 500 steps you walk with it in your party, it finds one item, picked at random with equal odds from: Potion, Super Potion, Hyper Potion, Full Heal, Revive. Eggs and creatures in the box find nothing.
+Hive Mind            Its Bug attacks become Normal, and its Normal attacks become Bug — for damage, same-type bonus and how they land.
 Huge Power           Its Attack stat is doubled.
+Humblebrag           At the beauty pageant its pageant item's bonus counts whatever its type.
 Hustle               Its Attack stat is 50% higher, but its physical moves' accuracy is multiplied by 0.8.
 Hydration            At the end of each turn in rain, its status condition is cured.
 Hyper Cutter         Attack drops caused by the foe (its moves, Intimidate) are blocked. Drops from its own moves still happen.
@@ -97,9 +112,11 @@ Ice Guard            It takes 50% less damage from Ice moves.
 Immunity             It cannot be poisoned. Poison it already has is not cured.
 Insomnia             It cannot fall asleep. Sleep it is already in is not cured.
 Intimidate           When it enters battle, the foe's Attack falls one stage. Blocked by Scrappy, Clear Body, Hyper Cutter and Mist.
+Iron Brawl           Its Fighting attacks become Steel, and its Steel attacks become Fighting — for damage, same-type bonus and how they land.
 Leaf Guard           In harsh sunlight it cannot get a new status condition. One it already has stays.
 Levitate             Damaging Ground moves have no effect on it, and it does not count as grounded, so terrain does not affect it.
 Limber               It cannot be paralysed. Paralysis it already has is not cured.
+Low Bandwidth        While it is on stream, walking costs the pool nothing.
 Magma Armor          It cannot be frozen. Being frozen already is not cured.
 Marathoner           All the EVs it earns from each defeated foe go into HP, doubled, whatever the foe would normally teach. A held Macho Brace or Power item that picks a stat overrides which stat. The limits of 252 per stat and 510 in total still apply.
 Marvel Scale         While it has a status condition (burn, poison, paralysis, sleep or freeze), its Defence stat is 50% higher.
@@ -107,6 +124,7 @@ Misty Surge          When it enters battle, starts Misty Terrain for 5 turns, un
 Monk                 Its Double Kick does double damage (every hit, for a multi-hit move). No effect on its other moves.
 Moxie                Its Attack rises one stage each time one of its damaging moves knocks out the foe.
 Natural Cure         When it switches out without having fainted, its status condition is cured.
+Night Bloom          Its Dark attacks become Fairy, and its Fairy attacks become Dark — for damage, same-type bonus and how they land.
 No Guard             Its moves never miss. Moves used against it can still miss.
 Normal Affinity      In battle it is also Normal type: its Normal moves get the same-type bonus, and it takes and resists hits as a Normal type too. No effect if it is already Normal.
 Normal Deficiency    In battle it is not Normal type: Normal moves get no same-type bonus from it, and the type chart ignores Normal when it is hit. A pure Normal type becomes typeless. No effect if it is not Normal.
@@ -115,12 +133,15 @@ Normal Fury          Its Normal moves do 50% more damage while its HP is at or b
 Normal Guard         It takes 50% less damage from Normal moves.
 Overgrow             Its Grass moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Paladin              Its Metal Claw does double damage (every hit, for a multi-hit move). No effect on its other moves.
+Paparazzi Magnet     The paparazzo pays three times as much for its photoshoot.
+Photogenic           At the beauty pageant it scores 150 more.
 Poison Affinity      In battle it is also Poison type: its Poison moves get the same-type bonus, and it takes and resists hits as a Poison type too. No effect if it is already Poison.
 Poison Deficiency    In battle it is not Poison type: Poison moves get no same-type bonus from it, and the type chart ignores Poison when it is hit. A pure Poison type becomes typeless. No effect if it is not Poison.
 Poison Drinker       Damaging Poison moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Poison status moves still affect it.
 Poison Fury          Its Poison moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Poison Guard         It takes 50% less damage from Poison moves.
 Prankster            Its status moves get +1 priority, except when the foe is a Dark type.
+Pretty               At the beauty pageant its IVs count five times over.
 Psychic Affinity     In battle it is also Psychic type: its Psychic moves get the same-type bonus, and it takes and resists hits as a Psychic type too. No effect if it is already Psychic.
 Psychic Deficiency   In battle it is not Psychic type: Psychic moves get no same-type bonus from it, and the type chart ignores Psychic when it is hit. A pure Psychic type becomes typeless. No effect if it is not Psychic.
 Psychic Drinker      Damaging Psychic moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Psychic status moves still affect it.
@@ -128,10 +149,12 @@ Psychic Fury         Its Psychic moves do 50% more damage while its HP is at or 
 Psychic Guard        It takes 50% less damage from Psychic moves.
 Psychic Surge        When it enters battle, starts Psychic Terrain for 5 turns, unless it is already up.
 Quick Feet           While it has a status condition (burn, poison, paralysis, sleep or freeze), its Speed stat is 50% higher. Paralysis still halves Speed first, so while paralysed it is at 75%.
+Quicksilver          Its Steel attacks become Psychic, and its Psychic attacks become Steel — for damage, same-type bonus and how they land.
 Rain Dish            At the end of each turn in rain, it restores 1/16 of its max HP (at least 1).
 Ranger               Its Aerial Ace does double damage (every hit, for a multi-hit move). No effect on its other moves.
 Reckless             Its moves that have recoil do 20% more damage.
 Regenerator          When it switches out without having fainted, it restores 1/3 of its max HP.
+Renowned             Everything it earns on stream is doubled.
 Rock Affinity        In battle it is also Rock type: its Rock moves get the same-type bonus, and it takes and resists hits as a Rock type too. No effect if it is already Rock.
 Rock Deficiency      In battle it is not Rock type: Rock moves get no same-type bonus from it, and the type chart ignores Rock when it is hit. A pure Rock type becomes typeless. No effect if it is not Rock.
 Rock Drinker         Damaging Rock moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Rock status moves still affect it.
@@ -154,7 +177,9 @@ Snow Cloak           During hail or snow, the accuracy of moves used against it 
 Snow Warning         When it enters battle, starts snow for 5 turns, unless it is already snowing.
 Solid Rock           Super-effective hits against it do about 33% less damage (×0.667).
 Sorcerer             Its Ember does double damage (every hit, for a multi-hit move). No effect on its other moves.
+Spirit Fist          Its Ghost attacks become Fighting, and its Fighting attacks become Ghost — for damage, same-type bonus and how they land.
 Sprinter             All the EVs it earns from each defeated foe go into Speed, doubled, whatever the foe would normally teach. A held Macho Brace or Power item that picks a stat overrides which stat. The limits of 252 per stat and 510 in total still apply.
+Stage Presence       A Ribbon on it charms twice as often (60%) and drops the foe's Attack two stages instead of one.
 Steel Affinity       In battle it is also Steel type: its Steel moves get the same-type bonus, and it takes and resists hits as a Steel type too. No effect if it is already Steel.
 Steel Deficiency     In battle it is not Steel type: Steel moves get no same-type bonus from it, and the type chart ignores Steel when it is hit. A pure Steel type becomes typeless. No effect if it is not Steel.
 Steel Drinker        Damaging Steel moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Steel status moves still affect it.
@@ -166,12 +191,19 @@ Sturdy               At full HP, a hit that would knock it out leaves it at 1 HP
 Super Luck           Its critical-hit ratio is one stage higher.
 Surge Surfer         Its Speed stat is doubled on Electric Terrain while it is grounded.
 Swarm                Its Bug moves do 50% more damage while its HP is at or below 1/3 of its maximum.
+Sweet Venom          Its Poison attacks become Fairy, and its Fairy attacks become Poison — for damage, same-type bonus and how they land.
 Swift Swim           Its Speed stat is doubled while it is raining.
+Tainted Soil         Its Poison attacks become Ground, and its Ground attacks become Poison — for damage, same-type bonus and how they land.
 Technician           Its moves with 60 power or less, as used, do 50% more damage. Counts each blow of a multi-hit move and a stand-in power, and includes Struggle.
 Thick Fat            It takes 50% less damage from Fire and Ice moves.
+Thick Skin           The paparazzo's photoshoot still takes its Ribbon, but it never comes back Burned Out.
 Tinted Lens          Its not-very-effective hits do double damage: a ×0.5 hit becomes ×1 and a ×0.25 hit becomes ×0.5.
 Torrent              Its Water moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Treasure Hunter      Every 500 steps you walk with it in your party, it finds one item, picked at random with equal odds from: Nugget, Pearl. Eggs and creatures in the box find nothing.
+Trendsetter          At the beauty pageant each shine rung is worth 80 instead of 40.
+Trophy Hide          Its Defense rises one stage each time one of its damaging moves knocks out the foe.
+Victor's Calm        Its Sp. Def rises one stage each time one of its damaging moves knocks out the foe.
+Viral                At the Influencer every step counts twice towards its fame.
 Volt Absorb          Damaging Electric moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Electric status moves still affect it.
 Warlock              Its Hex does double damage (every hit, for a multi-hit move). No effect on its other moves.
 Water Absorb         Damaging Water moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Water status moves still affect it.
@@ -180,5 +212,6 @@ Water Deficiency     In battle it is not Water type: Water moves get no same-typ
 Water Guard          It takes 50% less damage from Water moves.
 Water Veil           It cannot be burned. A burn it already has is not cured.
 Weightlifter         All the EVs it earns from each defeated foe go into Attack, doubled, whatever the foe would normally teach. A held Macho Brace or Power item that picks a stat overrides which stat. The limits of 252 per stat and 510 in total still apply.
+Wild Wind            Its Grass attacks become Flying, and its Flying attacks become Grass — for damage, same-type bonus and how they land.
 Wizard               Its Swift does double damage (every hit, for a multi-hit move). No effect on its other moves.
 Workaholic           The EVs it earns from each defeated foe are tripled. The limits of 252 per stat and 510 in total still apply.

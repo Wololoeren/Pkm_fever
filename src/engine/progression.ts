@@ -1,5 +1,6 @@
 import { heldEffects } from "./carry";
 import { learnableAt, learnset, species as speciesById } from "./dex";
+import { heldAfterEvolving, specialEvolutionAt, specialEvolutionByItem } from "./evolutions";
 import { alignPp } from "./pp";
 import { computeStats } from "./stats";
 import type { Individual } from "./types";
@@ -143,7 +144,8 @@ export function evolve(individual: Individual, into: string): Individual {
   const beforeStats = computeStats(speciesById(individual.speciesId), individual);
   const fraction = beforeStats.hp > 0 ? individual.hp / beforeStats.hp : 0;
 
-  const changed = { ...individual, speciesId: into };
+  // An item the evolution needed held is used up by it.
+  const changed = { ...individual, speciesId: into, heldItem: heldAfterEvolving(individual, into) };
   const afterStats = computeStats(speciesById(into), changed);
   return { ...changed, hp: Math.max(1, Math.round(afterStats.hp * fraction)) };
 }
@@ -167,7 +169,8 @@ export function evolutionByItem(individual: Individual, itemName: string): strin
   const options = speciesById(individual.speciesId).evolvesTo.filter(
     (step) => step.method === "useItem" && step.item === itemName,
   );
-  return options[0]?.id ?? null;
+  // The trades and the rest, used from the bag: see evolutions.ts.
+  return options[0]?.id ?? specialEvolutionByItem(individual, itemName);
 }
 
 /**
@@ -218,7 +221,9 @@ export function evolutionAt(individual: Individual): string | null {
   const options = speciesById(individual.speciesId).evolvesTo.filter(
     (evolution) => evolution.method === "level" && evolution.level > 0 && individual.level >= evolution.level,
   );
-  if (!options.length) return null;
+  // Everything that is not a plain level — held items, moves, a Soothe Bell —
+  // after the plain ones. See evolutions.ts.
+  if (!options.length) return specialEvolutionAt(individual);
 
   // evolvesTo is sorted by id at build time, so a species with two level
   // evolutions resolves the same way on every machine.

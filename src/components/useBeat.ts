@@ -4,7 +4,18 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Individual } from "@/engine/types";
 import { typeColor } from "@/render/palette";
 import { playStrike } from "./strikes";
-import { BALL_FLIGHT_MS, BALL_SETTLE_MS, CATCH_TAIL_MS, WOBBLE_MS, type Beat, type Catch } from "@/lib/beats";
+import {
+  BALL_FLIGHT_MS,
+  BALL_SETTLE_MS,
+  CATCH_TAIL_MS,
+  SWITCH_BALL_MS,
+  SWITCH_OUT_MS,
+  SWITCH_POP_MS,
+  SWITCH_TOTAL_MS,
+  WOBBLE_MS,
+  type Beat,
+  type Catch,
+} from "@/lib/beats";
 
 /**
  * Plays one creature's turn.
@@ -104,14 +115,8 @@ export function useEntrance(
   }, [sprite, who, facing]);
 }
 
-/** How long the creature going back takes to walk off. */
-export const SWITCH_OUT_MS = 320;
-/** How long the ball takes to arc in and land. */
-export const SWITCH_BALL_MS = 420;
-/** How long the new creature takes to pop out of it. */
-export const SWITCH_POP_MS = 280;
-/** The whole switch, end to end. */
-export const SWITCH_TOTAL_MS = SWITCH_OUT_MS + SWITCH_BALL_MS + SWITCH_POP_MS;
+// The switch's timings live beside the beats, which have to wait for it.
+export { SWITCH_BALL_MS, SWITCH_OUT_MS, SWITCH_POP_MS, SWITCH_TOTAL_MS };
 
 /** The creature that has just been replaced in a slot, for as long as its exit is on screen. */
 export interface Leaving {

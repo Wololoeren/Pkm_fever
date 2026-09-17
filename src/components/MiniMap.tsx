@@ -31,54 +31,111 @@ import { paletteFor, tileColor } from "@/render/tiles";
 
 const MINI_WIDTH = 176;
 
+/** Which of the two big map windows are open. Kept by the page, not the minimap. */
+export interface BigMapsOpen {
+  local: boolean;
+  region: boolean;
+}
+
+/**
+ * The two big map windows. Rendered by the page outside the field, because the
+ * minimap is not on screen during a battle and a window that belonged to it
+ * closed with every fight.
+ *
+ * One window each: the route and the region are read at different moments,
+ * and a player with two screens wants to put them in different places.
+ */
+export function BigMaps({
+  world,
+  state,
+  open,
+  onOpen,
+  onTileClick,
+}: {
+  world: World;
+  state: GameState;
+  open: BigMapsOpen;
+  onOpen: (change: Partial<BigMapsOpen>) => void;
+  onTileClick?: (x: number, y: number) => void;
+}) {
+  const route = world.routes.get(state.route);
+  const outer = route?.kind === "interior" ? (route.parent ?? state.route) : state.route;
+  const setPoppedLocal = (local: boolean) => onOpen({ local });
+  const setPoppedRegion = (region: boolean) => onOpen({ region });
+  return (
+    <>
+      {open.local ? (
+        <BigMapWindow name="pkm-fever-map" title="Pkm Fever — map" width={BIG_LOCAL + 60} height={900} onClose={() => setPoppedLocal(false)}>
+          <h2 className="bigWhere">{route?.label ?? "Nowhere"}</h2>
+          <LocalMap world={world} state={state} width={BIG_LOCAL} onTileClick={onTileClick} />
+        </BigMapWindow>
+      ) : null}
+      {open.region ? (
+        <BigMapWindow name="pkm-fever-region" title="Pkm Fever — region" width={BIG_REGION + 60} height={BIG_REGION + 110} onClose={() => setPoppedRegion(false)}>
+          <h2 className="bigWhere">{route?.label ?? "Nowhere"}</h2>
+          <RegionMap world={world} state={state} outer={outer} size={BIG_REGION} />
+        </BigMapWindow>
+      ) : null}
+    </>
+  );
+}
+
 export function MiniMap({
   world,
   state,
   onTileClick,
+  bigMaps,
+  onBigMaps,
 }: {
   world: World;
   state: GameState;
   /** A tile tapped or clicked on the local map, in route coordinates. */
   onTileClick?: (x: number, y: number) => void;
+  bigMaps: BigMapsOpen;
+  onBigMaps: (change: Partial<BigMapsOpen>) => void;
 }) {
   const route = world.routes.get(state.route);
   // Standing indoors, the region map should still light up the town you are
   // indoors in — a door is not a journey.
   const outer = route?.kind === "interior" ? (route.parent ?? state.route) : state.route;
-  const [popped, setPopped] = useState(false);
+  const poppedLocal = bigMaps.local;
+  const poppedRegion = bigMaps.region;
+  const setPoppedLocal = (local: boolean) => onBigMaps({ local });
+  const setPoppedRegion = (region: boolean) => onBigMaps({ region });
 
   return (
     <div className="miniMap">
-      {popped ? (
-        <BigMapWindow onClose={() => setPopped(false)}>
-          <h2 className="bigWhere">{route?.label ?? "Nowhere"}</h2>
-          <LocalMap world={world} state={state} width={BIG_WIDTH} onTileClick={onTileClick} />
-          <RegionMap world={world} state={state} outer={outer} size={BIG_WIDTH} />
-          <p className="muted small">
-            This window follows the game. Close it, or press the button again, to put it away.
-          </p>
-        </BigMapWindow>
-      ) : null}
       {/* Where you are, over the map of it. The header at the top of the page
           says it too, but the header is a long way from the picture and the
           picture is the thing you are reading when you want to know. */}
       <h3 className="miniWhere">{route?.label ?? "Nowhere"}</h3>
       <LocalMap world={world} state={state} onTileClick={onTileClick} />
       <RegionMap world={world} state={state} outer={outer} />
-      <button
-        type="button"
-        className="ghost small mapPop"
-        title={popped ? "Close the map window" : "The same two maps, big, in a window you can put on another screen"}
-        onClick={() => setPopped(!popped)}
-      >
-        {popped ? "Close the big map" : "Open a big map"}
-      </button>
+      <div className="mapPops">
+        <button
+          type="button"
+          className="ghost small mapPop"
+          title={poppedLocal ? "Close the map window" : "This route's map, big, in a window you can put on another screen"}
+          onClick={() => setPoppedLocal(!poppedLocal)}
+        >
+          {poppedLocal ? "Close big map" : "Big map"}
+        </button>
+        <button
+          type="button"
+          className="ghost small mapPop"
+          title={poppedRegion ? "Close the node map window" : "The region's node map, big, in a window of its own"}
+          onClick={() => setPoppedRegion(!poppedRegion)}
+        >
+          {poppedRegion ? "Close node map" : "Big node map"}
+        </button>
+      </div>
     </div>
   );
 }
 
-/** How wide the maps are drawn in a window of their own. */
-const BIG_WIDTH = 620;
+/** How wide the maps are drawn in windows of their own. */
+const BIG_LOCAL = 1060;
+const BIG_REGION = 900;
 
 /**
  * A second browser window, with the same two maps drawn large in it.
@@ -93,11 +150,31 @@ const BIG_WIDTH = 620;
  * serves them as <link> elements and in a build as <style>, so both are
  * copied; nothing here knows which it got.
  */
-function BigMapWindow({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function BigMapWindow({
+  children,
+  name,
+  title,
+  width,
+  height,
+  onClose,
+}: {
+  children: React.ReactNode;
+  name: string;
+  title: string;
+  width: number;
+  height: number;
+  onClose: () => void;
+}) {
   const [host, setHost] = useState<HTMLElement | null>(null);
+  // Held in a ref: the parent hands a fresh arrow every render, and every step
+  // is a render. With it in the effect's dependencies the window was closed
+  // and opened again on each move.
+  const closing = useRef(onClose);
+  closing.current = onClose;
 
   useEffect(() => {
-    const popup = window.open("", "pkm-fever-map", `width=${BIG_WIDTH + 60},height=${BIG_WIDTH * 2},scrollbars=yes`);
+    const onClose = () => closing.current();
+    const popup = window.open("", name, `width=${width},height=${height},scrollbars=yes`);
     // Blocked by the browser: nothing to draw into, and the button goes back
     // to saying "open" rather than pretending something happened.
     if (!popup) {
@@ -105,7 +182,7 @@ function BigMapWindow({ children, onClose }: { children: React.ReactNode; onClos
       return;
     }
 
-    popup.document.title = "Pkm Fever — map";
+    popup.document.title = title;
     // Emptied first: a window under this name may be one this effect already
     // furnished — React mounts an effect twice in development, and the player
     // can press the button again after the window was left open — and two sets
@@ -134,7 +211,9 @@ function BigMapWindow({ children, onClose }: { children: React.ReactNode; onClos
       popup.removeEventListener("unload", gone);
       popup.close();
     };
-  }, [onClose]);
+    // Opened once, with the size and name it was first given.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return host ? createPortal(children, host) : null;
 }

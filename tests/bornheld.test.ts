@@ -15,9 +15,9 @@ import { wildAt } from "@/engine/world";
 
 /** Wild creatures now and then hold something; starters more often, and better. */
 describe("born holding something", () => {
-  it("BH1: 1% for the wild, 10% for starters, from pools of real items", () => {
+  it("BH1: 1% for the wild, 30% for starters, from pools of real items", () => {
     expect(WILD_HELD_PER_MILLE).toBe(10);
-    expect(STARTER_HELD_PER_MILLE).toBe(100);
+    expect(STARTER_HELD_PER_MILLE).toBe(300);
     for (const id of [...WILD_HELD_ITEMS, ...STARTER_HELD_ITEMS]) expect(isItem(id), id).toBe(true);
     expect(WILD_HELD_ITEMS).toContain("nugget");
     expect(WILD_HELD_ITEMS).toContain("pearl");
@@ -32,7 +32,7 @@ describe("born holding something", () => {
       if (rollHeld(rngFor("held", "starter", n), STARTER_HELD_ITEMS, STARTER_HELD_PER_MILLE)) starter++;
     }
     expect(wild / runs).toBeCloseTo(0.01, 2);
-    expect(starter / runs).toBeCloseTo(0.1, 1);
+    expect(starter / runs).toBeCloseTo(0.3, 1);
   });
 
   it("BH3: real encounters and starters carry them, and only from their own pool", () => {

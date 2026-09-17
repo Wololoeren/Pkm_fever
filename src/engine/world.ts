@@ -2161,20 +2161,18 @@ export const STARTER_COUNT = STARTER_TYPES.length;
 /**
  * What the starter you are offered looks like.
  *
- * Twenty times the wild rate, on both axes, rolled independently. The wild
- * census works out at about 1.4% for a rung of the tint ladder, 0.17% for a
- * colour and 0.035% for a true shiny per encounter inside the census window;
- * this is that, times twenty, in per-mille integers. The tint ladder is *not*
- * multiplied — the ladder is common enough already, and the thing worth
- * rerolling a seed for is a colour or a shine, not a Faded Squirtle.
+ * Shiny 1%, then Nearly 1.5%, Turning 2%, Washed 2.5%, Faded 3%; a colour
+ * 10.5%. Rolled independently, in per-mille integers.
  *
- * Independence is the point. A shiny colour starter is 7 in 10,000 times
- * 35 in 1,000, which is about one seed in four thousand — a real jackpot
- * rather than a thing the opening screen hands out.
+ * Independence is the point. A shiny colour starter is 10 in 1,000 times
+ * 105 in 1,000, about one seed in a thousand — a jackpot a patient reroller
+ * can still reach.
  */
-const STARTER_SHINY = 7;
-const STARTER_TINT = [6, 4, 3, 1];
-const STARTER_CHROMA = 35;
+// A starter worth rerolling for should turn up in a sitting, not an afternoon.
+const STARTER_SHINY = 10;
+// Faded, Washed, Turning, Nearly: commonest at the bottom of the ladder.
+const STARTER_TINT = [30, 25, 20, 15];
+const STARTER_CHROMA = 105;
 
 export function starterAppearance(seed: string, index: number): string {
   const rng = rngFor(seed, "starterLook", index);

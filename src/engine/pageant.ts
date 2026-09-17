@@ -1,7 +1,7 @@
 import { species as speciesById } from "./dex";
 import { item as itemSpec, isItem } from "./items";
 import { heldEffects, PAGEANT_ITEMS } from "./carry";
-import { abilitiesOf } from "./abilities";
+import { abilitiesOf, hasPerk } from "./abilities";
 import { rollPrize } from "./prize";
 import { intBelow, intBetween, rngFor } from "./rng";
 import { ivTotal } from "./stats";
@@ -53,10 +53,11 @@ export { PAGEANT_ITEMS } from "./carry";
 /** The pageant bonus a creature's held item gives it, or 0. */
 export function pageantItemBonus(creature: Individual): number {
   const types = speciesById(creature.speciesId).types as readonly string[];
+  const anyType = hasPerk(creature, "humblebrag");
   let best = 0;
   for (const effect of heldEffects(creature.heldItem)) {
     if (effect.t !== "pageant") continue;
-    if (effect.types.some((type) => types.includes(type))) best = Math.max(best, effect.bonus);
+    if (anyType || effect.types.some((type) => types.includes(type))) best = Math.max(best, effect.bonus);
   }
   return best;
 }
@@ -66,10 +67,14 @@ export function pageantParts(creature: Individual): { label: string; points: num
   const form = variant(creature.variantId);
   const parts = [
     { label: "Level", points: creature.level },
-    { label: "Shine", points: 40 * form.tier },
-    { label: "Colour", points: form.chromaId ? (CHROMA_SCORE[form.chromaId] ?? 30) : 0 },
+    { label: "Shine", points: (hasPerk(creature, "trendsetter") ? 80 : 40) * form.tier },
+    {
+      label: "Colour",
+      points: (form.chromaId ? (CHROMA_SCORE[form.chromaId] ?? 30) : 0) * (hasPerk(creature, "colourcoordinated") ? 2 : 1),
+    },
     { label: "Abilities", points: 20 * abilitiesOf(creature.abilities).length },
-    { label: "IVs", points: ivTotal(creature.ivs) },
+    { label: "IVs", points: ivTotal(creature.ivs) * (hasPerk(creature, "pretty") ? 5 : 1) },
+    { label: "Photogenic", points: hasPerk(creature, "photogenic") ? 150 : 0 },
     {
       label: creature.heldItem && isItem(creature.heldItem) ? itemSpec(creature.heldItem).name : "Item",
       points: pageantItemBonus(creature),

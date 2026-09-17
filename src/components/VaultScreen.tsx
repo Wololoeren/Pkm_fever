@@ -62,6 +62,9 @@ export function VaultScreen({
   const [busy, setBusy] = useState(false);
   const [seed, setSeed] = useState(() => randomSeed());
   const [trainer, setTrainer] = useState("");
+  // A save that has been read but not yet added: its creatures wait in a side
+  // panel, and only the ones moved across go into the vault.
+  const [staged, setStaged] = useState<VaultEntry[] | null>(null);
   useEffect(() => setTrainer(rememberedTrainerName()), []);
   const saveRef = useRef<HTMLInputElement>(null);
   const vaultRef = useRef<HTMLInputElement>(null);
@@ -94,12 +97,21 @@ export function VaultScreen({
         setMessage({ text: read.error, bad: true });
         return;
       }
-      const merged = mergeEntries(entries, read.entries);
-      keep(
-        merged.vault,
-        `${merged.added} added, ${merged.updated} updated${read.entries.some((one) => one.proven) ? " — proven by replaying the save" : ""}.`,
-      );
+      setStaged(read.entries);
+      setMessage({
+        text: `${read.entries.length} read from the save${read.entries.some((one) => one.proven) ? ", proven by replaying it" : ""}. Pick the ones worth keeping.`,
+        bad: false,
+      });
     }, 20);
+  };
+
+  /** Moves these staged creatures into the vault and out of the side panel. */
+  const moveIn = (chosen: readonly VaultEntry[]) => {
+    if (!chosen.length || !staged) return;
+    const merged = mergeEntries(entries, chosen);
+    const ids = new Set(chosen.map((entry) => entry.id));
+    keep(merged.vault, `${merged.added} added, ${merged.updated} updated.`);
+    setStaged(staged.filter((entry) => !ids.has(entry.id)));
   };
 
   const exportVault = () => {
@@ -115,7 +127,7 @@ export function VaultScreen({
   const named = cleanTrainerName(trainer).length > 0;
 
   return (
-    <section className="menu vault">
+    <section className={`menu vault${staged ? " staging" : ""}`}>
       <div className="menuCard">
         <div className="row">
           <h2>Vault · {entries.length}</h2>
@@ -175,6 +187,7 @@ export function VaultScreen({
         {message ? <p className={message.bad ? "error" : "good"}>{message.text}</p> : null}
       </div>
 
+      <div className="vaultSplit">
       <div className="menuCard">
         <div className="boxHead">
           <input
@@ -220,6 +233,18 @@ export function VaultScreen({
           ))}
         </div>
         {!entries.length ? <p className="hint">Nothing here yet — add a save to fill it.</p> : null}
+      </div>
+      {staged ? (
+        <StagingPanel
+          staged={staged}
+          inVault={new Set(entries.map((entry) => entry.id))}
+          onMove={moveIn}
+          onDone={() => {
+            setStaged(null);
+            setMessage(null);
+          }}
+        />
+      ) : null}
       </div>
 
       {chosen ? (
@@ -271,5 +296,123 @@ export function VaultScreen({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * The creatures of a save that has been read, waiting to be let in.
+ *
+ * A long breeding run leaves fifty cast-offs in a box, and a vault that took
+ * every one of them would be a vault of cast-offs. So a save goes here first:
+ * pick the ones worth keeping, move them across, and close the rest away.
+ */
+function StagingPanel({
+  staged,
+  inVault,
+  onMove,
+  onDone,
+}: {
+  staged: VaultEntry[];
+  /** Ids already in the vault: moving one of those updates it rather than adding it. */
+  inVault: ReadonlySet<string>;
+  onMove: (entries: VaultEntry[]) => void;
+  onDone: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [looking, setLooking] = useState<string | null>(null);
+
+  const shown = query.trim() ? staged.filter((entry) => matches(entry, query)) : staged;
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  const at = Math.min(page, pages - 1);
+  const onPage = shown.slice(at * PAGE, (at + 1) * PAGE);
+  const picked = staged.filter((entry) => selected.has(entry.id));
+  const looked = staged.find((entry) => entry.id === looking) ?? null;
+
+  const toggle = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+    setLooking(id);
+  };
+  const move = (chosen: VaultEntry[]) => {
+    onMove(chosen);
+    setSelected(new Set());
+    setLooking(null);
+  };
+
+  return (
+    <div className="menuCard vaultStaging">
+      <div className="row">
+        <h2>From the save · {staged.length}</h2>
+        <button type="button" className="ghost" onClick={onDone} title="Close this panel; anything not moved is left out">
+          Done
+        </button>
+      </div>
+      <p className="muted small">
+        Click to pick, then move the picked ones into the vault. Anything left here when you press Done is not added.
+        A ✓ is already in the vault; moving it again updates it.
+      </p>
+      <div className="boxHead">
+        <input
+          type="search"
+          className="boxSearch"
+          placeholder="Search name, type, trainer…"
+          value={query}
+          aria-label="Search the save"
+          spellCheck={false}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setPage(0);
+          }}
+        />
+        <span className="muted">
+          page {at + 1} of {pages}
+        </span>
+        <button type="button" className="ghost" disabled={at <= 0} onClick={() => setPage(at - 1)}>
+          ‹
+        </button>
+        <button type="button" className="ghost" disabled={at >= pages - 1} onClick={() => setPage(at + 1)}>
+          ›
+        </button>
+      </div>
+      <div className="row">
+        <button type="button" className="primary" disabled={!picked.length} onClick={() => move(picked)}>
+          Move {picked.length || ""} into the vault
+        </button>
+        <button type="button" className="ghost" onClick={() => setSelected(new Set([...selected, ...shown.map((entry) => entry.id)]))}>
+          Pick all{query.trim() ? " found" : ""}
+        </button>
+        <button type="button" className="ghost" disabled={!selected.size} onClick={() => setSelected(new Set())}>
+          Pick none
+        </button>
+      </div>
+      <div className="boxGrid">
+        {onPage.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            className={`boxCell${selected.has(entry.id) ? " picked" : ""}`}
+            aria-pressed={selected.has(entry.id)}
+            title={`${displayName(entry.creature)} · Lv${entry.creature.level}${inVault.has(entry.id) ? " · already in the vault" : ""}`}
+            onClick={() => toggle(entry.id)}
+          >
+            <Sprite speciesId={entry.creature.speciesId} variantId={entry.creature.variantId} abilities={entry.creature.abilities} heldItem={entry.creature.heldItem} size={48} />
+            <span className="boxCellFoot">
+              <span>Lv{entry.creature.level}</span>
+              <GenderMark gender={entry.creature.gender} />
+              {inVault.has(entry.id) ? <span className="good">✓</span> : null}
+            </span>
+          </button>
+        ))}
+        {Array.from({ length: Math.max(0, PAGE - onPage.length) }, (_, cell) => (
+          <span key={`empty-${cell}`} className="boxCell empty" aria-hidden="true" />
+        ))}
+      </div>
+      {!staged.length ? <p className="hint">Everything from this save has been moved.</p> : null}
+      {looked ? <StatHover creature={looked.creature} /> : null}
+    </div>
   );
 }

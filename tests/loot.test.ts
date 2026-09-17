@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { maxHp } from "@/engine/battle";
 import { ALL_SPECIES, species as speciesById } from "@/engine/dex";
 import { effortSpent } from "@/engine/effort";
+import { evolutionUseItems } from "@/engine/evolutions";
 import {
   activeRepel,
   applyInput,
@@ -73,7 +74,8 @@ describe("the stones", () => {
     expect(doors.size, "the manifest carries no item evolutions at all").toBeGreaterThan(15);
 
     const stones = ITEMS.filter((spec) => spec.evolves);
-    expect(stones.length).toBe(doors.size);
+    // And the ones that stand in for trades and the like: see evolutions.ts.
+    expect(stones.length).toBe(doors.size + evolutionUseItems().length);
 
     for (const [name, species] of doors) {
       const stone = stones.find((spec) => spec.name === name);

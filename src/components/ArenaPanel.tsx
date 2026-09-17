@@ -16,6 +16,7 @@ import { variant } from "@/engine/variants";
 import type { World } from "@/engine/world";
 import { GenderMark, VariantTag } from "./PartyStrip";
 import { Sprite } from "./Sprite";
+import { StatHover } from "./StatHover";
 
 /**
  * A bracket you are part-way through, out in the field.
@@ -84,7 +85,7 @@ export function ArenaPanel({
                   type="button"
                   className="starterCard"
                   disabled={Boolean(why)}
-                  title={why ?? entry.name}
+                  title={why ?? undefined}
                   onClick={() => onInput({ t: "arenaPrize", index })}
                 >
                   <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={96} />
@@ -100,6 +101,7 @@ export function ArenaPanel({
                         }`
                       : ""}
                   </p>
+                  <StatHover creature={creature} title={entry.name} />
                 </button>
               );
             })}

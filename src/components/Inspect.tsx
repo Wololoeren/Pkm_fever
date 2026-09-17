@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
-import { depositRefusal, disobeys, fameLevel, holdRefusal, lockRefusal, MAX_MOVES, obedienceLevel, movesRefusal, NICKNAME_MAX, renameRefusal, type GameState, type Input } from "@/engine/engine";
+import { depositRefusal, disobeys, fameLevel, holdRefusal, lockRefusal, MAX_MOVES, obedienceLevel, movesRefusal, NICKNAME_MAX, renameRefusal, storeRefusal, type GameState, type Input } from "@/engine/engine";
 import { item as itemSpec } from "@/engine/items";
 import { abilitiesOf, typesWith } from "@/engine/abilities";
 import { displayPower } from "@/engine/moves";
@@ -464,6 +464,22 @@ export function Inspect({
               {state.locked.includes(creature.uid) ? "🔒 Locked" : "🔓 Lock"}
             </button>
             <BoxActions world={world} creature={creature} state={state} onInput={onInput} onClose={onClose} />
+            {index >= 0 && state.party[index]?.uid === creature.uid ? (
+              // Straight to the box from wherever you are standing — the same
+              // store the Centre does, into whichever box has room.
+              <button
+                type="button"
+                className="ghost"
+                disabled={Boolean(storeRefusal(state, index))}
+                title={storeRefusal(state, index) ?? "Send it to your box"}
+                onClick={() => {
+                  onInput({ t: "store", index });
+                  onClose();
+                }}
+              >
+                Deposit
+              </button>
+            ) : null}
             <button type="button" className="ghost" onClick={onClose}>
               Close <kbd>E</kbd>
             </button>

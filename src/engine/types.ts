@@ -163,7 +163,18 @@ import { BIOME_IDS } from "./biomes";
  * Influencer and the Streamer, five inputs, `fameSteps` on a creature, and
  * the stream's pool paid out of every step and every knockout. And the
  * pageant cabin: the host and the paparazzo, two inputs, ten pageant items,
- * `ribbon` (a charm on arrival) and `burnedOut` (a tenth of the experience). */
+ * `ribbon` (a charm on arrival) and `burnedOut` (a tenth of the experience).
+ * And fifteen swap abilities, which join the roll — so every creature rolled
+ * after them draws from a longer list. The Colour Collector, Ability Tutor and
+ * Workshop Foreman wander rather than standing in Sanchford, and so do the
+ * Pawnbroker, the Gift Swapper and Dr. Couch from Southpass. And the wild gives your items back:
+ * a Lucky Egg a wild Thief or your own Trick moved is returned when the
+ * battle ends, where before it was gone. And an arena you have won is
+ * closed for 3000 moves (`arenaWon`). Every evolution that was not a level
+ * or a stone has a rule now (evolutions.ts), so creatures can be offered
+ * evolutions they never were. And starters roll shine, colour, a
+ * held item and abilities at three times the odds they did — so every seed's
+ * starters may have changed. */
 export const ENGINE_VERSION = 37;
 
 // ------------------------------------------------------------------ stats

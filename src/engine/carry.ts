@@ -905,9 +905,126 @@ const LATE: HeldItemSeed[] = [
   },
 ];
 
+/**
+ * Carried to evolve, and nothing else. The rules that read them are in
+ * evolutions.ts, which matches on the name — so the names here are the ones
+ * that table uses, and `tests/evolutions.test.ts` holds the two together.
+ */
+const EVOLUTION_HELD: HeldItemSeed[] = [
+  {
+    id: "hold-kingsrock",
+    name: "King's Rock",
+    blurb: "Evolves Poliwhirl into Politoed, Slowpoke into Slowking when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-protector",
+    name: "Protector",
+    blurb: "Evolves Rhydon into Rhyperior when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-dragonscale",
+    name: "Dragon Scale",
+    blurb: "Evolves Seadra into Kingdra when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-electirizer",
+    name: "Electirizer",
+    blurb: "Evolves Electabuzz into Electivire when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-magmarizer",
+    name: "Magmarizer",
+    blurb: "Evolves Magmar into Magmortar when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-upgrade",
+    name: "Up-Grade",
+    blurb: "Evolves Porygon into Porygon2 when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-dubiousdisc",
+    name: "Dubious Disc",
+    blurb: "Evolves Porygon2 into Porygon-Z when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-prismscale",
+    name: "Prism Scale",
+    blurb: "Evolves Feebas into Milotic when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-reapercloth",
+    name: "Reaper Cloth",
+    blurb: "Evolves Dusclops into Dusknoir when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-sachet",
+    name: "Sachet",
+    blurb: "Evolves Spritzee into Aromatisse when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-whippeddream",
+    name: "Whipped Dream",
+    blurb: "Evolves Swirlix into Slurpuff when it levels up holding it (or is given a Linking Cord, for a trade one). Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-razorfang",
+    name: "Razor Fang",
+    blurb: "Evolves Gligar into Gliscor when it levels up holding it. Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-ovalstone",
+    name: "Oval Stone",
+    blurb: "Evolves Happiny into Chansey when it levels up holding it. Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-leaderscrest",
+    name: "Leader's Crest",
+    blurb: "Evolves Bisharp into Kingambit when it levels up holding it. Used up.",
+    price: 3000,
+    hold: { effects: [] },
+  },
+  {
+    id: "hold-soothebell",
+    name: "Soothe Bell",
+    blurb: "Friendship, as far as this game has it: a Golbat, Chansey, Pichu, Riolu and the rest evolve when they level up holding it (Eevee also needs a Psychic, Dark or Fairy move). Kept.",
+    price: 5000,
+    hold: { effects: [] },
+  },
+];
+
+/** The held items that do nothing in a battle: they are for evolving. */
+export const EVOLUTION_ONLY_HELD: ReadonlySet<string> = new Set(EVOLUTION_HELD.map((entry) => entry.id));
+
 /** Everything that can be held, in one list, for items.ts to fold into the bag. */
 export const HELD_ITEMS: readonly HeldItemSeed[] = [
   ...SINGLES,
+  ...EVOLUTION_HELD,
   ...LATE,
   ...SECOND_NAMES,
   ...SPECIES_ITEMS,
@@ -938,7 +1055,7 @@ export const WILD_HELD_ITEMS: readonly string[] = [
   "nugget", "pearl",
 ];
 
-export const STARTER_HELD_PER_MILLE = 100;
+export const STARTER_HELD_PER_MILLE = 300;
 export const STARTER_HELD_ITEMS: readonly string[] = [
   "hold-leftovers", "hold-shellbell", "hold-quickclaw", "hold-scopelens", "hold-muscleband", "hold-wiseglasses",
   "hold-expertbelt", "hold-focussash", "hold-luckyegg", "hold-amuletcoin", "hold-eviolite", "berry-sitrus", "berry-lum",

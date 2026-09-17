@@ -26,6 +26,15 @@ import type { BattleEvent, SideIndex } from "@/engine/battle";
 /** How long one side's swing-and-answer takes, start to finish. */
 export const BEAT_MS = 340;
 
+/** How long the creature going back takes to walk off. */
+export const SWITCH_OUT_MS = 320;
+/** How long the ball takes to arc in and land. */
+export const SWITCH_BALL_MS = 420;
+/** How long the new creature takes to pop out of it. */
+export const SWITCH_POP_MS = 280;
+/** The whole switch, end to end. */
+export const SWITCH_TOTAL_MS = SWITCH_OUT_MS + SWITCH_BALL_MS + SWITCH_POP_MS;
+
 /** How long after a swing the blow lands on the other one. */
 const IMPACT_DELAY = 110;
 
@@ -243,6 +252,14 @@ export function beatsFor(
       case "hazardHit":
       case "itemMoved":
         beats[event.side].glowAt = (actor === null ? shift : started) + IMPACT_DELAY;
+        break;
+
+      case "switch":
+        // A switch mid-turn plays out in full before anything that follows
+        // it: otherwise a creature sent in and knocked out on the same turn
+        // was hit, and went down, while it was still inside the ball — and
+        // the pop-out drew over the faint, so it never appeared at all.
+        clock += SWITCH_TOTAL_MS;
         break;
 
       case "faint":

@@ -221,11 +221,61 @@ describe("items", () => {
       WILD_RULES,
     );
     expect(activeOf(wild, 0).heldItem).toBe("berry-oran");
-    expect(wild.sides[0].lent).toBeUndefined();
+    expect(wild.sides[0].lent).toEqual({ 0: null });
 
     const trainer = step(battleOf([fast(["thief"])], [slow(["splash"], { heldItem: "berry-oran" })]), fight(0, 0));
     expect(activeOf(trainer, 0).heldItem).toBe("berry-oran");
     expect(trainer.sides[0].lent).toEqual({ 0: null });
+  });
+
+  it("LM13b: in the wild your own items come back — after Thief, Trick or Bestow — and a caught one is not holding them", () => {
+    const wildTag = "wild:meadow-1:0";
+    const flee = (battle: BattleState) => resolveTurn(battle, [{ t: "flee" }, { t: "fight", moveIndex: 0 }], WILD_RULES, 10).battle;
+    const fled = (battle: BattleState) => {
+      // Running can fail; keep trying until the battle is over.
+      for (let tries = 0; tries < 30 && !battle.outcome; tries++) battle = flee({ ...battle, tag: `${wildTag}:${tries}` });
+      expect(battle.outcome?.t).toBe("fled");
+      return battle;
+    };
+
+    // A wild Thief takes the Lucky Egg; it is back when the battle is over.
+    const robbed = step(
+      battleOf([slow(["splash"], { uid: 1, heldItem: "hold-luckyegg" })], [fast(["thief"], { uid: 2 })], wildTag),
+      fight(0, 0),
+      WILD_RULES,
+    );
+    expect(activeOf(robbed, 0).heldItem).toBeNull();
+    const after = fled(robbed);
+    expect(activeOf(after, 0).heldItem).toBe("hold-luckyegg");
+    expect(activeOf(after, 1).heldItem).toBeNull();
+
+    // Our own Trick: undone on both sides.
+    const tricked = fled(
+      step(
+        battleOf([fast(["trick"], { heldItem: "hold-expshare" })], [slow(["splash"], { heldItem: "berry-oran" })], wildTag),
+        fight(0, 0),
+        WILD_RULES,
+      ),
+    );
+    expect(activeOf(tricked, 0).heldItem).toBe("hold-expshare");
+    expect(activeOf(tricked, 1).heldItem).toBe("berry-oran");
+
+    // Our own Bestow: back to us, and the wild one is empty-handed again.
+    const given = fled(step(battleOf([fast(["bestow"], { heldItem: "hold-luckyegg" })], [slow(["splash"])], wildTag), fight(0, 0), WILD_RULES));
+    expect(activeOf(given, 0).heldItem).toBe("hold-luckyegg");
+    expect(activeOf(given, 1).heldItem).toBeNull();
+
+    // Caught while holding our item: we get the item, not a copy on the catch.
+    let catching = robbed;
+    let caught = null;
+    for (let tries = 0; tries < 60 && !catching.outcome; tries++) {
+      const result = resolveTurn({ ...catching, tag: `${wildTag}:c${tries}` }, [{ t: "ball", item: "masterball" }, { t: "fight", moveIndex: 0 }], WILD_RULES, 10);
+      catching = result.battle;
+      caught = result.caught;
+    }
+    expect(catching.outcome?.t).toBe("caught");
+    expect(activeOf(catching, 0).heldItem).toBe("hold-luckyegg");
+    expect(caught?.heldItem).toBeNull();
   });
 
   it("LM14: Trick exchanges the two items", () => {

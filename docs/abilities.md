@@ -1,7 +1,8 @@
 # Abilities
 
-A hundred and eighty-one of them. **Ninety-one** are their own idea; **ninety** are five
-families of eighteen, one entry per type.
+Two hundred and fourteen of them. **Ninety-five** are their own idea; **ninety** are five families of
+eighteen, one entry per type; **fifteen** are the swaps, one per pair of types; and **fourteen** are
+the social perks, which do nothing in a fight.
 
 An ability here belongs to the individual, not to the species — see the header
 of `src/engine/abilities.ts` for why. What that means in play:
@@ -21,7 +22,7 @@ For the conditions and ladders several of these read and modify, see
 
 ---
 
-## The ninety-one singles
+## The ninety-five singles
 
 ### Damage it deals
 
@@ -114,6 +115,10 @@ move's own status *and* against a secondary.
 | Ability | Effect |
 | --- | --- |
 | **Moxie** | Every knockout raises its **Attack +1** |
+| **Grim Neigh** | Every knockout raises its **Sp. Atk +1** |
+| **Trophy Hide** | Every knockout raises its **Defense +1** |
+| **Victor's Calm** | Every knockout raises its **Sp. Def +1** |
+| **Bloodrush** | Every knockout raises its **Speed +1** |
 | **Intimidate** | On arrival, lowers the opponent's **Attack −1**. Fires on the **opening lead**, not only on a switch. Scrappy is immune to it |
 | **Regenerator** | Switching out mends **1/3** of its maximum |
 | **Rock Head** | **Recoil never touches it.** Struggle's own cost is not waived — that is what having nothing left costs you |
@@ -278,6 +283,56 @@ Same-type bonus on those moves, and the type's weaknesses, resistances and immun
 | fire | Fire Affinity | | rock | Rock Affinity |
 | flying | Flying Affinity | | steel | Steel Affinity |
 | ghost | Ghost Affinity | | water | Water Affinity |
+
+---
+
+## The swaps
+
+Two types trade places on its own attacks: a Grass move goes out Fire, and a Fire move goes out
+Grass. Only the moves change — the creature keeps its own types, so its same-type bonus follows the
+move's *new* type. Applied last, after Electrify and Ion Deluge.
+
+| Ability | Swaps |
+| --- | --- |
+| **Green Fire** | Grass ⇄ Fire |
+| **Boiling Tide** | Fire ⇄ Water |
+| **Frozen Spark** | Electric ⇄ Ice |
+| **Falling Stone** | Rock ⇄ Flying |
+| **Iron Brawl** | Fighting ⇄ Steel |
+| **Haunted Mind** | Ghost ⇄ Psychic |
+| **Night Bloom** | Dark ⇄ Fairy |
+| **Tainted Soil** | Poison ⇄ Ground |
+| **Dragon Frost** | Dragon ⇄ Ice |
+| **Hive Mind** | Bug ⇄ Normal |
+| **Charged Surf** | Electric ⇄ Water |
+| **Quicksilver** | Steel ⇄ Psychic |
+| **Wild Wind** | Grass ⇄ Flying |
+| **Spirit Fist** | Ghost ⇄ Fighting |
+| **Sweet Venom** | Poison ⇄ Fairy |
+
+---
+
+## The social perks
+
+Nothing in battle (Stage Presence aside, which changes what a Ribbon does). Read by the Streamer,
+the Influencer, the beauty pageant, the paparazzo and Dr. Couch.
+
+| Ability | What it does |
+| --- | --- |
+| **Celebrity** | Everything it earns on stream is multiplied by 5. The larger of this and Renowned, never both. |
+| **Renowned** | Everything it earns on stream is doubled. |
+| **Pretty** | At the beauty pageant its IVs count five times over. |
+| **Drama Queen** | When it faints on stream, the pool loses nothing — the crowd loves it more. |
+| **Viral** | At the Influencer every step counts twice towards its fame. |
+| **Photogenic** | At the beauty pageant it scores 150 more. |
+| **Stage Presence** | A Ribbon on it charms twice as often (60%) and drops the foe's Attack two stages instead of one. |
+| **Thick Skin** | The paparazzo's photoshoot still takes its Ribbon, but it never comes back Burned Out. |
+| **Trendsetter** | At the beauty pageant each shine rung is worth 80 instead of 40. |
+| **Colour Coordinated** | At the beauty pageant its colour scores double. |
+| **Low Bandwidth** | While it is on stream, walking costs the pool nothing. |
+| **Humblebrag** | At the beauty pageant its pageant item's bonus counts whatever its type. |
+| **Comeback Story** | Dr. Couch sees it for free, and its course takes a tenth of the steps. |
+| **Paparazzi Magnet** | The paparazzo pays three times as much for its photoshoot. |
 
 ---
 

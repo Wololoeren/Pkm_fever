@@ -17,6 +17,8 @@ import {
   arenaRefusal,
   arenaRoundOf,
   arenaTeam,
+  arenaWait,
+  ARENA_COOLDOWN,
   initialState,
   reduce,
   stateHash,
@@ -191,6 +193,15 @@ describe("playing one", () => {
     expect([...took.party, ...took.box].at(-1)!.speciesId).toBe(offered[1].speciesId);
     // And the bracket is over, or the panel would offer three for ever.
     expect(took.arena).toBeNull();
+
+    // Won, so closed for a while — this arena only. Party trimmed back to the
+    // format so the size rule is not what refuses.
+    const back: GameState = { ...took, party: took.party.slice(0, 1) };
+    expect(arenaWait(back, "arena-1")).toBe(ARENA_COOLDOWN - 1);
+    expect(arenaRefusal(back, "arena-1")).toMatch(/next draw is in/);
+    expect(arenaWait(back, "arena-2")).toBe(0);
+    const later: GameState = { ...back, tick: won.tick + ARENA_COOLDOWN };
+    expect(arenaRefusal(later, "arena-1")).toBeNull();
   });
 
   it("W35: losing puts you out, and re-entering is a new draw", () => {

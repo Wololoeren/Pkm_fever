@@ -14,7 +14,7 @@ import {
   WILD_RULES,
   type BattleState,
 } from "@/engine/battle";
-import { heldEffects, HELD_ITEMS, isConsumedOnUse, TYPE_ITEM_TYPES } from "@/engine/carry";
+import { EVOLUTION_ONLY_HELD, heldEffects, HELD_ITEMS, isConsumedOnUse, TYPE_ITEM_TYPES } from "@/engine/carry";
 import { ALL_SPECIES, species as speciesById } from "@/engine/dex";
 import { applyInput, holdRefusal, initialState, type GameState } from "@/engine/engine";
 import { ITEMS } from "@/engine/items";
@@ -87,7 +87,8 @@ describe("the vocabulary is shared", () => {
     expect(HELD_ITEMS.length).toBeGreaterThan(50);
 
     for (const entry of HELD_ITEMS) {
-      expect(entry.hold.effects.length, entry.id).toBeGreaterThan(0);
+      // The evolution items do nothing in a battle, and say so: evolutions.ts reads them.
+      if (!EVOLUTION_ONLY_HELD.has(entry.id)) expect(entry.hold.effects.length, entry.id).toBeGreaterThan(0);
       for (const effect of entry.hold.effects) {
         expect(typeof effect.t, `${entry.id} has an effect with no shape`).toBe("string");
       }
