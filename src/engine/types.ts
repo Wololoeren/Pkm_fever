@@ -134,8 +134,7 @@ import { BIOME_IDS } from "./biomes";
  * 37 is the daycare laying half as often — every 600 steps instead of 300 —
  * and a ready egg going into a free incubator by itself (plus the
  * `incubateEgg` input for a carried one). A recorded walk past a pair now
- * lays at different steps and puts eggs somewhere else. Folded in,
- * unreleased: Ivo's printer charges ¤3,000 a go and waits 1500 moves rather
+ * lays at different steps and puts eggs somewhere else. Folded in: Ivo's printer charges ¤3,000 a go and waits 1500 moves rather
  * than 600, so a recorded print can be refused or leave different money. And
  * the printer, the auctioneer, the shredder and the lapidary left New Willow
  * for a seeded town or ring-one-or-two route each — people are solid, so the
@@ -174,8 +173,14 @@ import { BIOME_IDS } from "./biomes";
  * or a stone has a rule now (evolutions.ts), so creatures can be offered
  * evolutions they never were. And starters roll shine, colour, a
  * held item and abilities at three times the odds they did — so every seed's
- * starters may have changed. */
-export const ENGINE_VERSION = 37;
+ * starters may have changed. And five knockout abilities — Moxie, Grim Neigh,
+ * Trophy Hide, Victor's Calm and Bloodrush — which join the roll alongside the
+ * swaps and the social perks.
+ *
+ * 38 carries nothing yet. 37 has shipped, so the next save-breaking change
+ * starts a version of its own rather than being folded into a released one,
+ * and this is that version waiting for it. */
+export const ENGINE_VERSION = 38;
 
 // ------------------------------------------------------------------ stats
 
