@@ -1,6 +1,6 @@
 # Abilities
 
-Two hundred and fourteen of them. **Ninety-five** are their own idea; **ninety** are five families of
+Two hundred and twenty-four of them. **Ninety-five** are their own idea; **ninety** are five families of
 eighteen, one entry per type; **fifteen** are the swaps, one per pair of types; and **fourteen** are
 the social perks, which do nothing in a fight.
 
@@ -333,6 +333,27 @@ the Influencer, the beauty pageant, the paparazzo and Dr. Couch.
 | **Humblebrag** | At the beauty pageant its pageant item's bonus counts whatever its type. |
 | **Comeback Story** | Dr. Couch sees it for free, and its course takes a tenth of the steps. |
 | **Paparazzi Magnet** | The paparazzo pays three times as much for its photoshoot. |
+
+---
+
+## The hours
+
+Ten that read the sky. The cycle is ten thousand steps — day, a thousand-step
+dusk, night, a thousand-step dawn — and a battle carries the hour it *began*
+at, so nothing here changes mid-fight.
+
+| Ability | Effect |
+| --- | --- |
+| **Night Stalker** | Attacks do **+50%** at night |
+| **Moonlit** | **Sp. Def ×1.5** at night |
+| **Sunbather** | Attacks do **+50%** in the day |
+| **Daybound** | **Defense ×1.5** in the day |
+| **Dusk Runner** | Attacks do **+80%** at dusk |
+| **Evening Calm** | **Sp. Atk ×1.6** at dusk |
+| **Dawn Chorus** | Attacks do **+80%** at dawn |
+| **First Light** | **Speed ×1.6** at dawn |
+| **Twilight Born** | **Attack ×1.4** at dusk and at dawn |
+| **Early and Late** | Attacks do **+30%** from dawn through the day |
 
 ---
 

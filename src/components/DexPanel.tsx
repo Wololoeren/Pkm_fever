@@ -28,6 +28,8 @@ export function DexPanel({ world, state }: { world: World; state: GameState }) {
   const dex = useMemo(() => dexOf(world, state), [world, state]);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  /** The place clicked on the map, which the panel under it answers for. */
+  const [zone, setZone] = useState<string | null>(null);
 
   const shown = useMemo(() => searchDex(dex.entries, query), [dex, query]);
   const chosen: DexEntry | null =
@@ -82,11 +84,17 @@ export function DexPanel({ world, state }: { world: World; state: GameState }) {
           {chosen ? (
             <div className="dexCard">
               <div className="dexCardHead">
-                {/* Only when you hold one: the picture is that creature's,
-                    and a species you have only met has nobody to draw. */}
-                {chosen.variantId ? (
-                  <Sprite speciesId={chosen.speciesId} variantId={chosen.variantId} size={48} />
-                ) : null}
+                {/* Always a picture: a dex entry without one is a list row
+                    with more words. Where you hold one it is drawn as yours,
+                    shine and colour and all; where you have only met the
+                    species it is drawn ordinary, because that is all the dex
+                    knows about it. */}
+                <Sprite
+                  speciesId={chosen.speciesId}
+                  variantId={chosen.variantId ?? "normal"}
+                  size={96}
+                  marks={Boolean(chosen.variantId)}
+                />
                 <div>
                   <strong>
                     #{chosen.num} {chosen.name}
@@ -120,11 +128,14 @@ export function DexPanel({ world, state }: { world: World; state: GameState }) {
                   ...(chosen.where ? [{ routeId: chosen.where, kind: "met" as const }] : []),
                   ...chosen.livesOn.map((routeId) => ({ routeId, kind: "lives" as const })),
                 ]}
+                onSelect={(routeId) => setZone(zone === routeId ? null : routeId)}
+                selected={zone}
               />
               <p className="muted small">
                 A solid ring is where you first met it; a dashed ring is a place whose table
-                you have earned that says it lives there.
+                you have earned that says it lives there. Click any place for what lives in it.
               </p>
+              <Zone world={world} dex={dex} routeId={zone} onSpecies={setPicked} />
             </div>
           ) : null}
         </div>
@@ -156,6 +167,94 @@ export function DexPanel({ world, state }: { world: World; state: GameState }) {
           ))}
         </details>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * One place on the map, and what the dex knows about what lives there.
+ *
+ * The count is the point: how many of that zone's table you hold, out of how
+ * many there are to hold. It is only a denominator once the table has been
+ * earned — before `DEX_REVEAL` encounters the zone says how many more it
+ * wants, because a list of everything living somewhere you have barely walked
+ * would hand you the hunt rather than let you do it.
+ */
+function Zone({
+  world,
+  dex,
+  routeId,
+  onSpecies,
+}: {
+  world: World;
+  dex: ReturnType<typeof dexOf>;
+  routeId: string | null;
+  onSpecies: (speciesId: string) => void;
+}) {
+  if (!routeId) return null;
+
+  const place = world.routes.get(routeId);
+  const known = dex.routes.find((one) => one.routeId === routeId);
+  const label = place?.label ?? routeLabel(routeId);
+
+  if (!place || place.kind !== "route") {
+    return <p className="hint">{label} is a town. Nothing lives in the grass there, because there is none.</p>;
+  }
+  if (!known) {
+    return <p className="hint">{label} — you have never been there.</p>;
+  }
+  if (!known.table) {
+    const left = DEX_REVEAL - known.encounters;
+    return (
+      <p className="hint">
+        {label} — {known.encounters} of {DEX_REVEAL} met. {left} more and the dex will list what lives here.
+      </p>
+    );
+  }
+
+  const by = new Map(dex.entries.map((entry) => [entry.speciesId, entry]));
+  const living = known.table.map(({ speciesId }) => by.get(speciesId) ?? null);
+  const caught = living.filter((entry) => entry?.caught).length;
+  const seen = living.filter((entry) => entry?.seen).length;
+
+  return (
+    <div className="zoneList">
+      <h4>
+        {label} — caught {caught} of {known.table.length}
+      </h4>
+      <p className="muted small">{seen} seen. The commonest first.</p>
+      <div className="items">
+        {known.table.map(({ speciesId }, at) => {
+          const entry = by.get(speciesId);
+          const kind = speciesById(speciesId);
+          return (
+            <button
+              key={speciesId}
+              type="button"
+              className={`zoneOne${entry?.caught ? " caught" : entry?.seen ? " seen" : " unseen"}`}
+              title={
+                entry?.caught
+                  ? `${kind.name} — caught`
+                  : entry?.seen
+                    ? `${kind.name} — seen, not caught`
+                    : `${kind.name} — never met. It lives here; you have not.`
+              }
+              onClick={() => onSpecies(speciesId)}
+            >
+              {entry?.seen ? (
+                <Sprite speciesId={speciesId} variantId={entry.variantId ?? "normal"} size={48} marks={false} />
+              ) : (
+                <span className="zoneUnknown" aria-hidden="true">
+                  ?
+                </span>
+              )}
+              <span className="muted">
+                #{at + 1} {entry?.seen ? kind.name : "—"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

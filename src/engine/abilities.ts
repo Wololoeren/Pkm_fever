@@ -1,6 +1,7 @@
 import { TYPE_NAMES, type StageStat } from "./dex";
 import type { TerrainId, WeatherId } from "./field";
 import { intBelow, type Rng } from "./rng";
+import type { TimeOfDay } from "./daynight";
 import type { StatusId } from "./types";
 
 /**
@@ -46,6 +47,16 @@ type EffectShape =
   | { t: "stab"; mille: number }
   /** Its own attacks are multiplied, under a condition. */
   | { t: "power"; when: PowerWhen; mille: number; type?: string; move?: string }
+  /**
+   * Stronger, or tougher, at one time of day.
+   *
+   * `stat: "power"` multiplies what it deals; a stat name multiplies that
+   * stat. The battle knows what the sky was doing when it started — see
+   * `daynight.ts` — and nothing here changes while a fight is on, because a
+   * creature that grew weaker on turn nine because the sun went down would be
+   * a fight lost to arithmetic nobody could see.
+   */
+  | { t: "hour"; at: readonly TimeOfDay[]; stat: "power" | StageStat; mille: number }
   /** Immune to a type, and healed by a share of its own maximum. */
   | { t: "absorb"; type: string; share: number }
   /** Immune to a type, full stop. */
@@ -799,6 +810,36 @@ export function hasPerk(creature: { abilities: readonly string[] }, perk: Social
   return abilitiesOf(creature.abilities).some((spec) => spec.effect.t === "perk" && spec.effect.perk === perk);
 }
 
+/**
+ * The hours: ten abilities that read the sky.
+ *
+ * Two each for the long phases and two for the pair of twilights, because "up
+ * at night" and "out in the daylight" are the two real habits and dusk and
+ * dawn are the two moments a creature that keeps to one of them is caught out.
+ *
+ * All of them multiply, and none of them change mid-fight: a battle carries
+ * the hour it began at.
+ */
+const HOURS: [string, string, readonly TimeOfDay[], "power" | StageStat, number, string][] = [
+  ["nightstalker", "Night Stalker", ["night"], "power", 1500, "Its attacks do 50% more damage at night."],
+  ["moonlit", "Moonlit", ["night"], "spd", 1500, "Its Sp. Def is half again at night."],
+  ["sunbather", "Sunbather", ["day"], "power", 1500, "Its attacks do 50% more damage in the day."],
+  ["daybound", "Daybound", ["day"], "def", 1500, "Its Defense is half again in the day."],
+  ["duskrunner", "Dusk Runner", ["dusk"], "power", 1800, "Its attacks do 80% more damage at dusk."],
+  ["eveningcalm", "Evening Calm", ["dusk"], "spa", 1600, "Its Sp. Atk is 60% higher at dusk."],
+  ["dawnchorus", "Dawn Chorus", ["dawn"], "power", 1800, "Its attacks do 80% more damage at dawn."],
+  ["firstlight", "First Light", ["dawn"], "spe", 1600, "Its Speed is 60% higher at dawn."],
+  ["twilightborn", "Twilight Born", ["dusk", "dawn"], "atk", 1400, "Its Attack is 40% higher at dusk and at dawn."],
+  ["earlyandlate", "Early and Late", ["dawn", "day"], "power", 1300, "Its attacks do 30% more damage from dawn through the day."],
+];
+
+const HOUR_ABILITIES: AbilitySpec[] = HOURS.map(([id, name, at, stat, mille, blurb]) => ({
+  id: `hour-${id}`,
+  name,
+  blurb,
+  effect: { t: "hour" as const, at, stat, mille },
+}));
+
 /** Effort: more of it, and some of it aimed. */
 const EFFORT_STATS: [string, string, StageStat | "hp"][] = [
   ["marathoner", "Marathoner", "hp"],
@@ -873,6 +914,7 @@ export const ABILITIES: readonly AbilitySpec[] = [
   ...AFFINITY,
   ...SWAPS,
   ...SOCIAL,
+  ...HOUR_ABILITIES,
 ];
 
 /**
@@ -964,6 +1006,18 @@ export const WILD_ABILITY_ODDS: AbilityOdds = { one: ONE_UP_TO - NONE_UP_TO, two
 
 /** A starter: thirty percent one, six percent two, one percent three. */
 export const STARTER_ABILITY_ODDS: AbilityOdds = { one: 300, two: 60, three: 10 };
+
+/**
+ * Something met after dark: the wild odds, three times over.
+ *
+ * `daynight.ts` explains the trade — the night deals commoner species, and
+ * pays for it in what those species turn out to be carrying.
+ */
+export const NIGHT_ODDS: AbilityOdds = {
+  one: WILD_ABILITY_ODDS.one * 3,
+  two: WILD_ABILITY_ODDS.two * 3,
+  three: 0,
+};
 
 /**
  * Exactly this many, drawn distinct.

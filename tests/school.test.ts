@@ -32,7 +32,7 @@ describe("the trainer school", () => {
       expect(teacher.lines.join(" "), `${id} does not say "${phrase}"`).toContain(phrase);
     };
     says("teacher-iv", `nought to ${IV_MAX}`);
-    says("teacher-iv", `nought to ${WILD_IV_MAX}`);
+    says("teacher-iv", `averages ${WILD_IV_MAX}`);
     says("teacher-nature", `adds ${NATURE_MAGNITUDE} to one stat`);
     says("teacher-effort", `${EV_MAX_PER_STAT} in any one stat, ${EV_MAX_TOTAL} in all`);
     says("teacher-shine", `${TOP_TIER + 1} rungs`);

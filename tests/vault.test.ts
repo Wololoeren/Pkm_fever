@@ -4,6 +4,7 @@ import { ENGINE_VERSION } from "@/engine/types";
 import { encodeSave, makeSave, parseAnySave } from "@/lib/save";
 import { verifySave } from "@/lib/verify";
 import { entriesFromRun, entriesFromSave, entriesFromVaultFile, mergeEntries, rosterOf, vaultFile } from "@/lib/vault";
+import { effortSpent } from "@/engine/effort";
 import { creature, testWorld } from "./helpers";
 
 describe("the vault", () => {
@@ -49,6 +50,37 @@ describe("the vault", () => {
     expect(report.ok).toBe(true);
     expect(report.vaultStart?.speciesId).toBe("dratini");
     expect(report.party[0].vault).toBe(true);
+  });
+
+  it("VT2b: a team of them sets out together, and three is the most it can be", () => {
+    const three = [
+      creature("dratini", { uid: 7, level: 40 }),
+      creature("larvitar", { uid: 8, level: 55 }),
+      creature("gible", { uid: 9, level: 30 }),
+    ];
+    const team = reduce(world, [
+      { t: "trainer", name: "Ash" },
+      { t: "vaultStart", creature: three[0], creatures: three },
+    ]);
+    expect(team.party).toHaveLength(3);
+    expect(team.party.map((one) => one.speciesId)).toEqual(["dratini", "larvitar", "gible"]);
+    // Every one of them reset and marked, exactly as one of them always was.
+    for (const one of team.party) {
+      expect(one.level).toBe(5);
+      expect(one.vault).toBe(true);
+      expect(effortSpent(one.evs)).toBe(0);
+    }
+    // And their uids do not collide.
+    expect(new Set(team.party.map((one) => one.uid)).size).toBe(3);
+
+    // A fourth is refused, and the old shape still means what it meant.
+    expect(() =>
+      reduce(world, [
+        { t: "trainer", name: "Ash" },
+        { t: "vaultStart", creature: three[0], creatures: [...three, creature("bagon", { uid: 10 })] },
+      ]),
+    ).toThrow();
+    expect(reduce(world, [{ t: "trainer", name: "Ash" }, { t: "vaultStart", creature: three[0] }]).party).toHaveLength(1);
   });
 
   it("VT3: adding a save replays it, and a later save of the same run updates instead of duplicating", () => {

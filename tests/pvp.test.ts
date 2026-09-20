@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DuelSession, type DuelMessage } from "@/engine/duel";
 import { learnableAt } from "@/engine/dex";
+import { maxPp } from "@/engine/pp";
 import { applyInput, initialState, MAX_MOVES, movesRefusal, reduce, stateHash, type Input } from "@/engine/engine";
 import { cheatPrizeOffer } from "@/engine/prize";
 import { STAT_IDS } from "@/engine/types";
@@ -228,6 +229,25 @@ describe("choosing moves", () => {
     const chosen = pool.slice(0, Math.min(MAX_MOVES, pool.length));
     const after = applyInput(world, state, { t: "setMoves", index: 0, moves: chosen });
     expect(after.party[0].moves).toEqual(chosen);
+
+    // And the uses follow the moves rather than the slots. Rearranged, a
+    // move keeps what it had left; swapped out for another, the new one
+    // arrives full — and never with more than its own maximum, which is how
+    // a five-use move used to come out of here with forty.
+    const spent = {
+      ...after.party[0],
+      pp: after.party[0].moves.map((moveId, at) => (at === 0 ? 1 : maxPp(moveId))),
+    };
+    const swapped = applyInput(
+      world,
+      { ...after, party: [spent, ...after.party.slice(1)] },
+      { t: "setMoves", index: 0, moves: [...chosen].reverse() },
+    );
+    for (const [at, moveId] of swapped.party[0].moves.entries()) {
+      expect(swapped.party[0].pp[at], moveId).toBeLessThanOrEqual(maxPp(moveId));
+      // The one that was nearly spent is still nearly spent, wherever it sits.
+      expect(swapped.party[0].pp[at]).toBe(moveId === chosen[0] ? 1 : maxPp(moveId));
+    }
   });
 
   it("P12: nothing it has not learned, no duplicates, no fifth move", () => {

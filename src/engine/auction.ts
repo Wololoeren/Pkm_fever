@@ -28,8 +28,41 @@ export const AUCTION_OPEN = 6000;
 /** How many lots are up at once. */
 export const AUCTION_LOTS = AUCTION_OPEN / AUCTION_STEP;
 
-/** The chance a bid wins, in percent. */
-export const AUCTION_WIN_PERCENT = 50;
+/**
+ * The room, in four numbers.
+ *
+ * A lot opens at `AUCTION_OPENING` of what it is worth and creeps upward:
+ * every `AUCTION_TICK` steps somebody in the room may raise by
+ * `AUCTION_RAISE`, and the chance they do is `AUCTION_KEEN * price / ask` —
+ * so the cheaper the lot looks, the likelier somebody wants it.
+ *
+ * That shape is chosen rather than a flat chance, and it is worth saying why:
+ * the expected *gain* per tick is `chance * raise * ask`, and with the chance
+ * inversely proportional to the ask the two cancel. So the ask walks up a
+ * straight line, at `AUCTION_DRIFT` of the lot's worth per tick, whatever it
+ * has already reached — and the four numbers are chosen to make that line
+ * arrive: thirty ticks is the six thousand steps a lot is on the board, and
+ * 30% + 30 x (70/30)% is the full price at the hammer.
+ *
+ * Which makes bidding a question about timing rather than about money. Bid
+ * early and it is a third of the price and somebody will certainly outbid you
+ * before it closes; bid late and it costs near what the thing is worth, with
+ * no time left for the room to answer. The median lot hammers at about 94% of
+ * its price and one in ten goes over it, because a room that could never
+ * exceed the number on the tag would be a shop with a countdown.
+ */
+export const AUCTION_OPENING = 30;
+export const AUCTION_TICK = 200;
+export const AUCTION_RAISE = 10;
+/**
+ * The keenness of the room, in tenths of a percent of the price, per tick:
+ * the chance of a raise is this much of `price / ask`. 233 with a raise of a
+ * tenth is a drift of 70/30 of a percent a tick, which is the whole 70 points
+ * from the opening to the price across a lot's life.
+ */
+export const AUCTION_KEEN = 233;
+/** What that works out to per tick, in hundredths of a percent of the price. */
+export const AUCTION_DRIFT = (AUCTION_KEEN * AUCTION_RAISE) / 10;
 
 /**
  * What a board holds. The manifest's catch rates are not the classic ones
@@ -97,9 +130,45 @@ export function board(seed: string, stepsTaken: number): Lot[] {
   return Array.from({ length: AUCTION_LOTS }, (_, at) => lot(seed, first + at));
 }
 
-/** Whether a bid on lot `n` won. Decided the moment it closes, and the same forever. */
-export function bidWins(seed: string, n: number): boolean {
-  return intBelow(rngFor(seed, "auction-win", n), 100) < AUCTION_WIN_PERCENT;
+/** The step a lot goes up on the board. */
+export function opensAt(spec: Lot): number {
+  return Math.max(0, spec.closesAt - AUCTION_OPEN);
+}
+
+/** How many times the room has had a chance to raise this lot by now. */
+export function ticksOf(spec: Lot, stepsTaken: number): number {
+  const until = Math.min(stepsTaken, spec.closesAt);
+  return Math.max(0, Math.floor((until - opensAt(spec)) / AUCTION_TICK));
+}
+
+/**
+ * What lot `n` is going for at this step count.
+ *
+ * Walked forward from the opening rather than solved, because each raise
+ * changes the odds of the next one: thirty steps of arithmetic at most, all
+ * of it named off the seed, so the board reads the same on every machine and
+ * the same again in a replay.
+ */
+export function askingPrice(seed: string, n: number, stepsTaken: number): number {
+  const spec = lot(seed, n);
+  let ask = Math.round((spec.price * AUCTION_OPENING) / 100);
+  const ticks = ticksOf(spec, stepsTaken);
+  for (let tick = 0; tick < ticks; tick++) {
+    if (!raises(seed, n, tick, spec.price, ask)) continue;
+    ask = Math.round((ask * (100 + AUCTION_RAISE)) / 100);
+  }
+  return ask;
+}
+
+/** Whether the room raised on this tick. */
+function raises(seed: string, n: number, tick: number, price: number, ask: number): boolean {
+  const keen = Math.min(1000, Math.floor((AUCTION_KEEN * price) / Math.max(1, ask)));
+  return intBelow(rngFor(seed, "auction-raise", n, tick), 1000) < keen;
+}
+
+/** The chance, in per mille, that the room raises in the next `AUCTION_TICK` steps. */
+export function keenness(price: number, ask: number): number {
+  return Math.min(1000, Math.floor((AUCTION_KEEN * price) / Math.max(1, ask)));
 }
 
 /**

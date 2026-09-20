@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   breed,
+  DITTO_EGG_PERCENT,
   breedingRefusal,
   compatible,
   chromaOdds,
@@ -26,7 +27,7 @@ import {
   type DaycareState,
 } from "@/engine/breeding";
 import { ALL_SPECIES } from "@/engine/dex";
-import { applyInput, collectRefusal, depositRefusal, hatchRefusal, incubateRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
+import { applyInput, collectRefusal, depositRefusal, hatchRefusal, incubateRefusal, uncubateRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
 import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
 import { intBetween, rngFor } from "@/engine/rng";
@@ -165,11 +166,25 @@ describe("what comes out", () => {
     expect(child.parents).toEqual([1, 2]);
   });
 
-  it("BR8: a Ditto lends a slot, not a species", () => {
+  it("BR8: a Ditto lends a slot, not a species — unless it stands first, and then one egg in five is another Ditto", () => {
     const ditto = creature("ditto", { uid: 1 });
-    const partner = creature("charmander", { uid: 2 });
-    expect(breed(SEED, ditto, partner, 0, []).speciesId).toBe("charmander");
-    expect(breed(SEED, partner, ditto, 0, []).speciesId).toBe("charmander");
+    const partner = creature("charmander", { uid: 2, gender: "male" });
+
+    // Second slot: never itself, whatever the roll.
+    for (let egg = 0; egg < 60; egg++) {
+      expect(breed(SEED, partner, ditto, egg, []).speciesId).toBe("charmander");
+    }
+
+    // First slot: about one in five, which is the only way the world makes
+    // more of them.
+    const eggs = 4000;
+    let dittos = 0;
+    for (let egg = 0; egg < eggs; egg++) {
+      const child = breed(SEED, ditto, partner, egg, []);
+      expect(["ditto", "charmander"]).toContain(child.speciesId);
+      if (child.speciesId === "ditto") dittos++;
+    }
+    expect(dittos / eggs).toBeCloseTo(DITTO_EGG_PERCENT / 100, 2);
   });
 
   it("BR9: appearance is inherited on both axes at once", () => {
@@ -216,9 +231,19 @@ describe("who can breed with whom", () => {
         creature("oddish", { uid: 2, gender: "female" }),
       ),
     ).toBe(true);
-    expect(compatible(creature("ditto", { uid: 1 }), creature("bulbasaur", { uid: 2 }))).toBe(true);
-    // Two Dittos have nothing to work from.
-    expect(compatible(creature("ditto", { uid: 1 }), creature("ditto", { uid: 2 }))).toBe(false);
+    // A Ditto pairs across egg groups — that is the whole of what it is for —
+    // but it has a gender like anything else and still has to pair on that.
+    expect(
+      compatible(creature("ditto", { uid: 1, gender: "male" }), creature("bulbasaur", { uid: 2, gender: "female" })),
+    ).toBe(true);
+    expect(
+      compatible(creature("ditto", { uid: 1, gender: "male" }), creature("bulbasaur", { uid: 2, gender: "male" })),
+    ).toBe(false);
+    // And two of them work, because a Ditto is a species like any other now
+    // that one can hatch.
+    expect(
+      compatible(creature("ditto", { uid: 1, gender: "male" }), creature("ditto", { uid: 2, gender: "female" })),
+    ).toBe(true);
     // Nothing breeds with itself.
     const one = creature("bulbasaur", { uid: 1 });
     expect(compatible(one, one)).toBe(false);
@@ -446,8 +471,14 @@ describe("the daycare", () => {
     expect(collectRefusal(world, ready, "party")).toMatch(/party is full/);
     expect(collectRefusal(world, ready, "incubator")).toBe("no incubator applied");
 
-    // Applying the incubator to a pair with an egg waiting puts the egg straight in.
-    const kept = applyInput(world, ready, { t: "toggleItem", item: "incubator" });
+    // Applying the incubator gives the egg somewhere to go — but it does not
+    // go there by itself while you are standing at the counter, because the
+    // choice between the incubator and your own hands is yours to make.
+    const applied = applyInput(world, ready, { t: "toggleItem", item: "incubator" });
+    expect(applied.daycare.eggReady).toBe(true);
+    expect(applied.daycare.incubating).toHaveLength(0);
+
+    const kept = applyInput(world, applied, { t: "collectEgg", to: "incubator" });
     expect(kept.daycare.eggReady).toBe(false);
     expect(kept.eggs).toHaveLength(0);
     expect(kept.daycare.incubating).toHaveLength(1);
@@ -500,16 +531,32 @@ describe("the daycare", () => {
       throw new Error("boxed in");
     };
 
-    // One step short of an egg: the step that lays it puts it in the incubator.
+    // One step short of an egg. Standing in the daycare it simply waits, so
+    // you can decide whether to carry it — an egg in your hands is the only
+    // kind you can show anybody, and Gus buys them.
     const almost = { ...inside, daycare: { ...inside.daycare, steps: eggSteps(inside.daycare.applied) - 1 } };
-    const laid = oneStep(almost);
+    const waiting = oneStep(almost);
+    expect(waiting.daycare.eggReady).toBe(true);
+    expect(waiting.daycare.incubating).toHaveLength(0);
+    expect(collectRefusal(world, waiting, "party")).toBeNull();
+
+    // A step taken anywhere else puts it in the free incubator by itself.
+    const outside = { ...waiting, route: base.route, x: base.x, y: base.y };
+    const laid = oneStep(outside);
     expect(laid.daycare.eggReady).toBe(false);
     expect(laid.daycare.incubating).toHaveLength(1);
     expect(laid.daycare.eggIndex).toBe(1);
     expect(laid.eggs).toHaveLength(0);
 
+    // And it can be picked back up at the counter, which is what makes the
+    // automatic incubator a convenience rather than a one-way door.
+    const back = applyInput(world, { ...laid, route: inside.route, x: inside.x, y: inside.y }, { t: "uncubateEgg", index: 0 });
+    expect(back.eggs).toHaveLength(1);
+    expect(back.daycare.incubating).toHaveLength(0);
+    expect(uncubateRefusal(world, back, 0)).toBe("no such egg");
+
     // The only incubator is taken: the next one waits for you as before.
-    const again = oneStep({ ...laid, daycare: { ...laid.daycare, steps: eggSteps(laid.daycare.applied) - 1 } });
+    const again = oneStep({ ...laid, route: base.route, x: base.x, y: base.y, daycare: { ...laid.daycare, steps: eggSteps(laid.daycare.applied) - 1 } });
     expect(again.daycare.eggReady).toBe(true);
     expect(again.daycare.incubating).toHaveLength(1);
 
@@ -656,8 +703,11 @@ describe("gender", () => {
     expect(breedingRefusal(male, trans)).toBeNull();
     expect(compatible(male, otherMale)).toBe(false);
 
-    // Ditto still ignores gender, as it ignores species.
-    expect(breedingRefusal(male, creature("ditto", { uid: 5, gender: "male" }))).toBeNull();
+    // A Ditto ignores egg groups and nothing else: two males are still two males.
+    expect(breedingRefusal(male, creature("ditto", { uid: 5, gender: "female" }))).toBeNull();
+    expect(breedingRefusal(male, creature("ditto", { uid: 5, gender: "male" }))).toBe(
+      "these two genders do not pair",
+    );
     // And an egg group mismatch still reads as an egg group mismatch.
     expect(breedingRefusal(male, creature("machop", { uid: 6, gender: "female" }))).toBe(
       "these two share no egg group",

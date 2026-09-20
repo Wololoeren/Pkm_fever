@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   activeLures,
   EGGOMETER,
   activeRepel,
   holdRefusal,
+  ownedAbilities,
   flyRefusal,
   itemRefusal,
   lureLeft,
@@ -20,7 +21,7 @@ import { displayName } from "@/lib/narrate";
 import { EggSlots } from "./PartyStrip";
 import { RegionMap } from "./MiniMap";
 import { Handbook } from "./Handbook";
-import { Doomscroller } from "./Doomscroller";
+import { Doomscroller, type FriendsFeed } from "./Doomscroller";
 import { canLearnMachine } from "@/engine/dex";
 
 /** The fly map. Narrower than the Grey Line's: the bag is a side column. */
@@ -68,12 +69,25 @@ export function BagPanel({
   world,
   state,
   onInput,
+  opened,
+  friends,
 }: {
   world: World;
   state: GameState;
   onInput: (input: Input) => void;
+  /** An item the page wants open, and when it asked. See the Fly button. */
+  opened?: { item: string; at: number } | null;
+  /** The friends' feed, which the page holds and the Doomscroller shows. */
+  friends?: FriendsFeed;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
+
+  // Something outside the bag asking for one of its items to be open — the
+  // Fly button above it. Keyed on `at` rather than on the id, so pressing the
+  // same button twice opens it again after it has been closed.
+  useEffect(() => {
+    if (opened) setChosen(opened.item);
+  }, [opened]);
   const [reading, setReading] = useState<"handbook" | "feed" | null>(null);
   const [tab, setTab] = useState<ItemKind | null>(null);
   const [query, setQuery] = useState("");
@@ -269,7 +283,7 @@ export function BagPanel({
           {(() => {
             const landable = state.visited.filter((id) => {
               const route = world.routes.get(id);
-              return route && route.kind !== "interior" && flyRefusal(world, state, id) === null;
+              return route && route.kind !== "interior" && route.kind !== "cave" && flyRefusal(world, state, id) === null;
             });
             return landable.length ? (
               <div className="travelMap">
@@ -381,8 +395,18 @@ export function BagPanel({
           </div>
         </>
       ) : null}
-      {reading === "handbook" ? <Handbook onClose={() => setReading(null)} /> : null}
-      {reading === "feed" ? <Doomscroller world={world} state={state} onClose={() => setReading(null)} /> : null}
+      {reading === "handbook" ? (
+        <Handbook owned={ownedAbilities(state)} onClose={() => setReading(null)} />
+      ) : null}
+      {reading === "feed" ? (
+        <Doomscroller
+          world={world}
+          state={state}
+          onInput={onInput}
+          friends={friends}
+          onClose={() => setReading(null)}
+        />
+      ) : null}
     </div>
   );
 }

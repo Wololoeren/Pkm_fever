@@ -583,8 +583,11 @@ export function Inspect({
 
         <div className="factLines">
           <p className="muted">
-            Nature <strong>{creature.natureId}</strong> · IV{" "}
-            <strong>{ivTotal(creature.ivs)}</strong>/{IV_MAX * STAT_IDS.length} · Effort{" "}
+            Nature <strong>{creature.natureId}</strong> · Base{" "}
+            <strong title="The species' own six base stats added up — what it is before anything you did to it">
+              {STAT_IDS.reduce((sum, stat) => sum + entry.base[stat], 0)}
+            </strong>{" "}
+            · IV <strong>{ivTotal(creature.ivs)}</strong>/{IV_MAX * STAT_IDS.length} · Effort{" "}
             <strong>{effortSpent(creature.evs)}</strong>/{EV_MAX_TOTAL}
             {isSpecial(creature.variantId) ? ` · ${form.name}` : ""}
           </p>

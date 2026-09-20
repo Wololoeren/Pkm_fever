@@ -45,6 +45,16 @@ export type NpcKind =
   | "pawn"
   /** The egg buyer in New Willow, who pays for eggs unopened and will not say why. */
   | "eggbuy"
+  /** Tim, who keeps a board of what your friends are offering. */
+  | "post"
+  /** The lost property clerk in Hearth, who has everything you have ever mislaid. */
+  | "lost"
+  /** The berry farmer, who needs three pairs of hands and grows what you plant. */
+  | "farm"
+  /** The tracker, who knows where something worth having was last seen. */
+  | "hunt"
+  /** The man in the basement, who has your own creatures fight each other. */
+  | "fightclub"
   /** The Colour Collector: a coloured creature for Chroma Candy. See tutor.ts. */
   | "chromabuy"
   /** The Ability Tutor: eight abilities on a rotating board, taught over 2,500 steps. */
@@ -125,12 +135,20 @@ export interface NpcSpec {
   arenaId?: string;
 }
 
-/** Whether a creature satisfies what a trader is asking for. */
+/**
+ * Whether a creature satisfies what a trader is asking for.
+ *
+ * A species is asked for by dex number rather than by id, so every form of it
+ * counts: there are eleven Pikachus in the manifest — Alola, Cosplay, the
+ * seven caps, the partner — and a man who wants a Pikachu wants any of them.
+ * The number is what separates them from a Raichu, which an id prefix would
+ * not (and which would also hand Mr. Vane a Mewtwo for his Mew).
+ */
 export function matchesWant(creature: Individual, want: TradeWant): boolean {
   const form = variant(creature.variantId);
   if (want.chromaId && form.chromaId !== want.chromaId) return false;
   if (want.tier !== undefined && form.tier < want.tier) return false;
-  if (want.speciesId && creature.speciesId !== want.speciesId) return false;
+  if (want.speciesId && speciesById(creature.speciesId).num !== speciesById(want.speciesId).num) return false;
   if (want.type && !speciesById(creature.speciesId).types.some((one) => one === want.type)) return false;
   if (want.minLevel !== undefined && creature.level < want.minLevel) return false;
   return true;
@@ -522,6 +540,66 @@ export const NPCS: readonly NpcPlacement[] = [
       "Half the bids win. The other half get every coin back — I am an auctioneer, not a thief. Come back when the lot has closed and I will settle up either way.",
     ],
   },
+  /*
+   * The fight club.
+   *
+   * He does not run a gym and he does not want your money. He takes one of
+   * yours at random, stands it in front of the rest of your party, and lets
+   * them settle it — which is the joke, because both sides are you. The rules
+   * he recites are the ones everybody already knows, which is why the first
+   * two are the same rule.
+   */
+  /*
+   * The hunter.
+   *
+   * He does not sell anything and he does not want anything. He keeps a board
+   * of five he has tracked — bred better than anything in the grass — and
+   * tells you where one was last seen. After that it is a walk and a chase,
+   * and he is not coming with you.
+   */
+  /*
+   * The berry farmer.
+   *
+   * On the nearest meadow, because a farm belongs on the friendly ring rather
+   * than four rings out past the gyms — this is somewhere you come back to
+   * every few thousand steps, and a walk you do not resent is the whole point.
+   */
+  {
+    id: "berry-farmer",
+    name: "Old Pell",
+    kind: "farm",
+    where: { at: "route", biome: "meadow", nth: 1 },
+    lines: [
+      "Five beds and three jobs, and I am one man. You can see my difficulty.",
+      "Water on the watering, Ground on the ploughing, Grass on the pollinating. All three, mind. Watered ground that nobody turned is mud.",
+      "Plant a berry in a bed and that bed grows that berry. Leave one empty and it grows whatever it fancies — you would be surprised what comes up.",
+      "It all goes in the basket and the basket waits. I am not going to eat them.",
+    ],
+  },
+  {
+    id: "hunter",
+    name: "Bex",
+    kind: "hunt",
+    where: { at: "wander", maxRing: 2 },
+    lines: [
+      "Five on the board. I have seen each of them with my own eyes, and I do not write down what I have not seen.",
+      "Take one and it is yours to find. Eight hundred steps and then it has moved on, and so has the board.",
+      "One at a time. A man chasing two things is a man walking in circles.",
+      "They run. Of course they run. Go the other way round and meet it coming.",
+    ],
+  },
+  {
+    id: "fight-club",
+    name: "Tyler",
+    kind: "fightclub",
+    where: { at: "wander", maxRing: 2 },
+    lines: [
+      "You do not talk about this. Neither do I. That is the first rule, and the second one, and I have never understood why it needed saying twice.",
+      "I pick one of yours. It fights the rest of yours. It goes on until one of them is the only one left standing.",
+      "How much do you know about that one at the front if it has never been hit by something that knows all its moves?",
+      "No gear, no items off the shelf, no crowd. Just the two of them, and whoever is still up at the end is who you actually have.",
+    ],
+  },
   {
     id: "workshop-foreman",
     name: "Workshop Foreman",
@@ -540,6 +618,44 @@ export const NPCS: readonly NpcPlacement[] = [
    * key item — handed over in Hearth, before anybody has walked anywhere,
    * because a reference you only get once you no longer need it is a trophy.
    */
+  /*
+   * Lost property.
+   *
+   * In Hearth, because the one place everybody comes back to is the place a
+   * thing you have lost should end up. She charges a handling fee and she is
+   * unembarrassed about it.
+   */
+  /*
+   * The trading post.
+   *
+   * He runs the board and takes no part in what is written on it. Everything
+   * on it comes from the people you have subscribed to — see `lib/post.ts` —
+   * so with nobody subscribed the board is empty and he says so.
+   */
+  {
+    id: "trader",
+    name: "Tim",
+    kind: "post",
+    where: { at: "town", x: 26, y: 12 },
+    lines: [
+      "Board's there. Pin up what you can spare, say what you want for it, and somebody will be along.",
+      "I do not hold anything and I do not guarantee anybody. You will both be shown the whole deal before it goes through, and after that it is between you.",
+      "Cash, a creature, or both. I have seen stranger.",
+      "No friends on your list? Then the board is empty, and I am just a man beside a board.",
+    ],
+  },
+  {
+    id: "lost-property",
+    name: "Miss Vell",
+    kind: "lost",
+    where: { at: "town", x: 20, y: 22 },
+    lines: [
+      "Lost property. Everything that has gone astray and been handed in, which is more than you would think.",
+      "Sold it? Traded it away on somebody's back? Planted it? It comes here eventually. They all do.",
+      "There is a handling fee. There is always a handling fee. I did not make the rules, but I do enforce them.",
+      "No, I will not give you back the potion you drank. Be serious.",
+    ],
+  },
   {
     id: "gift-librarian",
     name: "Librarian",

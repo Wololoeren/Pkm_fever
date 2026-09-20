@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   canSee,
   crittersOn,
+  quarryAt,
   peopleOn,
   DARK_RADIUS,
   rivalAt,
@@ -13,7 +14,10 @@ import {
   type GameState,
   wantsRematch,
 } from "@/engine/engine";
-import type { NpcKind } from "@/engine/npc";
+import { NPCS } from "@/engine/npc";
+import { NPC_COLOURS } from "@/render/people";
+import { darkness } from "@/engine/daynight";
+import { huntCreature } from "@/engine/hunt";
 import { TILE } from "@/engine/terrain";
 import { drawProp } from "@/render/props";
 import type { World } from "@/engine/world";
@@ -45,6 +49,19 @@ export function GameCanvas({
   const ref = useRef<HTMLCanvasElement>(null);
   const route = world.routes.get(state.route);
   const standing = crittersOn(world, state, state.route);
+  // The thing you are hunting walks the same route as everything else, so it
+  // is drawn as one of them: a creature standing there, which it is.
+  const quarry = quarryAt(world, state);
+  const hunted = useMemo(
+    () =>
+      quarry && state.hunt && state.hunt.offer.routeId === state.route
+        ? [{ spec: { creature: huntCreature(state.hunt.offer, 0), kind: "fights" as const }, x: quarry.x, y: quarry.y }]
+        : [],
+    // By where it is standing rather than by the object, which `quarryAt`
+    // rebuilds on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [quarry?.x, quarry?.y, state.hunt, state.route],
+  );
 
 
   /**
@@ -130,6 +147,24 @@ export function GameCanvas({
       signpost(ctx, (sign.x - camX) * TILE_PX, (sign.y - camY) * TILE_PX, sign.text);
     }
 
+    // Who lives behind which door of the terraces. Ten identical doors with
+    // "No. 4" beside them says where the rooms are and nothing about who is
+    // in them, and the whole point of inviting somebody is not having to
+    // remember. Over the door, in that person's own colour.
+    for (const door of route.doors) {
+      const lodger = state.lodgers[door.to];
+      if (!lodger) continue;
+      if (!inView(door.x, door.y, camX, camY, viewW, viewH)) continue;
+      const spec = NPCS.find((one) => one.id === lodger);
+      if (!spec) continue;
+      lodgerBadge(
+        ctx,
+        (door.x - camX) * TILE_PX + TILE_PX / 2,
+        (door.y - camY) * TILE_PX - TILE_PX * 0.35,
+        NPC_COLOURS[spec.kind],
+      );
+    }
+
     // Trainers, drawn before the player so walking onto one puts you in front.
     // Faded only while they are still sore about losing: once they want a
     // rematch they are a fight again, and look like one. Asked through
@@ -169,7 +204,7 @@ export function GameCanvas({
     // is scaled here, which is the whole fix: this used to hand a 96-pixel
     // battle sprite to a 24-pixel box with smoothing off, and a quarter-size
     // nearest-neighbour downscale throws away three pixels in four.
-    for (const { spec, x, y } of standing) {
+    for (const { spec, x, y } of [...standing, ...hunted]) {
       if (!inView(x, y, camX, camY, viewW, viewH)) continue;
 
       const px = (x - camX) * TILE_PX;
@@ -256,6 +291,21 @@ export function GameCanvas({
       }
     }
 
+    // The sky, over the route and under the fog: a blue wash that slides in
+    // across the thousand steps of dusk and out across the thousand of dawn,
+    // so there is no frame where the world changes colour. Indoors and
+    // underground have their own light and are left alone.
+    const dark = route.kind === "route" || route.kind === "town" ? darkness(state.stepsTaken) : 0;
+    if (dark > 0) {
+      ctx.save();
+      // Never black: at the deepest the ground is still readable, because a
+      // night you cannot walk in is a night nobody walks in.
+      ctx.globalAlpha = (dark / 1000) * 0.55;
+      ctx.fillStyle = "#0a1430";
+      ctx.fillRect(0, 0, viewW * TILE_PX, viewH * TILE_PX);
+      ctx.restore();
+    }
+
     // You, after the dark, because you are the one thing that is never hidden
     // from you. Your own tile is inside the lit radius by definition, so this
     // is belt and braces rather than an exception.
@@ -267,7 +317,7 @@ export function GameCanvas({
       1,
     );
     // `loaded` is read so the effect re-runs when a sprite lands.
-  }, [world, state, route, standing, loaded]);
+  }, [world, state, route, standing, hunted, loaded]);
 
   if (!route) return null;
 
@@ -465,6 +515,38 @@ function decorate(ctx: CanvasRenderingContext2D, tile: number, px: number, py: n
  * and "Poké Center" is not. The plate is sized to the text and centred on
  * the post, so a long name grows sideways instead of becoming unreadable.
  */
+/**
+ * A face on a plaque over a door: somebody lives here, and which somebody.
+ *
+ * The same colour the person is drawn in out in the world, so the plaque and
+ * the person are recognisably the same fact — and a head rather than a dot,
+ * so a row of ten doors reads as rooms with people in them.
+ */
+function lodgerBadge(ctx: CanvasRenderingContext2D, px: number, py: number, colour: string): void {
+  ctx.save();
+
+  ctx.beginPath();
+  ctx.roundRect(px - 9, py - 9, 18, 18, 5);
+  ctx.fillStyle = "#1b2330";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = colour;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(px, py - 1, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#e8c9a0";
+  ctx.fill();
+
+  // Shoulders, so it is a person rather than a bead.
+  ctx.beginPath();
+  ctx.roundRect(px - 5, py + 3, 10, 5, 2);
+  ctx.fillStyle = colour;
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function signpost(ctx: CanvasRenderingContext2D, px: number, py: number, text: string): void {
   const cx = px + TILE_PX / 2;
 
@@ -502,62 +584,6 @@ function signpost(ctx: CanvasRenderingContext2D, px: number, py: number, text: s
   ctx.restore();
 }
 
-/**
- * What sort of person this is, in one colour.
- *
- * Every kind needs an entry. A missing one is not a default — `person` sets
- * `ctx.fillStyle` to it, and assigning an invalid value to a canvas context is
- * *ignored*, so the figure keeps whatever colour was set last. That was the
- * shadow ellipse drawn a line earlier, which is why gym leaders and the
- * Appraiser were being painted in near-black instead of failing loudly.
- * `tests/palette.test.ts` now asks every NpcKind for its colour.
- */
-const NPC_COLOURS: Record<NpcKind, string> = {
-  hint: "#8a7fc4",
-  gift: "#4f9e7a",
-  heal: "#4a9ec9",
-  trade: "#c98a4a",
-  quest: "#c9a83a",
-  gym: "#c95a7a",
-  buy: "#b09a5a",
-  // Yolk.
-  eggbuy: "#e0b83c",
-  // The three who shape abilities: a candy pink, a chalk-board green and wrapping-paper red.
-  chromabuy: "#d67fb8",
-  tutor: "#5fae8f",
-  giftswap: "#c9504f",
-  // A consulting-room teal, and an insurance-brochure navy.
-  therapy: "#4fa3a8",
-  insure: "#3f5c8c",
-  // Ring-light pink and gamer-chair green.
-  influence: "#e87fc9",
-  stream: "#6bdc7a",
-  // Sash gold and flashbulb white.
-  pageant: "#e0c048",
-  photoshoot: "#e8e8e8",
-  // A dull brass, for a man who buys anything.
-  pawn: "#8c7a4e",
-  // Gavel mahogany.
-  auction: "#9b3d2e",
-  // Apron blue.
-  workshop: "#4e7fa8",
-  // The machine, and the man running a bracket out of a field.
-  print: "#7ab0c9",
-  arena: "#c97a4a",
-  // A colour you would not want to look at for long, which is the idea.
-  shred: "#9a5a5a",
-  cut: "#8a8ac4",
-  // Forge-coloured, which is to say the colour of something that has just been hit.
-  forge: "#c9844a",
-  // The five at the end of the world, and the one who keeps their door.
-  cup: "#a55ac9",
-  // Grey, and grey is the point. Every other colour here says something
-  // happens at this tile; the Grey Line is how you get to a different tile, so
-  // it is the one sort of person on the map who is infrastructure rather than
-  // an event. Light enough to read against a rock wall, which is where a good
-  // few of them stand.
-  travel: "#9aa4b0",
-};
 
 /** An item on the floor. A ball whatever it holds — finding out is the point
  * of walking over to it. */

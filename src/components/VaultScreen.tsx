@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { species as speciesById } from "@/engine/dex";
-import { cleanTrainerName, TRAINER_NAME_MAX, VAULT_LEVEL } from "@/engine/engine";
+import { cleanTrainerName, TRAINER_NAME_MAX, VAULT_LEVEL, VAULT_TAKE } from "@/engine/engine";
 import type { Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
 import { fileStamp, randomSeed } from "@/lib/save";
@@ -50,7 +50,7 @@ export function VaultScreen({
 }: {
   /** The raw autosave in this browser, if there is one, so it can be added in a click. */
   autosave: string | null;
-  onBegin: (seed: string, trainer: string, creature: Individual) => void;
+  onBegin: (seed: string, trainer: string, creatures: Individual[]) => void;
   onExit: () => void;
 }) {
   const [entries, setEntries] = useState<VaultEntry[]>([]);
@@ -58,6 +58,14 @@ export function VaultScreen({
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
+  /**
+   * The team, in the order it was picked: up to `VAULT_TAKE`.
+   *
+   * Separate from `picked`, which is only which sheet is on screen — looking
+   * at one and taking one are different things, and a box you cannot browse
+   * without changing your team would be a box nobody browses.
+   */
+  const [team, setTeam] = useState<string[]>([]);
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [seed, setSeed] = useState(() => randomSeed());
@@ -77,6 +85,12 @@ export function VaultScreen({
   const pages = Math.max(1, Math.ceil(shown.length / PAGE));
   const onPage = shown.slice(Math.min(page, pages - 1) * PAGE, (Math.min(page, pages - 1) + 1) * PAGE);
   const chosen = entries.find((entry) => entry.id === picked) ?? null;
+  const going = team.flatMap((id) => entries.filter((entry) => entry.id === id));
+  const onTeam = chosen ? team.includes(chosen.id) : false;
+  const takeOrDrop = (id: string) =>
+    setTeam((before) =>
+      before.includes(id) ? before.filter((each) => each !== id) : before.length < VAULT_TAKE ? [...before, id] : before,
+    );
 
   const keep = (next: VaultEntry[], text: string) => {
     if (!writeVault(next)) {
@@ -217,13 +231,13 @@ export function VaultScreen({
             <button
               key={entry.id}
               type="button"
-              className={`boxCell${picked === entry.id ? " hit" : ""}`}
+              className={`boxCell${picked === entry.id ? " hit" : ""}${team.includes(entry.id) ? " picked" : ""}`}
               title={`${displayName(entry.creature)} · Lv${entry.creature.level} · seed ${entry.seed}${entry.proven ? " · proven" : ""}`}
               onClick={() => setPicked(entry.id)}
             >
               <Sprite speciesId={entry.creature.speciesId} variantId={entry.creature.variantId} abilities={entry.creature.abilities} heldItem={entry.creature.heldItem} size={48} />
               <span className="boxCellFoot">
-                <span>Lv{entry.creature.level}</span>
+                <span>{team.includes(entry.id) ? `#${team.indexOf(entry.id) + 1}` : `Lv${entry.creature.level}`}</span>
                 <GenderMark gender={entry.creature.gender} />
               </span>
             </button>
@@ -251,6 +265,10 @@ export function VaultScreen({
         <div className="menuCard">
           <StatHover creature={chosen.creature} />
           <p className="muted small">
+            Going with you: {going.length ? going.map((entry) => displayName(entry.creature)).join(", ") : "nobody yet"} ·{" "}
+            {VAULT_TAKE} at most, each at level {VAULT_LEVEL} with no effort and the vault mark.
+          </p>
+          <p className="muted small">
             From seed <code>{chosen.seed}</code> (engine {chosen.engine}) ·{" "}
             {chosen.proven ? "proven: read by replaying its save" : "unproven: read from a snapshot or a vault file"}
           </p>
@@ -269,15 +287,36 @@ export function VaultScreen({
             </button>
             <button
               type="button"
+              className={onTeam ? "ghost" : "primary"}
+              disabled={!onTeam && team.length >= VAULT_TAKE}
+              title={
+                onTeam
+                  ? "Leave it behind"
+                  : team.length >= VAULT_TAKE
+                    ? `Three is the most you can take`
+                    : "Take it with you"
+              }
+              onClick={() => takeOrDrop(chosen.id)}
+            >
+              {onTeam ? "Leave behind" : "Take along"}
+            </button>
+            <button
+              type="button"
               className="primary"
-              disabled={!named}
-              title={named ? undefined : "Choose a trainer name first"}
+              disabled={!named || !going.length}
+              title={
+                !named
+                  ? "Choose a trainer name first"
+                  : !going.length
+                    ? "Take at least one along"
+                    : `Set out with ${going.map((entry) => displayName(entry.creature)).join(", ")}`
+              }
               onClick={() => {
                 rememberTrainerName(cleanTrainerName(trainer));
-                onBegin(seed, trainer, chosen.creature);
+                onBegin(seed, trainer, going.map((entry) => entry.creature));
               }}
             >
-              Begin Vault Adventure
+              Begin Vault Adventure{going.length > 1 ? ` · ${going.length}` : ""}
             </button>
             <button
               type="button"

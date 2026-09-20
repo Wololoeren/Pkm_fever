@@ -570,10 +570,7 @@ describe("the roster reads the same everywhere", () => {
     // missing entry paints the figure in whatever was set last, which was the
     // shadow. Gym leaders and the Appraiser were being drawn in near-black
     // and nothing failed.
-    const source = readFileSync(
-      join(process.cwd(), "src", "components", "GameCanvas.tsx"),
-      "utf8",
-    );
+    const source = readFileSync(join(process.cwd(), "src", "render", "people.ts"), "utf8");
     const block = source.slice(source.indexOf("const NPC_COLOURS"));
     const listed = new Set(
       [...block.slice(0, block.indexOf("};")).matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]),

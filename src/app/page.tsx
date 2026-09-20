@@ -26,6 +26,21 @@ import { MainMenu, rememberedTrainerName, rememberTrainerName } from "@/componen
 import { EggSlots, PartyStrip } from "@/components/PartyStrip";
 import { StarterPick } from "@/components/StarterPick";
 import { TouchPad } from "@/components/TouchPad";
+import { timeOf, untilNext, TIME_NAMES } from "@/engine/daynight";
+import { huntLeft } from "@/engine/hunt";
+import type { NewsItem } from "@/engine/news";
+import {
+  joinFeed,
+  readFriendPosts,
+  writeFriendPosts,
+  FRIENDS_CODE_KEY,
+  FRIEND_POSTS_KEPT,
+  type FeedRoom,
+  type FriendPost,
+} from "@/lib/friends";
+import type { PartyStatus } from "@/lib/party";
+import { joinPost, postId, type Bid, type Listing, type PostRoom } from "@/lib/post";
+import { TradePost } from "@/components/TradePost";
 import { stepToward } from "@/lib/pathing";
 import { beatLength, beatsFor, catchFor } from "@/lib/beats";
 import { BALLS, countOf, hasItem, item } from "@/engine/items";
@@ -34,7 +49,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec, LEVELS_PER_BADGE } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, FISH_STEPS, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, ownedAbilities, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
@@ -121,6 +136,10 @@ const CHEATS_AVAILABLE = process.env.NODE_ENV === "development";
 
 /** Where the auto-continue box is remembered, per browser. Not in the save: it is a preference, not a game. */
 const AUTO_CONTINUE_KEY = "pkm-fever.autoContinue";
+/** Whether the feed is allowed to pop up. It keeps writing either way. */
+const NEWS_MUTED_KEY = "pkm-fever.newsMuted";
+/** How long a line from the feed sits in the corner. */
+const NEWS_TOAST_MS = 6000;
 /** How long a quiet battle end stays on screen before continuing by itself. */
 const AUTO_CONTINUE_MS = 900;
 
@@ -361,6 +380,208 @@ export default function Page() {
   /** Where a tap or click on a map asked to walk to, on the route it was asked on. */
   const [walkTarget, setWalkTarget] = useState<{ route: string; x: number; y: number } | null>(null);
   const [bigMaps, setBigMaps] = useState<BigMapsOpen>({ local: false, region: false });
+  /** An item the bag should open, asked for from outside it: the Fly button. */
+  const [openBagItem, setOpenBagItem] = useState<{ item: string; at: number } | null>(null);
+
+  /*
+   * The feed, in the corner.
+   *
+   * The newest line, for a few seconds, and then gone — the feed keeps every
+   * one of them and the Doomscroller reads them back, so nothing is lost by
+   * missing one. Muting stops the corner and nothing else: a feed you have
+   * muted is still a feed, which is the joke and also what you would want.
+   */
+  const [newsMuted, setNewsMuted] = useState(false);
+  useEffect(() => {
+    try {
+      setNewsMuted(localStorage.getItem(NEWS_MUTED_KEY) === "1");
+    } catch {
+      // No storage: it simply starts unmuted.
+    }
+  }, []);
+  /*
+   * The friends' feed: everybody on one room code shouting their own lines.
+   *
+   * Kept out of the game state on purpose. What a friend says happened in
+   * their game is a claim about somebody else's save, and the engine takes
+   * nothing from the network — so this lives in the page and in this
+   * browser's storage, and the Doomscroller reads it there.
+   */
+  const [friendsCode, setFriendsCode] = useState("");
+  const [friendsStatus, setFriendsStatus] = useState<PartyStatus | null>(null);
+  const [friendsHere, setFriendsHere] = useState(0);
+  const [friendPosts, setFriendPosts] = useState<FriendPost[]>([]);
+  const feedRoom = useRef<FeedRoom | null>(null);
+  useEffect(() => {
+    setFriendPosts(readFriendPosts());
+    try {
+      setFriendsCode(localStorage.getItem(FRIENDS_CODE_KEY) ?? "");
+    } catch {
+      // No storage: no code remembered, which is only an inconvenience.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!friendsCode) {
+      feedRoom.current?.leave();
+      feedRoom.current = null;
+      setFriendsStatus(null);
+      setFriendsHere(0);
+      return;
+    }
+
+    let live = true;
+    void joinFeed(friendsCode, state?.trainerName || "Somebody", {
+      onPost: (post) =>
+        setFriendPosts((before) => {
+          const next = [...before, post].slice(-FRIEND_POSTS_KEPT);
+          writeFriendPosts(next);
+          return next;
+        }),
+      onStatus: (status) => live && setFriendsStatus(status),
+      onCount: (count) => live && setFriendsHere(count),
+    }).then((room) => {
+      if (!live) {
+        room.leave();
+        return;
+      }
+      feedRoom.current = room;
+    });
+
+    return () => {
+      live = false;
+      feedRoom.current?.leave();
+      feedRoom.current = null;
+    };
+    // The trainer name is read once on joining; renaming mid-room is not a
+    // thing, and re-joining on every keystroke of a name would be.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friendsCode]);
+
+  /*
+   * Tim's board, on the same room code the feed uses.
+   *
+   * Everything here is other people's browsers talking. None of it is state:
+   * a listing is somebody's word, and only a deal both sides pressed reaches
+   * the engine — as an ordinary input, on each side separately.
+   */
+  const [boards, setBoards] = useState<Record<string, Listing[]>>({});
+  const [myListings, setMyListings] = useState<Listing[]>([]);
+  const [bids, setBids] = useState<Bid[]>([]);
+  const [postHere, setPostHere] = useState(0);
+  /**
+   * What we offered in each bid we sent, by bid id.
+   *
+   * Our own bids never reach `bids` — that is the pile of what other people
+   * have offered *us* — so without this a struck deal had nothing to hand
+   * over and the creature we bid stayed in the party.
+   */
+  const sentBids = useRef<Record<string, number>>({});
+  const postRoom = useRef<PostRoom | null>(null);
+  const listingsRef = useRef<Listing[]>([]);
+
+  useEffect(() => {
+    if (!friendsCode) {
+      postRoom.current?.leave();
+      postRoom.current = null;
+      setBoards({});
+      setBids([]);
+      setPostHere(0);
+      return;
+    }
+
+    let live = true;
+    void joinPost(friendsCode, state?.trainerName || "Somebody", {
+      onBoard: (from, who, listings) =>
+        live &&
+        setBoards((before) => ({
+          ...before,
+          [from]: listings.map((one) => ({ ...one, who })),
+        })),
+      onBid: (bid) => live && setBids((before) => [...before.filter((one) => one.id !== bid.id), bid]),
+      onPull: (id) => live && setBids((before) => before.filter((one) => one.id !== id)),
+      onDeclined: () => {
+        // Their no is only ours to hear: the listing stays up and the bid we
+        // made is simply gone from their board.
+      },
+      onStruck: (deal) => {
+        // Their half is done. Ours is the mirror of it: what they gave, we
+        // receive; what they took, we pay.
+        // What we put up for it: our own bid, or — if this is somehow an
+        // answer to somebody else's — nothing of ours goes.
+        const offeredUid = sentBids.current[deal.bid];
+        const giving =
+          offeredUid === undefined ? -1 : (stateRef.current?.party.findIndex((one) => one.uid === offeredUid) ?? -1);
+        delete sentBids.current[deal.bid];
+        dispatch({
+          t: "postDeal",
+          give: giving >= 0 ? giving : null,
+          receive: deal.creature,
+          paid: -(deal.cash ?? 0),
+          who: deal.who,
+        });
+        setBids((before) => before.filter((one) => one.id !== deal.bid));
+      },
+      onStatus: () => {
+        /* The feed's own status line is the one worth showing. */
+      },
+      onGone: (from) =>
+        live &&
+        setBoards((before) => {
+          const next = { ...before };
+          delete next[from];
+          return next;
+        }),
+    }).then((room) => {
+      if (!live) {
+        room.leave();
+        return;
+      }
+      postRoom.current = room;
+      setPostHere(0);
+    });
+
+    return () => {
+      live = false;
+      postRoom.current?.leave();
+      postRoom.current = null;
+    };
+    // The name is read once, on joining, like the feed's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [friendsCode, dispatch]);
+
+  // What the handlers above need to read without re-joining the room.
+  const stateRef = useRef<GameState | null>(null);
+  stateRef.current = state ?? null;
+  listingsRef.current = myListings;
+
+  /** Our board, shouted again whenever it changes. */
+  const showBoard = useCallback((listings: Listing[]) => {
+    setMyListings(listings);
+    postRoom.current?.show(listings.map(({ id, who, creature, asking, wants }) => ({ id, who, creature, asking, wants })));
+  }, []);
+
+  const latest = state?.news.at(-1) ?? null;
+
+  // Our own lines, out to the room. Only the newest, and only once: the feed
+  // is append-only, so "newest changed" is exactly "there is something to
+  // say". Nothing is replayed to somebody who joins later, because a feed
+  // that shouted your last forty lines at every arrival would be a feed
+  // nobody kept open.
+  const said = useRef<number | null>(null);
+  useEffect(() => {
+    if (!latest || !feedRoom.current) return;
+    if (said.current === latest.at) return;
+    said.current = latest.at;
+    feedRoom.current.say(latest);
+  }, [latest]);
+  const [shown, setShown] = useState<NewsItem | null>(null);
+  useEffect(() => {
+    if (!latest || newsMuted) return;
+    setShown(latest);
+    const timer = setTimeout(() => setShown(null), NEWS_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [latest, newsMuted]);
   const changeBigMaps = useCallback((change: Partial<BigMapsOpen>) => setBigMaps((open) => ({ ...open, ...change })), []);
   // Not while a hatching or an evolution is on screen: a key still held from
   // the last step would otherwise walk on underneath the scene.
@@ -433,6 +654,15 @@ export default function Page() {
       if (event.ctrlKey || event.altKey || event.metaKey) return;
 
       if (state.phase === "field") {
+        // F for the rod. Silently ignored where there is no water or no rod,
+        // exactly as the button is greyed out there: a keybind that threw
+        // would be a keybind that punished you for pressing it inland.
+        if (key === "f" && !event.repeat) {
+          event.preventDefault();
+          if (session && !fishRefusal(session.world, state)) dispatch({ t: "fish" });
+          return;
+        }
+
         const dir = KEY_DIRECTIONS[key];
         if (!dir) return;
         event.preventDefault();
@@ -486,7 +716,7 @@ export default function Page() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [state, dispatch, startWalking, stopWalking]);
+  }, [state, session, dispatch, startWalking, stopWalking]);
 
   // What you can do is a property of where you are standing. The daycare and
   // the centre are buildings now, so their panels appear when you are inside
@@ -609,12 +839,14 @@ export default function Page() {
         <VaultScreen
           autosave={readAutosaveRaw()}
           onExit={() => setVaultOpen(false)}
-          onBegin={(seed, trainer, creature) => {
+          onBegin={(seed, trainer, creatures) => {
             clearAutosave();
             setVaultOpen(false);
             start(seed, [
               { t: "trainer", name: trainer },
-              { t: "vaultStart", creature },
+              // The first one on its own as well as the whole team: a log
+              // written here is read by engines that predate taking three.
+              { t: "vaultStart", creature: creatures[0], creatures },
             ]);
           }}
         />
@@ -710,7 +942,10 @@ export default function Page() {
         <div>
           <h2>{here?.label ?? routeLabel(state.route)}</h2>
           <p className="muted">
-            seed <code>{session.seed}</code> · {session.inputs.length} moves · hash <code>{stateHash(state)}</code>
+            seed <code>{session.seed}</code> · {session.inputs.length} moves · hash <code>{stateHash(state)}</code> ·{" "}
+            <span title={`${untilNext(state.stepsTaken).toLocaleString()} steps until it changes`}>
+              {TIME_NAMES[timeOf(state.stepsTaken)]}
+            </span>
           </p>
         </div>
         <div className="hudStats">
@@ -733,6 +968,96 @@ export default function Page() {
         </div>
       </header>
 
+      {state?.talking === "trader" && session && state ? (
+        <TradePost
+          state={state}
+          code={friendsCode}
+          here={Math.max(postHere, Object.keys(boards).length)}
+          listings={Object.values(boards).flat()}
+          mine={myListings}
+          bids={bids}
+          onList={(index, asking, wants) => {
+            const creature = state.party[index];
+            if (!creature) return;
+            showBoard([
+              ...myListings,
+              {
+                id: postId(),
+                who: state.trainerName || "Somebody",
+                from: "me",
+                creature,
+                asking,
+                wants,
+                heard: Date.now(),
+              },
+            ]);
+          }}
+          onUnlist={(id) => showBoard(myListings.filter((one) => one.id !== id))}
+          onBid={(listing, giving, cash) => {
+            const creature = giving === null ? null : (state.party[giving] ?? null);
+            const id = postId();
+            if (creature) sentBids.current[id] = creature.uid;
+            postRoom.current?.bid({
+              id,
+              listing: listing.id,
+              who: state.trainerName || "Somebody",
+              creature,
+              cash,
+            });
+          }}
+          onAccept={(bid) => {
+            const listing = myListings.find((one) => one.id === bid.listing);
+            if (!listing) return;
+            const give = state.party.findIndex((one) => one.uid === listing.creature.uid);
+            // Ours first, then the word to them: a deal we could not apply is
+            // not a deal we should be telling anybody about.
+            dispatch({
+              t: "postDeal",
+              give: give >= 0 ? give : null,
+              receive: bid.creature,
+              paid: bid.cash,
+              who: bid.who,
+            });
+            postRoom.current?.strike({
+              bid: bid.id,
+              listing: listing.id,
+              creature: listing.creature,
+              cash: bid.cash,
+            });
+            showBoard(myListings.filter((one) => one.id !== listing.id));
+            setBids((before) => before.filter((one) => one.id !== bid.id));
+          }}
+          onDecline={(bid) => {
+            postRoom.current?.decline(bid.id);
+            setBids((before) => before.filter((one) => one.id !== bid.id));
+          }}
+          onClose={() => dispatch({ t: "endTalk" })}
+        />
+      ) : null}
+
+      {shown && !newsMuted ? (
+        <aside className="newsToast" role="status" aria-live="polite">
+          <span className="newsMark">FEED</span>
+          <span>{shown.text}</span>
+          <button
+            type="button"
+            className="ghost small"
+            title="Stop it popping up. It keeps writing, and the Doomscroller keeps every line."
+            onClick={() => {
+              setNewsMuted(true);
+              setShown(null);
+              try {
+                localStorage.setItem(NEWS_MUTED_KEY, "1");
+              } catch {
+                // No storage: muted for this sitting, which is what was asked.
+              }
+            }}
+          >
+            Mute
+          </button>
+        </aside>
+      ) : null}
+
       {/* Out here rather than in the field, so a battle does not close them. */}
       <BigMaps world={session.world} state={state} open={bigMaps} onOpen={changeBigMaps} onTileClick={walkTo} />
 
@@ -752,6 +1077,9 @@ export default function Page() {
           // default, every trainer and gym leader in the game fielded "Wild"
           // creatures.
           opponentLabel={opponentLabel(session.world, state.battle)}
+          // Only in the wild: the ball is an answer to "do I need this one".
+          caught={isWildBattle(state.battle) ? state.caught : undefined}
+          owned={ownedAbilities(state)}
           opening={opponentHint(session.world, state.battle)?.text}
           onAction={dispatch as (action: BattleAction) => void}
           footer={
@@ -1045,6 +1373,38 @@ export default function Page() {
               yours. Every other gym just got {LEVELS_PER_BADGE} levels harder.
             </p>
           ) : null}
+          {state.hunt ? (
+            <p className="hint">
+              Hunting {speciesById(state.hunt.offer.speciesId).name} on{" "}
+              <strong>{session.world.routes.get(state.hunt.offer.routeId)?.label ?? "somewhere"}</strong> —{" "}
+              {huntLeft(state.hunt, state.stepsTaken).toLocaleString()} steps left. It runs; go the other way
+              round and meet it coming.
+            </p>
+          ) : null}
+          {state.notice?.t === "huntOn" ? (
+            <p className="good">
+              {speciesById(state.notice.speciesId).name} was last seen on{" "}
+              {session.world.routes.get(state.notice.routeId)?.label ?? "somewhere"}.
+            </p>
+          ) : null}
+          {state.notice?.t === "huntOff" ? (
+            <p className="muted">
+              The {speciesById(state.notice.speciesId).name} has moved on. Bex will have found something else.
+            </p>
+          ) : null}
+          {state.notice?.t === "clubRound" ? (
+            <p className="good">
+              That is {state.notice.round} down. He is already holding the next one — and nobody
+              here is going to mention any of this afterwards.
+            </p>
+          ) : null}
+          {state.notice?.t === "clubDone" ? (
+            <p className="good">
+              {speciesById(state.notice.speciesId).name} is the only one of yours still on its feet
+              after {state.notice.rounds} {state.notice.rounds === 1 ? "bout" : "bouts"}. Paid ¤
+              {state.notice.purse.toLocaleString()}, and you were never here.
+            </p>
+          ) : null}
           {state.notice?.t === "released" ? (
             <p className="muted">You let {state.notice.name} go.</p>
           ) : null}
@@ -1244,13 +1604,46 @@ export default function Page() {
                 type="button"
                 className="ghost"
                 disabled={Boolean(fishRefusal(session.world, state))}
-                title={fishRefusal(session.world, state) ?? "Cast a line"}
+                title={fishRefusal(session.world, state) ?? `Cast a line (F) — it takes ${FISH_STEPS} steps`}
                 onClick={() => dispatch({ t: "fish" })}
               >
                 {bestRod(state.bag) ? `Fish (${bestRod(state.bag)!.name})` : "Fish"}
               </button>
+              {/* And the other thing you do from where you are standing.
+                  Fly lives in the bag, under Tools, behind two clicks — which
+                  is two clicks every time you cross the world. This opens the
+                  same map the item does. */}
+              <button
+                type="button"
+                className="ghost"
+                disabled={!state.bag["hm-fly"]}
+                title={state.bag["hm-fly"] ? "Open the map and fly" : "You have no way to fly"}
+                onClick={() => setOpenBagItem({ item: "hm-fly", at: Date.now() })}
+              >
+                Fly
+              </button>
             </div>
-            <BagPanel world={session.world} state={state} onInput={dispatch} />
+            <BagPanel
+              world={session.world}
+              state={state}
+              onInput={dispatch}
+              opened={openBagItem}
+              friends={{
+                code: friendsCode,
+                status: friendsStatus,
+                here: friendsHere,
+                posts: friendPosts,
+                onCode: (code) => {
+                  setFriendsCode(code);
+                  try {
+                    if (code) localStorage.setItem(FRIENDS_CODE_KEY, code);
+                    else localStorage.removeItem(FRIENDS_CODE_KEY);
+                  } catch {
+                    // No storage: joined for this sitting only.
+                  }
+                },
+              }}
+            />
 
             {/* And what your party can do out here, under the bag because it
                 is the same kind of question: something you have, used on the

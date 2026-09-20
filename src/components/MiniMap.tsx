@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { hasSeen, peopleOn, wantsRematch, type GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
+import { arena as arenaSpec } from "@/engine/arenas";
 import { gym as gymSpec, type GymSpec } from "@/engine/gyms";
 import type { NpcKind } from "@/engine/npc";
 import { HUB_ID, type Route, type World } from "@/engine/world";
+import { NPC_COLOURS } from "@/render/people";
 import { paletteFor, tileColor } from "@/render/tiles";
 
 /**
@@ -351,6 +353,8 @@ export function RegionMap({
   size = MINI_WIDTH,
   reachable,
   onPick,
+  onSelect,
+  selected,
 }: {
   world: World;
   state: GameState;
@@ -367,6 +371,14 @@ export function RegionMap({
    */
   reachable?: readonly string[];
   onPick?: (routeId: string) => void;
+  /**
+   * Every place clickable, for a map that is being *read* rather than
+   * travelled: the Pokédex asks which zone you want to know about, and the
+   * answer is any of them, ringed or not.
+   */
+  onSelect?: (routeId: string) => void;
+  /** The place `onSelect` last picked, ringed so the map says what it is showing. */
+  selected?: string | null;
 }) {
   const pad = 9;
   const canGo = new Set(reachable ?? []);
@@ -499,7 +511,12 @@ export function RegionMap({
         const current = place.id === outer;
         const palette = paletteFor(place.biome);
 
-        const go = canGo.has(place.id) && onPick;
+        const travel = canGo.has(place.id) && onPick;
+        const go = travel || Boolean(onSelect);
+        const act = () => {
+          if (travel) onPick(place.id);
+          else onSelect?.(place.id);
+        };
         const hall = gyms.get(place.id);
 
         return (
@@ -511,36 +528,67 @@ export function RegionMap({
             className={go ? "mapGo" : undefined}
             role={go ? "button" : undefined}
             tabIndex={go ? 0 : undefined}
-            onClick={go ? () => onPick(place.id) : undefined}
+            onClick={go ? act : undefined}
             onKeyDown={
               go
                 ? (event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      onPick(place.id);
+                      act();
                     }
                   }
                 : undefined
             }
             cx={here.x}
             cy={here.y}
-            r={current ? dot + 2 : town ? dot + 1 : dot}
+            r={place.id === selected ? dot + 3 : current ? dot + 2 : town ? dot + 1 : dot}
             // Unwalked places are drawn but empty: the shape of the world is
             // not a secret, only what is in it.
             fill={town ? (visited ? "var(--accent)" : "var(--panel-2)") : visited ? palette.grass : "var(--bg)"}
-            stroke={current ? "var(--accent)" : "var(--muted)"}
+            stroke={place.id === selected ? "var(--warn)" : current ? "var(--accent)" : "var(--muted)"}
             strokeOpacity={current || visited ? 1 : 0.45}
-            strokeWidth={current ? 3 : 1.25}
+            strokeWidth={place.id === selected || current ? 3 : 1.25}
           >
             <title>
               {`${place.label}${town ? " — a town" : ""}${visited ? "" : " — not yet visited"}${
                 hall ? ` — ${gymLine(hall)}` : ""
-              }${people.get(place.id)?.length ? ` — ${people.get(place.id)!.join(", ")}` : ""}${
-                go ? " — click to travel here" : ""
-              }`}
+              }${
+                people.get(place.id)?.length
+                  ? ` — ${people.get(place.id)!.map((who) => who.name).join(", ")}`
+                  : ""
+              }${travel ? " — click to travel here" : onSelect ? " — click for what lives here" : ""}`}
             </title>
           </circle>
         );
+      })}
+
+      {/* Who runs something where, in the colours they are drawn in out in
+          the world — the same plaque colour as the door of the room they
+          move into, if they have moved into Hearth. A ring of beads around
+          the place rather than a legend: the hover already names them, and
+          what the map is for is noticing that a place has somebody at all. */}
+      {places.flatMap((place) => {
+        const here = people.get(place.id) ?? [];
+        if (!here.length) return [];
+        const spot = at(place.cell);
+        // Six at most, because seven beads around a four-pixel dot is a blob.
+        return here.slice(0, 6).map((who, index, shown) => {
+          const turn = (index / shown.length) * Math.PI * 2 - Math.PI / 2;
+          const away = dot + 4.5;
+          return (
+            <circle
+              key={`who:${place.id}:${who.name}`}
+              cx={spot.x + Math.cos(turn) * away}
+              cy={spot.y + Math.sin(turn) * away}
+              r={Math.max(1.6, dot * 0.45)}
+              fill={NPC_COLOURS[who.kind]}
+              stroke="var(--bg)"
+              strokeWidth={0.75}
+            >
+              <title>{`${who.name} — ${place.label}`}</title>
+            </circle>
+          );
+        });
       })}
 
       {/* A tick on every place whose gym has been beaten. Over the dots, and
@@ -599,11 +647,18 @@ const SERVICES: ReadonlySet<NpcKind> = new Set<NpcKind>([
   "stream",
   "pageant",
   "photoshoot",
+  "fightclub",
 ]);
 
+/** Somebody worth naming on the map: what they are called, and what sort they are. */
+interface Somebody {
+  name: string;
+  kind: NpcKind;
+}
+
 /** The people you have met who run something, by the route on the map they stand at (or inside). */
-function peopleOnMap(world: World, state: GameState): Map<string, string[]> {
-  const found = new Map<string, string[]>();
+function peopleOnMap(world: World, state: GameState): Map<string, Somebody[]> {
+  const found = new Map<string, Somebody[]>();
   // Asked of every map through `peopleOn`, so somebody who has moved into
   // Hearth is named at Hearth and no longer where you first found them.
   for (const routeId of world.routes.keys()) {
@@ -611,7 +666,18 @@ function peopleOnMap(world: World, state: GameState): Map<string, string[]> {
       if (!SERVICES.has(person.kind) || !state.spokenTo.includes(person.id)) continue;
       const standing = world.routes.get(routeId);
       const outside = standing?.kind === "interior" ? (standing.parent ?? routeId) : routeId;
-      found.set(outside, [...(found.get(outside) ?? []), person.name].sort());
+      // The six who run brackets are told apart by their format, not by
+      // their names: "Odds" says nothing, "Odds (1v1)" says which of the six
+      // this is and whether your party is the right size for it.
+      const name = person.kind === "arena" && person.arenaId
+        ? `${person.name} (${arenaSpec(person.arenaId).teamSize}v${arenaSpec(person.arenaId).teamSize})`
+        : person.name;
+      found.set(
+        outside,
+        [...(found.get(outside) ?? []), { name, kind: person.kind }].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      );
     }
   }
   return found;

@@ -68,7 +68,19 @@ function matches(text: string, query: string): boolean {
     .every((word) => haystack.includes(word));
 }
 
-export function Handbook({ onClose }: { onClose: () => void }) {
+export function Handbook({
+  owned,
+  onClose,
+}: {
+  /**
+   * Every ability something of yours is carrying. The list is the point: an
+   * ability belongs to an individual, so the only way to know whether you
+   * have one is to look at everything you own, and nobody is doing that by
+   * hand across a box of two hundred.
+   */
+  owned?: ReadonlySet<string>;
+  onClose: () => void;
+}) {
   const [section, setSection] = useState<Section>("shine");
   const [query, setQuery] = useState("");
 
@@ -254,11 +266,22 @@ export function Handbook({ onClose }: { onClose: () => void }) {
             <p className="muted">
               {abilities.length} of {ABILITIES.length}. An ability belongs to the individual, not the species — most
               wild creatures have none.
+              {owned ? (
+                <>
+                  {" "}
+                  You are carrying <strong>{[...owned].filter((id) => ABILITIES.some((one) => one.id === id)).length}</strong>{" "}
+                  of them: <span className="abilityHad">✓</span> is one you have, <span className="abilityWant">▲</span> one
+                  you do not.
+                </>
+              ) : null}
             </p>
             <dl className="handbookList">
               {abilities.map((one) => (
                 <div key={one.id}>
-                  <dt>{one.name}</dt>
+                  <dt>
+                    {owned ? <AbilityMark had={owned.has(one.id)} /> : null}
+                    {one.name}
+                  </dt>
                   <dd>{one.blurb}</dd>
                 </div>
               ))}
@@ -293,5 +316,23 @@ export function Handbook({ onClose }: { onClose: () => void }) {
         ) : null}
       </section>
     </div>
+  );
+}
+
+/**
+ * Whether you are carrying one of these: a tick, or a yellow angle.
+ *
+ * Exported because a wild creature's sheet asks the same question in the
+ * same words — one mark, one meaning, wherever it is drawn.
+ */
+export function AbilityMark({ had }: { had: boolean }) {
+  return had ? (
+    <span className="abilityHad" title="One of yours already has this" aria-label="already have">
+      ✓
+    </span>
+  ) : (
+    <span className="abilityWant" title="Nothing of yours has this" aria-label="do not have">
+      ▲
+    </span>
   );
 }

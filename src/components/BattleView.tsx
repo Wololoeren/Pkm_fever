@@ -101,8 +101,11 @@ function Nameplate({
   creature,
   side,
   right,
+  owned = false,
 }: {
   creature: Individual;
+  /** Already in the Pokédex: the little ball beside the name says so. */
+  owned?: boolean;
   /**
    * The whole side rather than just the creature.
    *
@@ -122,6 +125,11 @@ function Nameplate({
       <div className="plateTop">
         <strong>
           {displayName(creature)} <GenderMark gender={creature.gender} />
+          {/* One you already have. The question a wild encounter actually
+              asks is "do I need this one", and the dex is two clicks and a
+              scroll away — which is two clicks too many with something
+              standing in front of you. */}
+          {owned ? <span className="dexBall" title="Already in your Pokédex" aria-label="Already caught" /> : null}
         </strong>
         <span className="muted">Lv{creature.level}</span>
       </div>
@@ -193,6 +201,8 @@ export function BattleView({
   onAction,
   balls,
   opponentLabel = "Wild",
+  caught,
+  owned,
   opening,
   busy = false,
   busyLabel,
@@ -209,6 +219,18 @@ export function BattleView({
    */
   balls?: { id: string; name: string; count: number }[];
   opponentLabel?: string;
+  /**
+   * Every species already registered, for the ball beside a wild creature's
+   * name. Omitted where the question does not arise — a trainer's team is not
+   * something you are deciding whether to catch.
+   */
+  caught?: readonly string[];
+  /**
+   * Every ability something of yours is carrying, for the marks on the
+   * opponent's sheet: the question "is that one worth catching" is mostly a
+   * question about what it has that you do not.
+   */
+  owned?: ReadonlySet<string>;
   /**
    * What the opponent says before anything is thrown.
    *
@@ -615,7 +637,7 @@ export function BattleView({
                 large and four times as obvious. Small and sharp beats
                 big and soft. */}
             <div className="slot wild hoverable" tabIndex={0}>
-              <Nameplate creature={foe} side={battle.sides[them]} />
+              <Nameplate creature={foe} side={battle.sides[them]} owned={caught?.includes(foe.speciesId)} />
               {/* The sprite is wrapped rather than animated directly so the
                   nameplate and the hover panel hold still while it moves — a
                   shaking health bar is unreadable. */}
@@ -647,7 +669,7 @@ export function BattleView({
                   <span className="puff" />
                 </span>
               </span>
-              <StatHover creature={foe} side={battle.sides[them]} />
+              <StatHover creature={foe} side={battle.sides[them]} owned={owned} />
             </div>
             <div className="slot mine hoverable" tabIndex={0}>
               <span className="catchStage">

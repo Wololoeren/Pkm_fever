@@ -771,3 +771,105 @@ The 84 manifest evolutions that were neither a plain level nor a stone (trade, l
 ## Moxie family
 
 Moxie worked (checked: +1 Atk on a KO, kept for the next foe); its log line now names the ability before the rise. Four siblings added as singles: Grim Neigh (SpA), Trophy Hide (Def), Victor's Calm (SpD), Bloodrush (Spe). ABILITIES 214, singles 95. Adding to the roll changes every rolled ability: folded into ENGINE_VERSION 37.
+
+## Caves
+
+`src/engine/caves.ts`: `digCaves(seed, routes)` runs in `generateWorld` after `wireBorders` and after the names. Three caves (`CAVE_COUNT`), three floors each (`CAVE_FLOORS`), 56x36, kind `"cave"`, biome `"cavern"` (not in BIOMES; `typesFor`/`nameOf` special-case it, palette in render/tiles.ts). A floor is a jagged corridor (`carveLine` waypoints) with 3-5 grass chambers, not a maze. Ring = entry ring + floor, which drives both the encounter table and the levels. Mouths are cut into the entry route and into the diagonal routes the bottom floor opens onto (`TILE.STAIRS`, plus a SIGN on a solid neighbour). Caves are dark without Flash, refuse Fly, and carry no trainers, pickups or critters. `world.caves` lists them. ENGINE_VERSION 38. tests/caves.test.ts.
+
+## The fight club
+
+NPC "Tyler" (`fight-club`, kind `fightclub`, wander maxRing 2). `clubEnter`/`clubFight` inputs (pack 75/76), `state.club = { round, slot }`. A bout pulls a random standing party member out at `slot`, stands it on side 1 against the rest (tag `club:`), and the battle-end path splices it back into its slot before deciding anything, so nobody is lost and the holder winning is not a whiteout. `CLUB_PURSE` 900 a bout, `CLUB_BONUS` 2500 when only one is left standing. Notices clubRound/clubDone. ENGINE_VERSION 38. tests/fightclub.test.ts.
+
+## The auction bids back
+
+A lot opens at `AUCTION_OPENING` 30% of its price and climbs: every `AUCTION_TICK` 200 steps the room raises by `AUCTION_RAISE` 10% with chance `keenness = AUCTION_KEEN (233) * price / ask` per mille (78% at the open, 23% at the price). Because the chance is inverse to the ask, the expected gain per tick is a flat `AUCTION_DRIFT` = 70/30 of a percent of price, so the 70 points from the opening to the price are walked across the 30 ticks of a lot's life: E = 100% at the hammer, median 94%, p90 125%, and about half of all lots hammer over the price. `askingPrice(seed, n, steps)` walks it forward; `bidWins` is gone — a bid wins iff the ask at the close is still what you put down. Re-bidding is allowed once outbid and costs only the difference. ENGINE_VERSION 38. tests AU4b/AU7/AU8.
+
+## Ditto
+
+Egg groups are now the only rule a Ditto is exempt from: gender applies to it like anything else (so male Ditto + male partner is refused), and two Dittos are a legal pair (they share the Ditto group). A Ditto in the FIRST slot gives a Ditto egg `DITTO_EGG_PERCENT` = 20% of the time; from the second slot, never. The roll is only drawn when there is a Ditto in slot one, so every other pairing deals the eggs it always did. ENGINE_VERSION 38. tests BR8/BR11/BR20.
+
+## Lodger badges
+
+GameCanvas draws a small plaque over the door of any guest room with a lodger (`state.lodgers[door.to]`), in that NPC kind's colour from NPC_COLOURS — so the ten identical terrace doors say who is behind each. Display only.
+The same colours are used on the node map: `peopleOnMap` now keeps each person's kind, and RegionMap draws up to six beads in a ring around any place where you have met somebody who runs something (hover names them). NPC_COLOURS moved from GameCanvas.tsx to src/render/people.ts so both read one table; tests/cup.test.ts reads the new path.
+
+## Fly shortcut
+
+A Fly button beside Fish above the bag. The page holds `openBagItem = { item, at }` and BagPanel takes it as `opened`, opening that item's panel (the fly map) in an effect keyed on the object — so pressing it again reopens after closing. Disabled without `hm-fly`. Display only.
+
+## Traders take any form
+
+`matchesWant` compares dex numbers rather than species ids, so Mr. Vane takes any of the eleven Pikachus (Alola, Cosplay, the caps, the partner) but not a Raichu, and every other `wants` entry follows suit. ENGINE_VERSION 38 (a trade that used to be refused now goes through). tests SW2b/N10.
+Arena hosts on the node map read "Odds (1v1)" — the format, not just the name, since their names say nothing about which of the six they are.
+
+## Doomscroll
+
+Three buttons on the feed — "A bit" 100, "A little more" 500, "Just one more" 1000 (`DOOMSCROLL_STEPS`) — run `walked()` that many times without moving: eggs walk, the daycare pairs, poison bites, lures burn, cooldowns run, the stream pool drains. No encounters, since nothing is walked into. Input `doomscroll` (pack 78), `doomscrollRefusal` needs the item, the field and nobody talking. ENGINE_VERSION 38. tests/doomscroll.test.ts.
+The Pokédex card always draws the selected creature at 96px — as yours (shine, colour, marks) where you hold one, plain where you have only met it; it used to draw nothing at all for a species you had seen and not caught.
+
+## The feed (news, part one)
+
+`src/engine/news.ts`: lines picked with `rngFor(seed, "news", kind, at)` from per-kind template lists, blanks filled from the creature (`{name} {type} {level} {badges} {steps}`). `state.news` keeps `NEWS_KEPT` 40, written by the funnel step `reported(world, before, state)` — it reads the notice that just appeared (caught/hatched/evolved/badge/whiteout), a party member crossing one of `NEWS_LEVELS` (50..100), and otherwise an idle line after `NEWS_QUIET` 400 quiet steps. In the hash. UI: corner toast in page.tsx for `NEWS_TOAST_MS` 6s with a Mute button (`pkm-fever.newsMuted`, browser-side; the feed keeps writing), and a News tab in the Doomscroller beside Timers. ENGINE_VERSION 38. tests/news.test.ts. PART TWO (friend room codes over the Nostr relays in lib/relays.ts) NOT STARTED.
+
+## Friends feed (news, part two)
+
+`src/lib/friends.ts`: `joinFeed(code, who, handlers)` over `joinParty(code, "feed", ...)` — Trystero/Nostr, same transport as duels. Broadcasts `{t:"news", who, at, kind, text}` whenever `state.news` gains a line (page.tsx watches the newest and sends once); receives into page state + localStorage (`pkm-fever.friendsPosts`, 60 kept; code in `pkm-fever.friendsCode`). NOTHING received touches the engine or a save — it is a claim about somebody else's game, shown only in the Doomscroller's Friends tab (code box, Start a room, Leave, who is here). News kinds trainer/traded/prize added so beating a trainer, a trade and a won creature are worth sending. Verified across two browser tabs on one relay room.
+The box sorts by egg group too (alphabetical by a species first group), which puts everything that can breed together together.
+
+## Fishing costs steps
+
+A cast runs `walked()` `FISH_STEPS` = 8 times before the battle starts, so a pond is no longer free training: eggs, the daycare, poison, lures, the auction board and every cooldown all advance. ENGINE_VERSION 38. Test I17.
+F casts the rod from the field, ignored wherever `fishRefusal` would refuse it.
+
+## Pokedex zones
+
+RegionMap takes `onSelect`/`selected`, which makes every place clickable (no green ring) and rings the chosen one in warn. DexPanel uses it: clicking a node shows `Zone` under the map — the route table once earned (`DEX_REVEAL` 10 encounters), each species drawn as caught/seen/never-met, with "caught X of Y" and a seen count; before that it says how many more encounters it wants; towns and unvisited places say so. Clicking a species there selects it in the list. Display only.
+
+## PP followed the slot, not the move
+
+`setMoves` replaced `moves` and left `pp` alone, so rearranging or swapping in the Centre handed the old slot's uses to whatever moved in — a 5-PP Hyper Beam could read 40/5. It now goes through `alignPp(next, creature)`: a kept move keeps what it had left, a new one arrives full, everything capped by its own max. ENGINE_VERSION 38. Test P11.
+
+## The hunter and the berry farm
+
+**Bex** (`hunter`, kind `hunt`, wander maxRing 2): `src/engine/hunt.ts` derives a board of `HUNT_OFFERS` 5 from the seed and `huntRound` (`HUNT_ROTATION` 1500 steps), every one bred `HUNT_IV_MIN` 20+ in every stat with 1-2 abilities, each with a route it was last seen on. `huntTake` sets `state.hunt = { offer, since, walked }` (one at a time); the quarry walks a `roamPath` loop (cached by seed/route/since; `roamPath` is now exported from world.ts), steps away from you `QUARRY_CHANCE` 900/1000 of the time, is drawn on the map like a critter, and meeting it is walking onto its tile. `HUNT_STEPS` 800, run down inside `walked()` so fishing and sittings with the feed count against it. Inputs huntTake/huntDrop (pack 79/80).
+
+**Old Pell** (`berry-farmer`, kind `farm`, meadow-1): `src/engine/farm.ts`. Three jobs - water/ground/grass, each wanting that type - and nothing grows until all three are filled. `FARM_BASE` 350 steps between harvests less the three levels added up, floor `FARM_FASTEST` 25; each harvest is `FARM_YIELD` 5 of one bed's berry, or any berry in the game when that bed is fallow. `FARM_BEDS` 5, and planting spends the berry. The basket accumulates and is only emptied by `farmCollect`. Inputs farmLeave/farmTake/farmPlant/farmCollect (pack 81-84). Both on ENGINE_VERSION 38; tests/hunt.test.ts, tests/farm.test.ts.
+The box search also looks at ability names (placeholder now "Search name, type or ability..."), which is the one thing a full box cannot be read for at a glance.
+
+## Day and night
+
+`src/engine/daynight.ts`: `DAY_LENGTH` 10000 steps - day 4000, dusk `TWILIGHT` 1000, night 4000, dawn 1000. `timeOf(steps)` names the phase, `darkness(steps)` is 0-1000 and slides a thousandth per step across each twilight (nothing ever moves it more than 1 per step), `untilNext` for the HUD tooltip.
+
+Encounters read it through `wildAt(..., stepsTaken)`: `isNightish` (darkness >= 500, so the night plus the darker half of each twilight) drops the encounter band by `NIGHT_BAND` 1 ring - commoner species - and pays for it with `NIGHT_ODDS` (the wild ability odds x3, in abilities.ts) and `NIGHT_CHROMA_PER_MILLE` 60 for a colour the census did not place. Fishing and the rest pass the step count too.
+
+Ten `hour-*` abilities (ABILITIES 224, docs/abilities.md "The hours"): effect `{ t: "hour"; at: TimeOfDay[]; stat: "power" | StageStat; mille }`, applied in `damageOf` for power and in `effectiveStat` for stats. `BattleState.hour` is written once by `startBattle(..., stepsTaken)` - a battle keeps the sky it began under, so nothing shifts mid-fight; the field is optional so older battles read as daylight.
+
+The map takes a blue wash scaled by `darkness` (routes and towns only, capped at 0.55 alpha so the ground stays readable), under the fog of war; the HUD shows the phase beside the hash. ENGINE_VERSION 38. tests/daynight.test.ts.
+
+## Abilities you already have
+
+`ownedAbilities(state)` (engine.ts) collects every ability id carried by anything you hold - party, box, daycare, workshop, farm hands, tutor pupil, couch, influencer. The Handbook's Abilities tab marks each entry with `AbilityMark` (exported there): a green tick for one of yours, a yellow angle for one nothing of yours has, plus a count in the blurb. The same mark is drawn beside each ability on a StatHover sheet when it is given `owned`, which the battle passes - so a wild creature's sheet says at a glance which of its abilities are new to you, the way the dex ball says whether the species is.
+
+## Lost property
+
+**Miss Vell** (`lost-property`, kind `lost`) stands in Hearth at (20, 22). `state.lost` is a ledger written by `mislaid(state, itemId, count)`, called wherever something leaves by a road that is not *using* it: sold at a Mart, carried off by a creature you traded away, planted in a farm bed. A potion drunk or a berry eaten is spent, not lost, and is never written down. `reclaim` (pack 85) hands one back for `reclaimPrice` = max(`RECLAIM_FLOOR` 250, the item's sell value); the line clears when the count runs out. In the hash. ENGINE_VERSION 38. tests/lost.test.ts.
+
+## IVs roll off a table now
+
+`IV_WEIGHTS` in stats.ts: 32 integer weights out of 1,000,000, shaped as a stretched exponential `exp(-(k/10.467)^1.72)`. Mean exactly 6, P(31) = 0.016%, nothing capped. `rollIv(rng)` / `rollIvs(rng)` take one draw per stat, so every creature costs the six draws it always did and nothing downstream shifts. Wild creatures (`rollWildIvs`, `rolledIvs` in world.ts) and starters (`offeredStarter`) both use it; starters were a flat 0-12, wild a flat 0-6, both averaging 6. `WILD_IV_MAX` stays as the number breeding measures itself against. The schoolteacher's lesson and the anti-scum ceiling test were rewritten for a world with no ceiling. ENGINE_VERSION 38. tests/ivroll.test.ts.
+
+## The Mart, tidied
+
+A search box beside the purse looks through every shelf at once (name, blurb and shelf label, word by word, the same rule the bag and box search by); the heading counts the hits, each shelf tab shows how many of them are on it and is flagged `hasHits`, and clicking a tab clears the search and opens that shelf. "Your bag" - the sell list, which was every item you own in one flat grid - is folded away behind a button and obeys the same search. MartPanel.tsx, plus the `.mart` rules it never had in globals.css.
+
+## Tim's trading post
+
+NPC **Tim** (`trader`, kind `post`) stands in Hearth at (26, 12); walking into him opens `TradePost.tsx` (the page renders it on `state.talking === "trader"`).
+
+The board rides the friends room code on its own channel - `lib/post.ts`, `joinPost(code, who, handlers)` over `joinParty(code, "post", ...)`. Messages: `board` (a peer's whole list, re-sent on every join and change), `bid`, `pull`, `struck`, `declined`. Nothing about it is state: listings live in the lister's browser and go when the tab closes.
+
+Two tabs: **Yours** (pin a party member up with an asking price and a line about what you want; see and answer bids on it) and **Theirs** (everybody else's listings, with the full stat sheet, and an offer builder - cash, one of yours, or both). Accepting opens a dialog spelling the whole deal out before anything happens.
+
+The swap itself is the `postDeal` input (pack 86): `{ give, receive, paid, who }`, any part omittable, applied by each side to its own save. `postDealRefusal` checks what it can - you have the creature, it is not locked, you can cover the money, you keep something that can fight - and the arrival is rebuilt through `vaultArrival` keeping its level. A held item on the one you hand over goes to lost property. What it cannot check is whether the other side really applied theirs, the same limit the duel and trade rooms have.
+
+Verified live between two browser tabs: listing crossed, bid crossed, dialog read "you give Treecko, you receive Chespin, you take 1,500", and both saves applied their half. That run exposed one bug (the bidder never recorded its own outgoing bid, so its creature stayed) - fixed with `sentBids`, which is NOT re-verified in the browser. ENGINE_VERSION 38. tests/post.test.ts.

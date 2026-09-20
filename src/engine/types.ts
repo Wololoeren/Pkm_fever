@@ -177,9 +177,34 @@ import { BIOME_IDS } from "./biomes";
  * Trophy Hide, Victor's Calm and Bloodrush — which join the roll alongside the
  * swaps and the social perks.
  *
- * 38 carries nothing yet. 37 has shipped, so the next save-breaking change
- * starts a version of its own rather than being folded into a released one,
- * and this is that version waiting for it. */
+ * 38 is the caves: three a world, each a mouth on a route and three floors
+ * under it, and the bottom floor coming out on the routes diagonally beside
+ * the mouth. A new route kind, new tiles cut into the maps the mouths are on,
+ * and a floor a ring deeper than the one above it. A recorded walk across any
+ * route carrying a mouth now steps somewhere else. And the fight club: a new
+ * person, two inputs, and a series on the state, which takes one of the party
+ * out and puts it on the other side of a battle. And the auction room bids
+ * against you: a lot opens at a third of its price and creeps upward, and a
+ * bid wins only if nobody goes past it before the hammer — so a recorded
+ * auction settles differently. And Ditto: egg groups are the only rule it
+ * skips, so a pair that used to breed across genders no longer does, and a
+ * Ditto in the first slot lays a Ditto one egg in five. And a trader who
+ * wants a species takes any form of it, so a trade that used to be refused
+ * now goes through. And the feed: a line of commentary on the state, kept on
+ * it, so a save carries what the world said about your game. And a cast of a
+ * rod costs eight steps of the world, so every recorded fishing trip moves
+ * every clock in the game. And rearranging a moveset no longer carries the
+ * old slot's uses across, so a recorded save that did it has different PP
+ * from there on. And two more people: the hunter, whose quarry walks a route
+ * of its own for eight hundred steps, and the berry farmer, whose three hands
+ * and five beds fill a basket while you walk. And a day and night cycle of
+ * ten thousand steps, which decides what the grass deals and what it is
+ * carrying — so every recorded encounter after the first four thousand
+ * steps is a different creature. And the lost property office in Hearth,
+ * which keeps a ledger of everything sold, traded away or planted. And IVs
+ * roll off a weighted table with no ceiling — same average of six, but a
+ * wild 31 is possible — so every creature in every seed rerolls. And Tim's
+ * trading post, whose deals arrive as the `postDeal` input. */
 export const ENGINE_VERSION = 38;
 
 // ------------------------------------------------------------------ stats

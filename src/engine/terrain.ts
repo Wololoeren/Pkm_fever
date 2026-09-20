@@ -59,6 +59,8 @@ export const TILE = {
   CLIFF: 20,
   /** Dive. */
   DEEP: 21,
+  /** A way down into a cave, or up out of one. Walkable, and a door stands on it. */
+  STAIRS: 22,
 } as const;
 
 /**
@@ -83,6 +85,7 @@ export const OBSTACLES: Record<number, { item: string; clears: boolean }> = {
 export type Tile = (typeof TILE)[keyof typeof TILE];
 
 const WALKABLE = new Set<number>([
+  TILE.STAIRS,
   TILE.PATH,
   TILE.GRASS,
   TILE.MEADOW,

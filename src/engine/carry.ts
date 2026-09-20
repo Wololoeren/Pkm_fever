@@ -277,7 +277,7 @@ const SINGLES: HeldItemSeed[] = [
   {
     id: "hold-eviolite",
     name: "Eviolite",
-    blurb: "Both defences by half again, for anything that still has somewhere to grow.",
+    blurb: "Defense and Sp. Def ×1.5 while the holder still has an evolution left — any level, any species, and a Pokémon that only evolves by trade or by an item counts. It does nothing at all once it is fully evolved.",
     price: 5500,
     hold: {
       effects: [

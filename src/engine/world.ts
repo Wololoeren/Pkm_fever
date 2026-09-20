@@ -1,10 +1,12 @@
-import { rollAbilities } from "./abilities";
+import { rollAbilities, NIGHT_ODDS, WILD_ABILITY_ODDS } from "./abilities";
 import { rollHeld, WILD_HELD_ITEMS, WILD_HELD_PER_MILLE } from "./carry";
 import { SCHOOL_LABEL } from "./school";
 import { ALL_SPECIES, baseFormOf, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
 import { INKS, ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
+import { isNightish, NIGHT_BAND, NIGHT_CHROMA_PER_MILLE } from "./daynight";
+import { digCaves, type CaveSpec } from "./caves";
 import { placeNames } from "./placenames";
 import { levelBracket, levelForRing, WILD_LEVEL_SPREAD } from "./levels";
 import { CRITTERS, idleLine, idlersFor, type CritterSpec } from "./critters";
@@ -45,7 +47,7 @@ import {
   walkable,
 } from "./terrain";
 import { intBelow, intBetween, rngFor, shuffle, weighted, type Rng } from "./rng";
-import { clampIvs, WILD_IV_MAX } from "./stats";
+import { clampIvs, rollIvs } from "./stats";
 import { STAT_IDS, type Individual, type SpeciesEntry, type StatTable, type WorldConfig } from "./types";
 import { appearanceId, CENSUS_PLAN, CHROMA_IDS, TOP_TIER } from "./variants";
 
@@ -101,7 +103,7 @@ const CENSUS_SLOT_RANGE = 120;
 const ENCOUNTER_RATE = 118;
 
 /** What a map is for, which decides what you can do standing in it. */
-export type RouteKind = "town" | "route" | "interior";
+export type RouteKind = "town" | "route" | "interior" | "cave";
 
 /** What a building is for. A house is somewhere to look at. */
 export type InteriorRole = "daycare" | "centre" | "mart" | "gym" | "house" | "cup" | "guest";
@@ -228,6 +230,8 @@ export interface TrainerSpec {
 
 export interface World {
   config: WorldConfig;
+  /** The three caves: where each opens from, and where its bottom floor comes out. */
+  caves: readonly CaveSpec[];
   seed: string;
   /** The starters this world offers, drawn from every starter in the dex. */
   starters: string[];
@@ -2541,7 +2545,7 @@ export function lodgerSpot(room: Route): { x: number; y: number } {
  * ring of this size, most often. A roamer with no loop simply stands still,
  * which is a worse creature but not a broken one.
  */
-function roamPath(
+export function roamPath(
   route: Route,
   rng: Rng,
   centre: { x: number; y: number },
@@ -3016,8 +3020,7 @@ function seededWish(rng: Rng, route: Route): { x: number; y: number } {
 
 /** Wild IVs, rolled the same way `wildAt` rolls them. */
 function rolledIvs(rng: Rng): StatTable {
-  const ivs = {} as StatTable;
-  for (const stat of STAT_IDS) ivs[stat] = intBetween(rng, 0, WILD_IV_MAX);
+  const ivs = rollIvs(rng);
   return ivs;
 }
 
@@ -3100,6 +3103,11 @@ export function generateWorld(
     const [low, high] = levelBracket(route.ring);
     routes.set(id, { ...route, label: `${name} [${low}-${high}]` });
   }
+
+  // The caves, after the borders and after the names: a mouth has to avoid the
+  // gates and doorsteps already cut, and a floor is named after the place it
+  // opens from, which is not named until now.
+  const caves = digCaves(seed, routes);
 
   const starters = pickStarters(seed, allSpecies);
 
@@ -3223,7 +3231,7 @@ export function generateWorld(
 
   const critters = placeCritters(seed, routes, npcs, trainers, allSpecies, config.rings);
 
-  return { config, seed, starters, routes, census, trainers, npcs, pickups, critters };
+  return { config, seed, starters, routes, census, trainers, npcs, pickups, critters, caves };
 }
 
 /** Moved to levels.ts; re-exported so existing imports keep working. */
@@ -3417,24 +3425,47 @@ export function wildAt(
   route: string,
   index: number,
   uid: number,
+  /**
+   * The step count the encounter happens at, for the day and night cycle.
+   *
+   * Left off, it is daylight — which is what every caller that does not care
+   * about the sky wants, and what the tests that predate the cycle assume.
+   */
+  stepsTaken = 0,
 ): Individual {
   const target = world.routes.get(route);
   if (!target) throw new Error(`unknown route: ${route}`);
 
+  const night = isNightish(stepsTaken);
   const rng = rngFor(world.seed, "encounter", route, index);
-  const table = encounterTable(allSpecies, target.biome, target.ring, world.config.rings);
+  // At night the band drops a ring: what is out there is commoner than what
+  // the day holds. See `daynight.ts` for why that is the trade.
+  const table = encounterTable(
+    allSpecies,
+    target.biome,
+    night ? Math.max(1, target.ring - NIGHT_BAND) : target.ring,
+    world.config.rings,
+  );
   const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
 
   const level = Math.max(2, levelForRing(target.ring) + intBetween(rng, -WILD_LEVEL_SPREAD, WILD_LEVEL_SPREAD));
   const exp = level * level * level;
   const ivs = rollWildIvs(rng);
   const natureId = pickNature(rng);
-  const variantId = world.census.get(`${route}:${index}`) ?? "normal";
+  // The census first: a placed shine or colour is placed whatever the hour.
+  // Failing that, the night sometimes hands out a colour of its own.
+  const placed = world.census.get(`${route}:${index}`);
+  const nightColour =
+    !placed && night && intBelow(rngFor(world.seed, "night-chroma", route, index), 1000) < NIGHT_CHROMA_PER_MILLE
+      ? CHROMA_IDS[intBelow(rngFor(world.seed, "night-colour", route, index), CHROMA_IDS.length)]
+      : null;
+  const variantId = placed ?? (nightColour ? appearanceId(0, nightColour) : "normal");
   // Drawn last on purpose. Every roll above it was made before gender
   // existed, and inserting a draw ahead of them would deal a different
   // creature into every encounter slot in every world already saved.
   const gender = rollGender(rng);
-  const abilities = rollAbilities(rng);
+  // And what it has picked up out there in the dark.
+  const abilities = rollAbilities(rng, night ? NIGHT_ODDS : WILD_ABILITY_ODDS);
 
   return {
     uid,
@@ -3463,8 +3494,7 @@ export function wildAt(
 }
 
 function rollWildIvs(rng: Rng): StatTable {
-  const ivs = {} as StatTable;
-  for (const stat of STAT_IDS) ivs[stat] = intBetween(rng, 0, WILD_IV_MAX);
+  const ivs = rollIvs(rng);
   return clampIvs(ivs);
 }
 

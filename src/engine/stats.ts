@@ -1,5 +1,6 @@
 import { temperedNature } from "./abilities";
 import { natureVector } from "./natures";
+import { intBelow, type Rng } from "./rng";
 import { STAT_IDS, type Individual, type SpeciesEntry, type StatId, type StatTable } from "./types";
 import { variant } from "./variants";
 
@@ -22,9 +23,12 @@ import { variant } from "./variants";
  * vector is both cleaner and — at magnitude 24 — worth exactly as much.
  */
 
-/** Wild creatures roll IVs in [0, WILD_IV_MAX]. One fifth of the ceiling, so
- * a caught creature is a starting point rather than a lottery ticket, and
- * breeding is the only route to a competitive individual. */
+/**
+ * What a wild roll used to be capped at, and what breeding still measures
+ * itself against: a stat of six is an average wild stat. Nothing rolls
+ * against this any more — see `IV_WEIGHTS` — but the number is the same
+ * number, and the daycare's arithmetic is written in terms of it.
+ */
 export const WILD_IV_MAX = 6;
 
 /** The ceiling breeding can climb to. */
@@ -183,4 +187,63 @@ export function clampIvs(ivs: StatTable): StatTable {
 /** Total IVs, the number the breeding UI actually wants to show. */
 export function ivTotal(ivs: StatTable): number {
   return STAT_IDS.reduce((total, stat) => total + ivs[stat], 0);
+}
+
+/**
+ * How a creature born in the world rolls one stat.
+ *
+ * Nothing is capped any more. The old rule — a flat nought to six in the
+ * grass — made a wild catch a starting point by *forbidding* anything else,
+ * which is a rule you can read off a sheet and never think about again. This
+ * is the same promise made by arithmetic instead: the average is still six,
+ * so nothing about the game's numbers moves, and a perfect stat is possible
+ * and costs one in six thousand.
+ *
+ * The shape is a stretched exponential, `exp(-(k/10.467)^1.72)`, which is the
+ * one family that lets the mean and the tail be chosen separately. A plain
+ * geometric with this mean would deal a 31 eight times too often; a Poisson
+ * with this mean would never deal one at all.
+ *
+ * Written down as weights out of a million rather than computed, because a
+ * distribution the engine derives is a distribution that can drift when
+ * somebody touches the arithmetic. These numbers are the contract; the test
+ * pins the mean and the tail against them.
+ *
+ * Half of all stats land at five or less. One in five is ten or better, one
+ * in fifty-three is twenty or better, and 0.016% is a 31 — which is one
+ * creature in a thousand carrying one somewhere.
+ */
+export const IV_WEIGHTS: readonly number[] = [
+  101742, 99966, 96006, 90548, 84037, 76847, 69300, 61674,
+  54197, 47049, 40364, 34235, 28715, 23824, 19557, 15888,
+  12776, 10171, 8017, 6259, 4840, 3707, 2813, 2115,
+  1576, 1164, 852, 618, 445, 317, 224, 157,
+];
+
+/** What those weights add up to: one roll, out of a million. */
+export const IV_WEIGHT_TOTAL = IV_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
+
+/** The average of the table — six, which is what everything else was tuned against. */
+export const IV_MEAN = IV_WEIGHTS.reduce((sum, weight, at) => sum + weight * at, 0) / IV_WEIGHT_TOTAL;
+
+/**
+ * One stat, rolled off the table.
+ *
+ * One draw per stat, so a creature costs six draws exactly as it always did
+ * and nothing downstream of it shifts.
+ */
+export function rollIv(rng: Rng): number {
+  let at = intBelow(rng, IV_WEIGHT_TOTAL);
+  for (let value = 0; value < IV_WEIGHTS.length; value++) {
+    at -= IV_WEIGHTS[value];
+    if (at < 0) return value;
+  }
+  return IV_WEIGHTS.length - 1;
+}
+
+/** Six of them. */
+export function rollIvs(rng: Rng): StatTable {
+  const ivs = {} as StatTable;
+  for (const stat of STAT_IDS) ivs[stat] = rollIv(rng);
+  return ivs;
 }

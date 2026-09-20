@@ -1,4 +1,4 @@
-Pkm Fever — every ability (214)
+Pkm Fever — every ability (224)
 Generated from src/engine/abilities.ts. Alphabetical.
 
 Adaptability         Its same-type attack bonus is ×2 instead of ×1.5.
@@ -31,6 +31,8 @@ Dark Deficiency      In battle it is not Dark type: Dark moves get no same-type 
 Dark Drinker         Damaging Dark moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Dark status moves still affect it.
 Dark Fury            Its Dark moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Dark Guard           It takes 50% less damage from Dark moves.
+Dawn Chorus          Its attacks do 80% more damage at dawn.
+Daybound             Its Defense is half again in the day.
 Defeatist            While its HP is at or below half its maximum, its Attack and Sp. Atk stats are halved.
 Diligent             The EVs it earns from each defeated foe are multiplied by 1.5 (rounded down). The limits of 252 per stat and 510 in total still apply.
 Dragon Affinity      In battle it is also Dragon type: its Dragon moves get the same-type bonus, and it takes and resists hits as a Dragon type too. No effect if it is already Dragon.
@@ -43,11 +45,14 @@ Drama Queen          When it faints on stream, the pool loses nothing — the cr
 Drizzle              When it enters battle, starts rain for 5 turns, unless it is already raining.
 Drought              When it enters battle, starts harsh sunlight for 5 turns, unless it is already sunny.
 Druid                Its Razor Leaf does double damage (every hit, for a multi-hit move). No effect on its other moves.
+Dusk Runner          Its attacks do 80% more damage at dusk.
+Early and Late       Its attacks do 30% more damage from dawn through the day.
 Electric Affinity    In battle it is also Electric type: its Electric moves get the same-type bonus, and it takes and resists hits as a Electric type too. No effect if it is already Electric.
 Electric Deficiency  In battle it is not Electric type: Electric moves get no same-type bonus from it, and the type chart ignores Electric when it is hit. A pure Electric type becomes typeless. No effect if it is not Electric.
 Electric Fury        Its Electric moves do 50% more damage while its HP is at or below 1/3 of its maximum.
 Electric Guard       It takes 50% less damage from Electric moves.
 Electric Surge       When it enters battle, starts Electric Terrain for 5 turns, unless it is already up.
+Evening Calm         Its Sp. Atk is 60% higher at dusk.
 Extremist            Its nature counts triple both ways: the raised stat about +30% and the lowered stat about −30%, instead of 10% each. A neutral nature is unaffected.
 Fairy Affinity       In battle it is also Fairy type: its Fairy moves get the same-type bonus, and it takes and resists hits as a Fairy type too. No effect if it is already Fairy.
 Fairy Deficiency     In battle it is not Fairy type: Fairy moves get no same-type bonus from it, and the type chart ignores Fairy when it is hit. A pure Fairy type becomes typeless. No effect if it is not Fairy.
@@ -66,6 +71,7 @@ Filter               Super-effective hits against it do 25% less damage (×0.75)
 Fire Affinity        In battle it is also Fire type: its Fire moves get the same-type bonus, and it takes and resists hits as a Fire type too. No effect if it is already Fire.
 Fire Deficiency      In battle it is not Fire type: Fire moves get no same-type bonus from it, and the type chart ignores Fire when it is hit. A pure Fire type becomes typeless. No effect if it is not Fire.
 Fire Drinker         Damaging Fire moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Fire status moves still affect it.
+First Light          Its Speed is 60% higher at dawn.
 Flying Affinity      In battle it is also Flying type: its Flying moves get the same-type bonus, and it takes and resists hits as a Flying type too. No effect if it is already Flying.
 Flying Deficiency    In battle it is not Flying type: Flying moves get no same-type bonus from it, and the type chart ignores Flying when it is hit. A pure Flying type becomes typeless. No effect if it is not Flying.
 Flying Drinker       Damaging Flying moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Flying status moves still affect it.
@@ -122,9 +128,11 @@ Marathoner           All the EVs it earns from each defeated foe go into HP, dou
 Marvel Scale         While it has a status condition (burn, poison, paralysis, sleep or freeze), its Defence stat is 50% higher.
 Misty Surge          When it enters battle, starts Misty Terrain for 5 turns, unless it is already up.
 Monk                 Its Double Kick does double damage (every hit, for a multi-hit move). No effect on its other moves.
+Moonlit              Its Sp. Def is half again at night.
 Moxie                Its Attack rises one stage each time one of its damaging moves knocks out the foe.
 Natural Cure         When it switches out without having fainted, its status condition is cured.
 Night Bloom          Its Dark attacks become Fairy, and its Fairy attacks become Dark — for damage, same-type bonus and how they land.
+Night Stalker        Its attacks do 50% more damage at night.
 No Guard             Its moves never miss. Moves used against it can still miss.
 Normal Affinity      In battle it is also Normal type: its Normal moves get the same-type bonus, and it takes and resists hits as a Normal type too. No effect if it is already Normal.
 Normal Deficiency    In battle it is not Normal type: Normal moves get no same-type bonus from it, and the type chart ignores Normal when it is hit. A pure Normal type becomes typeless. No effect if it is not Normal.
@@ -188,6 +196,7 @@ Steel Guard          It takes 50% less damage from Steel moves.
 Stoic                All the EVs it earns from each defeated foe go into Sp. Def, doubled, whatever the foe would normally teach. A held Macho Brace or Power item that picks a stat overrides which stat. The limits of 252 per stat and 510 in total still apply.
 Strong-Willed        Its nature's bonus to the raised stat is doubled (about +20% instead of +10%). The lowered stat is lowered as usual. A neutral nature is unaffected.
 Sturdy               At full HP, a hit that would knock it out leaves it at 1 HP instead.
+Sunbather            Its attacks do 50% more damage in the day.
 Super Luck           Its critical-hit ratio is one stage higher.
 Surge Surfer         Its Speed stat is doubled on Electric Terrain while it is grounded.
 Swarm                Its Bug moves do 50% more damage while its HP is at or below 1/3 of its maximum.
@@ -202,6 +211,7 @@ Torrent              Its Water moves do 50% more damage while its HP is at or be
 Treasure Hunter      Every 500 steps you walk with it in your party, it finds one item, picked at random with equal odds from: Nugget, Pearl. Eggs and creatures in the box find nothing.
 Trendsetter          At the beauty pageant each shine rung is worth 80 instead of 40.
 Trophy Hide          Its Defense rises one stage each time one of its damaging moves knocks out the foe.
+Twilight Born        Its Attack is 40% higher at dusk and at dawn.
 Victor's Calm        Its Sp. Def rises one stage each time one of its damaging moves knocks out the foe.
 Viral                At the Influencer every step counts twice towards its fame.
 Volt Absorb          Damaging Electric moves do nothing to it and instead restore 1/4 of its max HP (at least 1). Electric status moves still affect it.

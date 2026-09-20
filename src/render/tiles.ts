@@ -41,6 +41,13 @@ interface BiomePalette {
  * that sort of thing quietly stops being true.
  */
 const PALETTES: Record<string, BiomePalette> = {
+  // Underground: stone and lamplight, and what grows down here grows pale.
+  cavern: {
+    path: "#6b6152", grass: "#5c6b4a", grassAlt: "#546242",
+    meadow: "#615a4c", meadowAlt: "#5a5446",
+    tree: "#3a352d", treeAlt: "#322e27", rock: "#4a443a",
+    water: "#3b5a6b", sand: "#7a6f5c", flower: "#8f7fa8",
+  },
   hearth: {
     path: "#c8b78d", grass: "#4e8443", grassAlt: "#477a3d",
     meadow: "#5d9450", meadowAlt: "#568c4a",
@@ -62,7 +69,7 @@ const PALETTES: Record<string, BiomePalette> = {
   ashflats: {
     path: "#a1937a", grass: "#7f6f58", grassAlt: "#776850",
     meadow: "#8d7c62", meadowAlt: "#85745b",
-    tree: "#4c4136", treeAlt: "#413830", rock: "#8a7f6d",
+    tree: "#4c4136", treeAlt: "#413830", rock: "#645a4a",
     water: "#5b7f86", sand: "#cbb890", flower: "#c98a5e",
   },
   marsh: {
@@ -102,7 +109,7 @@ const PALETTES: Record<string, BiomePalette> = {
   dunes: {
     path: "#dcc489", grass: "#b39a63", grassAlt: "#aa915b",
     meadow: "#d8bc7e", meadowAlt: "#cfb374",
-    tree: "#8a6f45", treeAlt: "#7a613c", rock: "#b59a67",
+    tree: "#8a6f45", treeAlt: "#7a613c", rock: "#7c5f33",
     water: "#4f8fa0", sand: "#e8d29a", flower: "#d69a5e",
   },
   // Bleached and strewn. Grey with the violet of something long dead.
@@ -116,7 +123,7 @@ const PALETTES: Record<string, BiomePalette> = {
   mycelia: {
     path: "#7a6a58", grass: "#5c4a6a", grassAlt: "#544362",
     meadow: "#6b5a48", meadowAlt: "#635340",
-    tree: "#39294a", treeAlt: "#312342", rock: "#6a5f5a",
+    tree: "#39294a", treeAlt: "#312342", rock: "#463c3a",
     water: "#3f5a52", sand: "#8a7a62", flower: "#b06fa8",
   },
   // Open to the horizon, under a bruise.
@@ -144,7 +151,7 @@ const PALETTES: Record<string, BiomePalette> = {
   cloudreach: {
     path: "#c8ccd4", grass: "#7f96a8", grassAlt: "#768c9e",
     meadow: "#a8b4c0", meadowAlt: "#9eaab6",
-    tree: "#6a7688", treeAlt: "#5f6a7c", rock: "#b4bcc8",
+    tree: "#6a7688", treeAlt: "#5f6a7c", rock: "#7e8896",
     water: "#5a86b0", sand: "#d4d8de", flower: "#c8a8d4",
   },
   // The drowned archipelago. Deep green-blue, and twelve pools of it.
@@ -165,7 +172,7 @@ const PALETTES: Record<string, BiomePalette> = {
   saltpan: {
     path: "#d8d4c8", grass: "#a8a898", grassAlt: "#9f9f8f",
     meadow: "#cbc8ba", meadowAlt: "#c2bfb0",
-    tree: "#8a8a80", treeAlt: "#7c7c72", rock: "#e2e0d4",
+    tree: "#8a8a80", treeAlt: "#7c7c72", rock: "#8e8a7a",
     water: "#6a96a0", sand: "#e8e6da", flower: "#c8b8d0",
   },
   // Planted by somebody, a long time ago, and still growing to plan.
@@ -235,6 +242,10 @@ export function tileColor(biome: string, tile: number, x: number, y: number): st
       return palette.sand;
     case TILE.FLOWER:
       return palette.flower;
+    case TILE.STAIRS:
+      // A hole in the ground with steps in it: darker than any floor, so it
+      // reads as somewhere to go rather than somewhere to stand.
+      return checker ? "#2a2622" : "#1b1815";
     case TILE.WALL:
       return "#8d6f55";
     case TILE.ROOF:

@@ -83,7 +83,7 @@ Two things an ability does not have and an item does:
 | Item | Effect |
 | --- | --- |
 | **Assault Vest** | Sp. Def **×1.5**, and it will not use a status move at all |
-| **Eviolite** | Both defences **×1.5**, for anything that still has somewhere to grow |
+| **Eviolite** | **Defense and Sp. Def ×1.5** while the holder still has an evolution left — at any level, and a trade or item evolution counts. Nothing at all once fully evolved |
 | **Focus Sash** | From full health, survives one hit that would have finished it. **Spent** |
 | **Focus Band** | **1 in 10**, from *any* health. Not spent |
 | **Weakness Policy** | A super-effective hit raises both attacks **+2**. **Spent** |

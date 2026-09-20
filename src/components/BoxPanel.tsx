@@ -23,7 +23,7 @@ import { displayName } from "@/lib/narrate";
 import { eggMood, GenderMark } from "./PartyStrip";
 
 /** How a tab's cells can be ordered. "box" is the order they arrived in. */
-type SortBy = "box" | "level" | "ivs" | "shine" | "colour" | "abilities" | "type" | "held";
+type SortBy = "box" | "level" | "ivs" | "shine" | "colour" | "abilities" | "type" | "eggGroup" | "held";
 
 const SORTS: { id: SortBy; label: string }[] = [
   { id: "box", label: "Box order" },
@@ -33,6 +33,7 @@ const SORTS: { id: SortBy; label: string }[] = [
   { id: "colour", label: "Colour" },
   { id: "abilities", label: "Abilities" },
   { id: "type", label: "Type" },
+  { id: "eggGroup", label: "Egg group" },
   { id: "held", label: "Holding an item" },
 ];
 
@@ -52,6 +53,12 @@ function sortKey(creature: Individual, by: SortBy): number | string {
       return -abilitiesOf(creature.abilities).length;
     case "type":
       return speciesById(creature.speciesId).types[0];
+    // Alphabetical by the first group it is in, which puts everything that
+    // can breed with everything else together — which is the only reason
+    // anybody sorts a box by egg group. Ditto sorts to itself and pairs with
+    // all of them anyway.
+    case "eggGroup":
+      return speciesById(creature.speciesId).eggGroups[0] ?? "~";
     case "held":
       return creature.heldItem ? 0 : 1;
     default:
@@ -96,10 +103,25 @@ import { EggSprite, Sprite } from "./Sprite";
  *   one, and dims the rest.
  */
 
-/** What a search matches against: the nickname, the species, and its types. */
+/**
+ * What a search matches against: the nickname, the species, its types, and
+ * the names of its abilities.
+ *
+ * The abilities matter most of the three once a box is full: a hundred
+ * creatures sort by level and colour at a glance and by ability not at all,
+ * and "which of these has Adaptability" is exactly the question a box of a
+ * hundred cannot answer by looking.
+ */
 function matches(creature: Individual, query: string): boolean {
   const entry = speciesById(creature.speciesId);
-  const haystack = [displayName(creature), entry.name, ...entry.types].join(" ").toLowerCase();
+  const haystack = [
+    displayName(creature),
+    entry.name,
+    ...entry.types,
+    ...abilitiesOf(creature.abilities).map((spec) => spec.name),
+  ]
+    .join(" ")
+    .toLowerCase();
   return query
     .toLowerCase()
     .split(/\s+/)
@@ -219,7 +241,7 @@ export function BoxPanel({
         <input
           type="search"
           className="boxSearch"
-          placeholder="Search name or type…"
+          placeholder="Search name, type or ability…"
           value={query}
           aria-label="Search the box"
           spellCheck={false}
@@ -400,7 +422,7 @@ export function BoxPanel({
           <span key={`egg-${at}`} className="boxCell" title={`Egg in the incubator — ${eggMood(egg, exact)}`}>
             <EggSprite variantId={egg.creature.variantId} size={48} />
             <span className="boxCellFoot">
-              <span>Egg</span>
+              <span>Incubating</span>
             </span>
           </span>
         ))}

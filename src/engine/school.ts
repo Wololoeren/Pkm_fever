@@ -40,9 +40,10 @@ export const SCHOOL: readonly NpcPlacement[] = [
     where: { at: "interior", role: "house", town: "hub-0" },
     lines: [
       "Sit anywhere. Today it is the six hidden numbers.",
-      `Every creature is born with one per stat, nought to ${IV_MAX}, and it never changes. That is the IV column on the sheet. Anything caught in the grass rolls nought to ${WILD_IV_MAX} — one fifth of the ceiling — so a wild catch is a starting point and never a finished thing.`,
-      `The only way past ${WILD_IV_MAX} is an egg. Each stat comes down from one parent or the other, and now and then it climbs. Six stats at ${IV_MAX} is ${IV_MAX * statCount} in all, and nobody has walked out of the grass with that.`,
-      "Read it as a fraction on the sheet: thirty-one over thirty-one is finished, six over thirty-one is a wild thing.",
+      `Every creature is born with one per stat, nought to ${IV_MAX}, and it never changes. That is the IV column on the sheet. Anything born out in the world averages ${WILD_IV_MAX} — half of them are five or less — so a wild catch is a starting point and rarely a finished thing.`,
+      `Rarely, mind, not never. Nothing is capped out there. One stat in six thousand comes up ${IV_MAX}, which is about one creature in a thousand carrying one somewhere, and you will remember the day.`,
+      `The reliable road is still an egg. Each stat comes down from one parent or the other, and now and then it climbs. Six stats at ${IV_MAX} is ${IV_MAX * statCount} in all, and nobody has walked out of the grass with that.`,
+      "Read it as a fraction on the sheet: thirty-one over thirty-one is finished, six over thirty-one is an ordinary wild thing.",
     ],
   },
   {

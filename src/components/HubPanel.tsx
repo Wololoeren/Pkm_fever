@@ -21,7 +21,7 @@ import {
   type BreedingItem,
 } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
-import { collectRefusal, depositRefusal, EGGOMETER, incubateRefusal, storeRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
+import { collectRefusal, depositRefusal, EGGOMETER, incubateRefusal, uncubateRefusal, storeRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
@@ -384,7 +384,8 @@ export function HubPanel({
 
         {slots ? (
           <p className="muted">
-            An egg goes into a free incubator by itself as soon as it is ready.
+            An egg goes into a free incubator by itself as soon as it is ready — but not while you
+            are standing here, so you can take it into your party instead.
           </p>
         ) : null}
         {state.daycare.incubating.length ? (
@@ -392,7 +393,22 @@ export function HubPanel({
             <h3>Incubating · {state.daycare.incubating.length}/{slots}</h3>
             <div className="boxList">
               {state.daycare.incubating.map((egg, index) => (
-                <EggRow key={`incubating-${index}`} egg={egg} exact={hasItem(state.bag, EGGOMETER)} />
+                <EggRow
+                  key={`incubating-${index}`}
+                  egg={egg}
+                  exact={hasItem(state.bag, EGGOMETER)}
+                  action={
+                    <button
+                      type="button"
+                      className="ghost small"
+                      disabled={Boolean(uncubateRefusal(world, state, index))}
+                      title={uncubateRefusal(world, state, index) ?? "Back into the party: it takes a slot again, and you can carry it about"}
+                      onClick={() => onInput({ t: "uncubateEgg", index })}
+                    >
+                      Take out
+                    </button>
+                  }
+                />
               ))}
             </div>
           </>

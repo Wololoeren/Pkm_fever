@@ -5,6 +5,16 @@ import {
   appraisal,
   appraiseRefusal,
   arenaRefusal,
+  farmCollectRefusal,
+  reclaimPrice,
+  reclaimRefusal,
+  farmLeaveRefusal,
+  farmPlantRefusal,
+  farmTakeRefusal,
+  huntOffers,
+  huntRefusal,
+  clubBoutRefusal,
+  clubRefusal,
   offerRefusal,
   cutRefusal,
   printRefusal,
@@ -68,11 +78,13 @@ import {
 import { contender as cupSpec, CUP_SIZE } from "@/engine/cup";
 import { gym as gymSpec, gymBreakdown } from "@/engine/gyms";
 import { arena, arenaBreakdown, ARENA_ROUNDS, ARENA_SIZE } from "@/engine/arenas";
+import { huntLine } from "@/engine/hunt";
+import { basketCount, farmEvery, farmLeft, farmSuits, farmWorking, ALL_BERRIES, FARM_JOBS, FARM_WORK, FARM_YIELD } from "@/engine/farm";
 import { missingInks, printable, PRINT_COOLDOWN, PRINT_PRICE } from "@/engine/printer";
 import { PAWN_COOLDOWN, PAWN_PER_LEVEL, SHRED_COOLDOWN, SHRED_PER_CANDY } from "@/engine/engine";
 import { CUT_COOLDOWN, cutReady, cutWait } from "@/engine/lapidary";
 import { natureName } from "@/engine/smith";
-import { AUCTION_WIN_PERCENT, board, lot as auctionLot, lotCreature } from "@/engine/auction";
+import { AUCTION_TICK, askingPrice, board, keenness, lot as auctionLot, lotCreature } from "@/engine/auction";
 import { ability } from "@/engine/abilities";
 import { chromaCandyFor, TUTOR_STAY, TUTOR_STEP, tutorBoard, type PricePart } from "@/engine/tutor";
 import { PAGEANT_ROUND, pageantField, pageantParts, pageantRound, pageantScore, pageantToBeat } from "@/engine/pageant";
@@ -80,7 +92,7 @@ import { StatHover } from "./StatHover";
 import { Sprite } from "@/components/Sprite";
 import { chroma } from "@/engine/variants";
 import { species as speciesById } from "@/engine/dex";
-import { item } from "@/engine/items";
+import { bagEntries, item } from "@/engine/items";
 import { dialogueOf, EGG_BUYER_AFTER_TWO, givesText } from "@/engine/npc";
 import { goalText, quest as questSpec, rewardText } from "@/engine/quests";
 import type { World } from "@/engine/world";
@@ -288,6 +300,78 @@ export function TalkPanel({
       });
     }
 
+    if (person.kind === "lost") {
+      // One line per thing handed in, each with its own fee. Sorted by name
+      // so the counter reads the same way twice.
+      return bagEntries(state.lost)
+        .sort(([a], [b]) => item(a).name.localeCompare(item(b).name))
+        .map(([id, count]) => ({
+          label: `${item(id).name}${count > 1 ? ` ×${count}` : ""} · ¤${reclaimPrice(id).toLocaleString()}`,
+          why: reclaimRefusal(world, state, id),
+          run: () => onInput({ t: "reclaim", item: id }),
+        }));
+    }
+
+    if (person.kind === "farm") {
+      const basket = basketCount(state.farm.basket);
+      return [
+        // The basket first: it is what you came back for.
+        ...(basket
+          ? [
+              {
+                label: `Take the basket · ${basket} berr${basket === 1 ? "y" : "ies"}`,
+                why: farmCollectRefusal(world, state),
+                run: () => onInput({ t: "farmCollect" }),
+              },
+            ]
+          : []),
+        ...FARM_JOBS.flatMap((job): Option[] => {
+          const hand = state.farm.hands[job];
+          if (hand) {
+            return [
+              {
+                label: `Fetch ${displayName(hand.creature)} · Lv${hand.creature.level} from ${FARM_WORK[job]}`,
+                why: farmTakeRefusal(world, state, job),
+                run: () => onInput({ t: "farmTake", job }),
+              },
+            ];
+          }
+          // Only the ones that could do the job are offered for it.
+          return state.party.flatMap((creature, index) =>
+            farmSuits(creature, job)
+              ? [
+                  {
+                    label: `Leave ${displayName(creature)} · Lv${creature.level} ${FARM_WORK[job]}`,
+                    why: farmLeaveRefusal(world, state, job, index, creature.uid),
+                    run: () => onInput({ t: "farmLeave", job, index, confirm: creature.uid }),
+                  },
+                ]
+              : [],
+          );
+        }),
+        // And the beds. A berry from the bag goes into the ground and that bed
+        // grows it from then on; a bed can be given back to whatever it fancies.
+        ...state.farm.beds.flatMap((bed, at): Option[] =>
+          bed
+            ? [
+                {
+                  label: `Bed ${at + 1} · ${item(bed).name} — dig it up`,
+                  why: farmPlantRefusal(world, state, at, null),
+                  run: () => onInput({ t: "farmPlant", bed: at, item: null }),
+                },
+              ]
+            : bagEntries(state.bag)
+                .filter(([id]) => ALL_BERRIES.includes(id))
+                .slice(0, 6)
+                .map(([id]) => ({
+                  label: `Plant ${item(id).name} in bed ${at + 1}`,
+                  why: farmPlantRefusal(world, state, at, id),
+                  run: () => onInput({ t: "farmPlant", bed: at, item: id }),
+                })),
+        ),
+      ];
+    }
+
     if (person.kind === "auction") {
       const settle = closedBids(world, state);
       return [
@@ -300,7 +384,7 @@ export function TalkPanel({
         },
         // Armed: the money leaves now and does not come back until the lot closes.
         ...board(world.seed, state.stepsTaken).map((lot) => ({
-          label: `Bid ¤${lot.price.toLocaleString()} · ${speciesById(lot.speciesId).name} Lv${lot.level}`,
+          label: `Bid ¤${askingPrice(world.seed, lot.n, state.stepsTaken).toLocaleString()} · ${speciesById(lot.speciesId).name} Lv${lot.level}`,
           why: bidRefusal(world, state, lot.n),
           arms: -1 - lot.n,
           run: () => onInput({ t: "bid", n: lot.n }),
@@ -530,6 +614,38 @@ export function TalkPanel({
       ];
     }
 
+    if (person.kind === "hunt") {
+      // The board itself: five lines, each its own button, and the one you
+      // take is the one you are then walking to find.
+      return huntOffers(world, state).map((offer, index) => ({
+        label: huntLine(offer, world.routes.get(offer.routeId)?.label ?? offer.routeId),
+        why: huntRefusal(world, state, index),
+        run: () => onInput({ t: "huntTake", index }),
+      }));
+    }
+
+    if (person.kind === "fightclub") {
+      // One button either way: stepping in for the first time, and taking the
+      // next bout of a series already running. He is holding one of yours in
+      // between, and he is not handing it back until somebody goes down.
+      const standing = state.party.filter((one) => one.hp > 0).length;
+      return state.club
+        ? [
+            {
+              label: `Again · ${state.club.round} down, ${standing} of yours still up`,
+              why: clubBoutRefusal(state),
+              run: () => onInput({ t: "clubFight" }),
+            },
+          ]
+        : [
+            {
+              label: `Step in · he picks one of yours, the rest of them answer for it`,
+              why: clubRefusal(state),
+              run: () => onInput({ t: "clubEnter" }),
+            },
+          ];
+    }
+
     if (person.kind === "travel") {
       /*
        * The towns only, as buttons; everywhere else is a dot on the map.
@@ -737,6 +853,36 @@ export function TalkPanel({
       ) : null}
       {person.kind === "chromabuy" && !state.party.some((creature) => chromaCandyFor(creature)) ? (
         <p className="muted">Nobody in your party is wearing a colour.</p>
+      ) : null}
+
+      {person.kind === "lost" ? (
+        <p className="muted small">
+          {Object.keys(state.lost).length
+            ? "Everything here left your hands some other way than being used: sold over a counter, carried off on the back of something you traded, planted, or used up by an evolution. The fee is the greater of what it is worth and ¤250."
+            : "Nothing of yours has been handed in. Sell something, trade away a creature that was carrying something, or plant a berry, and it will find its way here."}
+        </p>
+      ) : null}
+
+      {person.kind === "farm" ? (
+        <div className="muted">
+          <p className="small">
+            {farmWorking(state.farm)
+              ? `Five beds, three hands, a harvest of ${FARM_YIELD} every ${farmEvery(state.farm).toLocaleString()} steps — ${farmLeft(state.farm)?.toLocaleString()} to go. Better workers, quicker harvests.`
+              : `Nothing grows until all three jobs are filled. ${FARM_JOBS.filter((job) => !state.farm.hands[job]).map((job) => FARM_WORK[job]).join(", ")} still wants somebody.`}
+          </p>
+          <p className="small">
+            {state.farm.beds.map((bed, at) => `${at + 1}: ${bed ? item(bed).name : "fallow"}`).join(" · ")}
+          </p>
+          {basketCount(state.farm.basket) ? (
+            <p className="small">
+              In the basket:{" "}
+              {bagEntries(state.farm.basket)
+                .map(([id, count]) => `${item(id).name} x${count}`)
+                .join(", ")}
+              .
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {person.kind === "workshop" ? (
@@ -1080,18 +1226,24 @@ function AuctionBoard({ world, state }: { world: World; state: GameState }) {
   return (
     <div className="auction">
       <p className="muted">
-        A bid is paid now and held. When the lot closes it wins {AUCTION_WIN_PERCENT}% of the time; otherwise
-        every coin comes back. Settle closed lots here either way.
+        Every lot opens at a third of what it is worth and climbs toward it: every {AUCTION_TICK} steps
+        somebody in the room may go a tenth higher, and the cheaper a lot still looks the likelier that is. By
+        the time one closes it is usually going for about what it is worth. Bid and the money is held. If
+        nobody outbids you before it closes, it is yours; if somebody does, you can go again at the new price
+        or let it go and take every coin back. Settle closed lots here either way.
       </p>
       <div className="auctionBoard">
         {lots.map((lot) => {
-          const mine = state.bids.some((bid) => bid.n === lot.n);
+          const bid = state.bids.find((one) => one.n === lot.n);
+          const ask = askingPrice(world.seed, lot.n, state.stepsTaken);
+          const mine = Boolean(bid) && bid!.price >= ask;
+          const beaten = Boolean(bid) && bid!.price < ask;
           const left = lot.closesAt - state.stepsTaken;
           return (
             <button
               key={lot.n}
               type="button"
-              className={`auctionLot${mine ? " bidOn" : ""}${looking === lot.n ? " looking" : ""}`}
+              className={`auctionLot${mine ? " bidOn" : ""}${beaten ? " outbid" : ""}${looking === lot.n ? " looking" : ""}`}
               title="Click for its full sheet"
               aria-pressed={looking === lot.n}
               onClick={() => setLooking(looking === lot.n ? null : lot.n)}
@@ -1104,11 +1256,15 @@ function AuctionBoard({ world, state }: { world: World; state: GameState }) {
               />
               <strong>{speciesById(lot.speciesId).name}</strong>
               <span className="muted">Lv{lot.level}</span>
-              <span>¤{lot.price.toLocaleString()}</span>
+              <span>¤{ask.toLocaleString()}</span>
+              <span className="muted" title={`Worth ¤${lot.price.toLocaleString()}`}>
+                {(keenness(lot.price, ask) / 10).toFixed(0)}% a raise per {AUCTION_TICK}
+              </span>
               <span className="muted">
                 {left.toLocaleString()} step{left === 1 ? "" : "s"} left
               </span>
               {mine ? <span className="tag rise">YOUR BID</span> : null}
+              {beaten ? <span className="tag fall">OUTBID ¤{bid!.price.toLocaleString()}</span> : null}
             </button>
           );
         })}

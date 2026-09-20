@@ -12,6 +12,7 @@ import type { Combatant } from "@/engine/battle";
 import { describeMod, sideMods, type StatMod } from "@/lib/mods";
 import { displayName } from "@/lib/narrate";
 import { typeColor } from "@/render/palette";
+import { AbilityMark } from "./Handbook";
 
 /** "Atk", "Atk and Spe", "HP, Atk and Spe" — never "Atk and Spe and HP". */
 function listOf(parts: string[]): string {
@@ -56,9 +57,12 @@ export function StatHover({
   creature,
   title,
   side,
+  owned,
 }: {
   creature: Individual;
   title?: string;
+  /** Every ability something of yours carries, for the mark beside each one. */
+  owned?: ReadonlySet<string>;
   /**
    * The side it is standing on, in a battle. What the battle is doing to
    * these numbers — stages, a split, a paralysis — is a fact about the slot
@@ -127,7 +131,8 @@ export function StatHover({
       </table>
 
       <p className="muted">
-        IV {ivTotal(creature.ivs)}/{IV_MAX * STAT_IDS.length} · EV {spent}/{EV_MAX_TOTAL}
+        Base {STAT_IDS.reduce((sum, stat) => sum + entry.base[stat], 0)} · IV {ivTotal(creature.ivs)}/
+        {IV_MAX * STAT_IDS.length} · EV {spent}/{EV_MAX_TOTAL}
       </p>
       <p className="muted">
         Beating one is worth {yielded.amount} {listOf(yielded.stats.map((s) => STAT_LABELS[s]))}.
@@ -142,6 +147,7 @@ export function StatHover({
       ) : null}
       {abilitiesOf(creature.abilities).map((spec) => (
         <p key={spec.id} className="good">
+          {owned ? <AbilityMark had={owned.has(spec.id)} /> : null}
           <strong>{spec.name}</strong> — {spec.blurb}
         </p>
       ))}

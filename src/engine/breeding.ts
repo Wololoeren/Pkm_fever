@@ -38,6 +38,16 @@ const NO_BREEDING = "Undiscovered";
 /** The universal partner. */
 const DITTO = "ditto";
 
+/**
+ * How often a Ditto in the *first* slot gives a Ditto rather than a copy of
+ * whatever it was paired with.
+ *
+ * Only from the first slot, which is what makes the order of the two a
+ * decision: put it second and every egg is the other one's line, put it first
+ * and one egg in five is another Ditto to breed with.
+ */
+export const DITTO_EGG_PERCENT = 20;
+
 /** How many of the twelve parent stat slots pass down, and with what item. */
 const INHERITED_SLOTS = 3;
 const INHERITED_SLOTS_WITH_HEIRLOOM = 5;
@@ -233,14 +243,16 @@ export function breedingRefusal(a: Individual, b: Individual): string | null {
     return "one of these cannot breed at all";
   }
 
-  // Ditto is the exception to gender as well as to species: it takes the shape
-  // of whatever it is paired with.
+  // Egg groups are the one rule a Ditto is exempt from: it takes the shape of
+  // whatever it is paired with, so there is nothing for the groups to
+  // disagree about. Gender is not an exception — a Ditto has one like
+  // anything else, and two of the same still do not pair.
   const isDitto = (individual: Individual) => baseFormOf(individual.speciesId) === DITTO;
-  if (isDitto(a) && isDitto(b)) return "two Dittos have nothing to work from";
-  if (isDitto(a) || isDitto(b)) return null;
 
   if (!gendersPair(a.gender, b.gender)) return "these two genders do not pair";
-  if (!groupsA.some((group) => groupsB.includes(group))) return "these two share no egg group";
+  if (!isDitto(a) && !isDitto(b) && !groupsA.some((group) => groupsB.includes(group))) {
+    return "these two share no egg group";
+  }
   return null;
 }
 
@@ -265,10 +277,14 @@ export function breed(
   const rng = rngFor(seed, "egg", first.uid, second.uid, eggIndex);
 
   // A Ditto contributes nothing but a slot, so the child takes after whichever
-  // parent is not one.
+  // parent is not one — except that a Ditto standing in the first slot passes
+  // itself on now and then, which is the only way the world makes more of
+  // them. Rolled only when there is a Ditto in the first slot, so every other
+  // pairing deals exactly the eggs it always dealt.
   const isDitto = (individual: Individual) => baseFormOf(individual.speciesId) === DITTO;
   const template = isDitto(first) && !isDitto(second) ? second : first;
-  const speciesId = baseFormOf(template.speciesId);
+  const copies = isDitto(first) && !isDitto(second) && rng() * 100 < DITTO_EGG_PERCENT;
+  const speciesId = copies ? DITTO : baseFormOf(template.speciesId);
 
   const ivs = inheritIvs(rng, first, second, applied);
 

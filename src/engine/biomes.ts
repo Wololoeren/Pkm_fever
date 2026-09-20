@@ -1,3 +1,4 @@
+import { CAVE_BIOME, CAVE_TYPES } from "./caves";
 import { TILE } from "./terrain";
 
 /**
@@ -366,8 +367,15 @@ export function profileFor(id: string): BiomeProfile {
   return BY_ID.get(id)?.profile ?? BIOMES[0].profile;
 }
 
-/** The types that live in a biome, or none for somewhere nothing lives. */
+/**
+ * The types that live in a biome, or none for somewhere nothing lives.
+ *
+ * Caves answer here without being biomes: `BIOMES` is dealt onto the lattice
+ * and given a coach stop per entry, and neither is true of somewhere
+ * underground. See `caves.ts`.
+ */
 export function typesFor(id: string): readonly string[] {
+  if (id === CAVE_BIOME) return CAVE_TYPES;
   return BY_ID.get(id)?.types ?? [];
 }
 
@@ -404,5 +412,6 @@ export function placesWanted(): number {
  * in this table.
  */
 export function nameOf(id: string): string {
+  if (id === CAVE_BIOME) return "Cave";
   return BY_ID.get(id)?.name ?? `${id[0].toUpperCase()}${id.slice(1)}`;
 }

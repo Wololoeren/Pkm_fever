@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ALL_SPECIES } from "@/engine/dex";
 import { applyInput, initialState, reduce, stateHash, type Input } from "@/engine/engine";
 import { expForLevel } from "@/engine/progression";
-import { WILD_IV_MAX } from "@/engine/stats";
+import { IV_MAX, IV_MEAN } from "@/engine/stats";
 import { STAT_IDS } from "@/engine/types";
 import { wildAt } from "@/engine/world";
 import { outdoorRoutes, play, testWorld } from "./helpers";
@@ -125,16 +125,24 @@ describe("the anti-scum property", () => {
     expect(two).toEqual(one);
   });
 
-  it("A3: no wild creature exceeds the wild IV ceiling", () => {
+  it("A3: wild IVs are the table's — inside the bounds, and averaging what it says", () => {
     const world = testWorld(SEED);
+    let total = 0;
+    let rolled = 0;
     for (const route of outdoorRoutes(world)) {
       for (let slot = 0; slot < 25; slot++) {
         const wild = wildAt(world, ALL_SPECIES, route.id, slot, 1);
         for (const stat of STAT_IDS) {
-          expect(wild.ivs[stat]).toBeLessThanOrEqual(WILD_IV_MAX);
+          // Nothing is capped any more, but nothing is off the ladder either.
+          expect(wild.ivs[stat]).toBeLessThanOrEqual(IV_MAX);
           expect(wild.ivs[stat]).toBeGreaterThanOrEqual(0);
+          total += wild.ivs[stat];
+          rolled++;
         }
       }
     }
+    // Thousands of stats out of one world: the mean is the table's mean.
+    expect(total / rolled).toBeGreaterThan(IV_MEAN - 1);
+    expect(total / rolled).toBeLessThan(IV_MEAN + 1);
   });
 });

@@ -58,7 +58,7 @@ import {
   levelFromExp,
 } from "./progression";
 import { BIOMES } from "./biomes";
-import { bidWins, board, lot as auctionLot, lotCreature } from "./auction";
+import { askingPrice, board, lot as auctionLot, lotCreature } from "./auction";
 import { PAGEANT_ROUND, pageantRound, pageantScore, pageantToBeat } from "./pageant";
 import { CHROMA_CANDY, chromaCandyFor, giftContents, SECRET_GIFT, TUTOR_STAY, tutorBoard, type PricePart } from "./tutor";
 import { heldAfterEvolving, specialEvolutionLapsed } from "./evolutions";
@@ -96,14 +96,38 @@ import {
   CUP_SIZE,
   isContender,
 } from "./cup";
+import { newsItem, NEWS_KEPT, NEWS_LEVELS, NEWS_QUIET, type NewsItem } from "./news";
+import {
+  emptyFarm,
+  farmEvery,
+  farmPicks,
+  farmSuits,
+  farmWorking,
+  ALL_BERRIES,
+  FARM_BEDS,
+  FARM_JOBS,
+  FARM_YIELD,
+  type FarmJob,
+  type FarmState,
+} from "./farm";
+import {
+  huntBoard,
+  huntCreature,
+  huntLeft,
+  huntRound,
+  quarryMoves,
+  type Hunt,
+  type HuntOffer,
+} from "./hunt";
 import { hash32, intBelow, intBetween, rngFor } from "./rng";
-import { clampIvs, computeStats, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX } from "./stats";
+import { clampIvs, computeStats, rollIvs, EV_MAX_PER_STAT, EV_MAX_TOTAL, IV_MAX } from "./stats";
 import { STAT_IDS, type Individual, type StatId, type StatTable } from "./types";
 import { appearanceId, chroma, CHROMA_IDS, TOP_TIER, variant } from "./variants";
 import {
   encounterTriggers,
   fishAt,
   propBlocks,
+  roamPath,
   type Route,
   HUB_ID,
   starterAppearance,
@@ -187,7 +211,17 @@ export type Input =
    * player's vault instead of a starter pick. Carried whole, like a trade,
    * and rebuilt here — see `vaultStart`.
    */
-  | { t: "vaultStart"; creature: Individual }
+  | {
+      t: "vaultStart";
+      /**
+       * The first one, kept for its own sake: every log written before a
+       * vault run could take a team carries this and nothing else, and it
+       * still means what it meant.
+       */
+      creature: Individual;
+      /** The whole team, when there is more than one of them. */
+      creatures?: Individual[];
+    }
   | { t: "move"; dir: Direction }
   | { t: "fight"; moveIndex: number }
   /** Nothing left to fight with. Legal only when that is actually true. */
@@ -231,6 +265,30 @@ export type Input =
    * trust. It is marked `traded` so a format can decide whether to accept it.
    */
   | { t: "trade"; give: number; receive: Individual }
+  /**
+   * A deal struck at the trading post: a creature out, a creature in, money
+   * either way, and any of the three left off.
+   *
+   * One input rather than three because a deal is one thing: "my Dratini and
+   * two thousand for your Larvitar" has to land whole or not at all, and two
+   * inputs would be a save where half of it happened.
+   *
+   * What crosses the wire is the other side's word — see `lib/post.ts`. The
+   * engine checks what it can (you have the creature, you have the money, the
+   * arrival is a creature this game could have made) and trusts the rest, in
+   * exactly the way the duel and the trade room already do.
+   */
+  | {
+      t: "postDeal";
+      /** Which of yours goes, by party index, or null when only money moves. */
+      give: number | null;
+      /** What arrives, or null when you are selling for money alone. */
+      receive: Individual | null;
+      /** Money you pay (negative) or take (positive). */
+      paid: number;
+      /** Who you dealt with, for the notice and the log. */
+      who: string;
+    }
   /**
    * A creature won in a bracket, and which of the three on offer was taken.
    *
@@ -312,6 +370,7 @@ export type Input =
   | { t: "collectBids" }
   /** A carried egg into a free incubator, at the daycare. */
   | { t: "incubateEgg"; index: number }
+  | { t: "uncubateEgg"; index: number }
   /** Leaving a party member at one of the workshop's three jobs. */
   | { t: "workshopLeave"; station: WorkshopStation; index: number; confirm: number }
   /** Fetching it back. */
@@ -347,6 +406,21 @@ export type Input =
   | { t: "arenaFight" }
   /** And taking one of the three at the end of it. */
   | { t: "arenaPrize"; index: number }
+  /** The lost property office: one thing back, for the handling fee. */
+  | { t: "reclaim"; item: string }
+  /** The berry farm: hands on and off the jobs, a bed planted, the basket taken. */
+  | { t: "farmLeave"; job: FarmJob; index: number; confirm: number }
+  | { t: "farmTake"; job: FarmJob }
+  | { t: "farmPlant"; bed: number; item: string | null }
+  | { t: "farmCollect" }
+  /** The hunter: take one off his board, or give up on the one you took. */
+  | { t: "huntTake"; index: number }
+  | { t: "huntDrop" }
+  /** The Doomscroller: another hundred steps of the world, going nowhere. */
+  | { t: "doomscroll"; steps: number }
+  /** The fight club: start a series, and take the next bout of one. */
+  | { t: "clubEnter" }
+  | { t: "clubFight" }
   /**
    * A testing shortcut.
    *
@@ -584,6 +658,22 @@ export type Notice =
   | { t: "arenaRound"; id: string; round: number }
   /** And the last one. */
   | { t: "arenaWon"; id: string }
+  /** A deal struck at the trading post. */
+  | { t: "dealt"; who: string; given: string | null; received: string | null; paid: number }
+  /** Something back from the lost property office, and what it cost. */
+  | { t: "reclaimed"; item: string; paid: number }
+  /** The basket, taken: how many berries, of how many kinds. */
+  | { t: "harvest"; berries: number; kinds: number }
+  /** A hunt taken: what, and where it was last seen. */
+  | { t: "huntOn"; speciesId: string; routeId: string }
+  /** And the eight hundred steps run out. */
+  | { t: "huntOff"; speciesId: string }
+  /** A sitting with the feed, and how much of the world went by. */
+  | { t: "scrolled"; steps: number }
+  /** A bout of the fight club, taken. */
+  | { t: "clubRound"; round: number }
+  /** And the end of a series: who was left standing, and what it paid. */
+  | { t: "clubDone"; speciesId: string; rounds: number; purse: number }
   | { t: "used"; item: string; on: string }
   /** A move used out in the world, for the ones whose effect is not itself
    * visible — a map filled in, a walk home, health handed over. */
@@ -908,6 +998,46 @@ export interface GameState {
    */
   arena: { id: string; entered: number; round: number } | null;
   /**
+   * A fight club series, if one is running: how many bouts have been won, and
+   * which slot of the party the one he is holding came out of.
+   *
+   * The creature itself is not here. While a bout is on it is the other side
+   * of the battle, and the battle is state; between bouts it is back in the
+   * party where it belongs. Two copies of a creature is exactly the bug this
+   * whole engine is arranged to make impossible.
+   */
+  club: { round: number; slot: number } | null;
+  /**
+   * The feed: what the world has had to say about your game lately, newest
+   * last, `NEWS_KEPT` at most.
+   *
+   * State rather than something the page keeps, for the reason everything
+   * else is: a line written from the seed and the step it happened on is the
+   * same line on a replay, and a feed that only existed in one browser would
+   * be a feed that vanished when you loaded the save on another machine.
+   */
+  news: NewsItem[];
+  /**
+   * The hunt the hunter sent you on, if any: which creature, where, when it
+   * was taken and how far round its loop it has walked.
+   *
+   * One at a time. The creature itself is rebuilt from the offer when you
+   * walk into it, so it is written down once rather than twice.
+   */
+  hunt: Hunt | null;
+  /** The berry farm: who is working it, what is planted, and what is waiting. */
+  farm: FarmState;
+  /**
+   * The lost property office: everything that has left your hands by a road
+   * that was not *using* it, and what it would cost to have it back.
+   *
+   * Sold over a counter, carried off by a creature you traded away, dug into
+   * a flower bed, used up by an evolution. Not the potion you drank: that is
+   * spent, which is a different thing from lost, and an office that handed
+   * back everything you ever consumed would be a bag with no bottom.
+   */
+  lost: Record<string, number>;
+  /**
    * The tick each arena was last won on, by arena id. A bracket you have
    * won is closed to you for `ARENA_COOLDOWN` moves; losing costs nothing.
    */
@@ -1073,7 +1203,6 @@ function partyFull(state: Pick<GameState, "party" | "eggs">): boolean {
 /** Starters roll better IVs than anything wild, and worse than anything bred.
  * Derived from the wild ceiling rather than picked out of the air, so the
  * three tiers stay in proportion if the wild cap is ever retuned. */
-const STARTER_IV_MAX = 12;
 
 export class IllegalInput extends Error {
   constructor(reason: string) {
@@ -1147,6 +1276,11 @@ export function initialState(world: World): GameState {
     cutAt: null,
     arena: null,
     arenaWon: {},
+    club: null,
+    news: [],
+    hunt: null,
+    farm: emptyFarm(),
+    lost: {},
     lures: {},
     questsTaken: [],
     questsDone: [],
@@ -1242,7 +1376,7 @@ function restored(individual: Individual): Individual {
  * Six places to remember to call something is six places to forget.
  */
 export function applyInput(world: World, state: GameState, input: Input): GameState {
-  const next = acquainted(world, grounds(world, incubated(world, signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input))))))))))));
+  const next = reported(world, state, acquainted(world, grounds(world, incubated(world, signed(shared(shelved(state, onFile(noted(followed(world, checkedIn(world, look(world, applyOne(world, state, input)))))))))))));
   return servedBy(state, next, input);
 }
 
@@ -1686,6 +1820,7 @@ function followed(world: World, state: GameState): GameState {
       walked.party,
       built,
       lead,
+      walked.stepsTaken,
     ),
     notice: null,
   };
@@ -1722,7 +1857,7 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
     case "pickStarter":
       return pickStarter(world, state, input.index);
     case "vaultStart":
-      return vaultStart(state, input.creature);
+      return vaultStart(state, input.creatures?.length ? input.creatures : [input.creature]);
     case "move":
       return move(world, state, input.dir);
     case "fight":
@@ -1756,6 +1891,8 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return moveBetweenParty(state, input.index, "retrieve");
     case "trade":
       return trade(world, state, input.give, input.receive);
+    case "postDeal":
+      return postDeal(world, state, input);
     case "cheat":
       return cheat(world, state, input.cheat);
     case "setMoves":
@@ -1851,6 +1988,8 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return collectBids(world, state);
     case "incubateEgg":
       return incubateEgg(world, state, input.index);
+    case "uncubateEgg":
+      return uncubateEgg(world, state, input.index);
     case "workshopLeave":
       return workshopLeave(world, state, input.station, input.index, input.confirm);
     case "workshopTake":
@@ -1863,6 +2002,28 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return enterArena(state, input.id);
     case "arenaFight":
       return arenaFight(world, state);
+    case "reclaim":
+      return reclaim(world, state, input.item);
+    case "farmLeave":
+      return farmLeave(world, state, input.job, input.index, input.confirm);
+    case "farmTake":
+      return farmTake(world, state, input.job);
+    case "farmPlant":
+      return farmPlant(world, state, input.bed, input.item);
+    case "farmCollect":
+      return farmCollect(world, state);
+    case "huntTake":
+      return takeHunt(world, state, input.index);
+    case "huntDrop": {
+      if (!state.hunt) throw new IllegalInput("you are not hunting anything");
+      return { ...state, tick: state.tick + 1, hunt: null, notice: null };
+    }
+    case "doomscroll":
+      return doomscroll(world, state, input.steps);
+    case "clubEnter":
+      return enterClub(world, state);
+    case "clubFight":
+      return clubBout(world, state);
     case "arenaPrize":
       return takeArenaPrize(world, state, input.index);
     case "evolve":
@@ -1916,7 +2077,14 @@ function setMoves(world: World, state: GameState, index: number, moves: string[]
   return {
     ...state,
     tick: state.tick + 1,
-    party: state.party.map((creature, at) => (at === index ? { ...creature, moves: [...moves] } : creature)),
+    // Through `alignPp`, or the uses stay where they were in the array and
+    // belong to whatever moved into that slot — which is how a Hyper Beam
+    // could come out of the Centre with forty uses of somebody else's
+    // Tackle. A move kept keeps what it had left; a move new to it arrives
+    // full, and every count is capped by its own maximum.
+    party: state.party.map((creature, at) =>
+      at === index ? alignPp({ ...creature, moves: [...moves] }, creature) : creature,
+    ),
     notice: null,
   };
 }
@@ -2136,7 +2304,79 @@ function trade(world: World, state: GameState, give: number, receive: Individual
     tick: state.tick + 1,
     party: state.party.map((creature, index) => (index === give ? arrival : creature)),
     nextUid: state.nextUid + 1,
+    // Whatever the one you gave away was carrying went with it. The office
+    // in Hearth will have it, for a fee.
+    lost: mislaid(state, state.party[give].heldItem),
     notice: { t: "traded", given: state.party[give].speciesId, received: arrival.speciesId },
+  };
+}
+
+/* --------------------------------------------------------- the trading post
+ *
+ * Tim keeps a board. What is on it comes from other people's browsers over
+ * the same room the feed uses — see `lib/post.ts` — and what lands here is a
+ * deal both sides have already looked at and agreed to, in a dialog that
+ * spelled it out.
+ *
+ * The engine's job is the half it can actually check: that the creature you
+ * are giving is yours, that the money you are paying is money you have, and
+ * that what arrives is rebuilt from parts this game could have made. What it
+ * cannot check is whether the other side really handed theirs over — the same
+ * thing the trade room cannot check, answered the same way: it is visible, it
+ * is on the record, and the remedy is social.
+ */
+
+/** Why the deal cannot be applied, or null. */
+export function postDealRefusal(
+  world: World,
+  state: GameState,
+  deal: { give: number | null; receive: Individual | null; paid: number },
+): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (deal.give === null && !deal.receive && !deal.paid) return "there is nothing in that deal";
+  if (deal.give !== null) {
+    if (!state.party[deal.give]) return "you do not have that one any more";
+    if (state.locked.includes(state.party[deal.give].uid)) return "that one is locked";
+    if (!deal.receive && state.party.length <= 1) return "keep something that can fight";
+  }
+  if (deal.paid < 0 && state.money < -deal.paid) return "you cannot cover that";
+  return null;
+}
+
+function postDeal(
+  world: World,
+  state: GameState,
+  deal: { give: number | null; receive: Individual | null; paid: number; who: string },
+): GameState {
+  const refusal = postDealRefusal(world, state, deal);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const given = deal.give !== null ? state.party[deal.give] : null;
+  // Rebuilt from the parts this engine can check, exactly as a creature out
+  // of the vault is — a deal is a creature arriving from another browser, and
+  // the browser it came from could say anything.
+  const arrival = deal.receive
+    ? { ...vaultArrival(deal.receive, state.nextUid), level: deal.receive.level, exp: deal.receive.exp, vault: false, traded: true }
+    : null;
+  const party = state.party.filter((_, at) => at !== deal.give);
+  const room = party.length + state.eggs.length < PARTY_LIMIT;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money + deal.paid,
+    party: arrival && room ? [...party, arrival] : party,
+    box: arrival && !room ? [...state.box, arrival] : state.box,
+    nextUid: arrival ? state.nextUid + 1 : state.nextUid,
+    // Whatever the one you handed over was carrying went with it.
+    lost: given?.heldItem ? mislaid(state, given.heldItem) : state.lost,
+    notice: {
+      t: "dealt",
+      who: deal.who,
+      given: given?.speciesId ?? null,
+      received: arrival?.speciesId ?? null,
+      paid: deal.paid,
+    },
   };
 }
 
@@ -2177,7 +2417,17 @@ function atDaycare(world: World, state: GameState): boolean {
  * counter does not move, so the UI can say why.
  */
 function walked(world: World, start: GameState): GameState {
-  const before = streamStep(workshopStep(forageStep(world, poisonStep(world, { ...start, stepsTaken: start.stepsTaken + 1 }))));
+  const stepped = farmStep(world, streamStep(workshopStep(forageStep(world, poisonStep(world, { ...start, stepsTaken: start.stepsTaken + 1 })))));
+  // The hunt runs on the same clock as everything else, and it runs down
+  // wherever the steps are taken: a quarry does not wait while you fish.
+  const before =
+    stepped.hunt && huntLeft(stepped.hunt, stepped.stepsTaken) <= 0
+      ? {
+          ...stepped,
+          hunt: null,
+          notice: stepped.notice ?? { t: "huntOff" as const, speciesId: stepped.hunt.offer.speciesId },
+        }
+      : stepped;
   const step = (eggs: Egg[]) => eggs.map((egg) => (egg.steps > 0 ? { ...egg, steps: egg.steps - 1 } : egg));
 
   // Every egg carried is walked, and every egg in an incubator too: the
@@ -2681,9 +2931,538 @@ function arenaFight(world: World, state: GameState): GameState {
       state.party,
       team,
       lead,
+      state.stepsTaken,
     ),
     nextUid: state.nextUid + team.length,
     notice: null,
+  };
+}
+
+/* --------------------------------------------------------- lost property
+ *
+ * One ledger, written by `mislaid`, and one clerk in Hearth who reads it back
+ * to you for a handling fee. The fee is the whole design: without one this is
+ * an undo button on every decision in the game, and with one it is the thing
+ * a lost property office actually is — your own property, back, for the
+ * trouble of having lost it.
+ */
+
+/** What the office wants for one thing back: its own worth, or the floor. */
+export const RECLAIM_FLOOR = 250;
+
+export function reclaimPrice(itemId: string): number {
+  return Math.max(RECLAIM_FLOOR, isItem(itemId) ? item(itemId).sell : RECLAIM_FLOOR);
+}
+
+/** Writes one into the ledger. Called wherever something leaves by a road that is not using it. */
+function mislaid(state: GameState, itemId: string | null, count = 1): Record<string, number> {
+  if (!itemId || !isItem(itemId) || count <= 0) return state.lost;
+  return { ...state.lost, [itemId]: (state.lost[itemId] ?? 0) + count };
+}
+
+function atLostProperty(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "lost") return "this is not the office";
+  return null;
+}
+
+/** Why that cannot be reclaimed, or null. */
+export function reclaimRefusal(world: World, state: GameState, itemId: string): string | null {
+  const standing = atLostProperty(world, state);
+  if (standing) return standing;
+  if (!state.lost[itemId]) return "nothing of that description has come in";
+  if (state.money < reclaimPrice(itemId)) return `the fee is ¤${reclaimPrice(itemId).toLocaleString()}`;
+  return null;
+}
+
+function reclaim(world: World, state: GameState, itemId: string): GameState {
+  const refusal = reclaimRefusal(world, state, itemId);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const paid = reclaimPrice(itemId);
+  const left = state.lost[itemId] - 1;
+  const lost = { ...state.lost };
+  if (left > 0) lost[itemId] = left;
+  else delete lost[itemId];
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    money: state.money - paid,
+    bag: addItem(state.bag, itemId),
+    lost,
+    notice: { t: "reclaimed", item: itemId, paid },
+  };
+}
+
+/* ------------------------------------------------------------------ farm
+ *
+ * The workshop's shape, with a different point: there the creature is what
+ * gains, here the farm is. Three jobs, all three needed, and a harvest every
+ * so many steps — see farm.ts for the arithmetic and the reason for it.
+ *
+ * The basket fills and waits. Nothing is ever pushed into your bag behind
+ * your back: you come back for it, and if you leave it a week it is all still
+ * there.
+ */
+
+function atFarm(world: World, state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  const person = speakingTo(world, state);
+  if (!person) return "nobody is talking";
+  if (person.kind !== "farm") return "there is no farm here";
+  return null;
+}
+
+/** Why this one cannot take that job, or null. */
+export function farmLeaveRefusal(
+  world: World,
+  state: GameState,
+  job: FarmJob,
+  index: number,
+  confirm: number,
+): string | null {
+  const standing = atFarm(world, state);
+  if (standing) return standing;
+  if (state.farm.hands[job]) return "somebody is already on that job";
+  const creature = state.party[index];
+  if (!creature) return "nobody there";
+  if (creature.uid !== confirm) return "that is not the one you were shown";
+  if (!farmSuits(creature, job)) return `that job needs a ${job} type`;
+  if (isFainted(creature)) return "it is in no state to work";
+  if (state.party.length <= 1) return "keep something that can fight";
+  return null;
+}
+
+function farmLeave(world: World, state: GameState, job: FarmJob, index: number, confirm: number): GameState {
+  const refusal = farmLeaveRefusal(world, state, job, index, confirm);
+  if (refusal) throw new IllegalInput(refusal);
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: state.party.filter((_, at) => at !== index),
+    farm: { ...state.farm, hands: { ...state.farm.hands, [job]: { creature: state.party[index] } } },
+    notice: null,
+  };
+}
+
+/** Why nobody can be fetched off that job, or null. */
+export function farmTakeRefusal(world: World, state: GameState, job: FarmJob): string | null {
+  const standing = atFarm(world, state);
+  if (standing) return standing;
+  if (!state.farm.hands[job]) return "nobody is on that job";
+  if (partyFull(state)) return "your party is full";
+  return null;
+}
+
+function farmTake(world: World, state: GameState, job: FarmJob): GameState {
+  const refusal = farmTakeRefusal(world, state, job);
+  if (refusal) throw new IllegalInput(refusal);
+  const hand = state.farm.hands[job]!;
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party: [...state.party, hand.creature],
+    // The steps since the last harvest stay where they are: taking a hand off
+    // stops the clock rather than winding it back.
+    farm: { ...state.farm, hands: { ...state.farm.hands, [job]: null } },
+    notice: null,
+  };
+}
+
+/** Why that bed cannot be planted with that, or null. */
+export function farmPlantRefusal(world: World, state: GameState, bed: number, item: string | null): string | null {
+  const standing = atFarm(world, state);
+  if (standing) return standing;
+  if (!Number.isInteger(bed) || bed < 0 || bed >= FARM_BEDS) return "no such bed";
+  if (item === null) return state.farm.beds[bed] ? null : "that bed is already fallow";
+  if (!ALL_BERRIES.includes(item)) return "that is not a berry";
+  if (!state.bag[item]) return "you have none of those";
+  if (state.farm.beds[bed] === item) return "that is what is in it";
+  return null;
+}
+
+/**
+ * A bed planted, or cleared.
+ *
+ * The berry is spent: one goes into the ground and the bed grows that kind
+ * from then on. Clearing a bed does not give it back — it is in the ground.
+ */
+function farmPlant(world: World, state: GameState, bed: number, item: string | null): GameState {
+  const refusal = farmPlantRefusal(world, state, bed, item);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const beds = [...state.farm.beds];
+  beds[bed] = item;
+  return {
+    ...state,
+    tick: state.tick + 1,
+    bag: item ? removeItem(state.bag, item) : state.bag,
+    // Into the ground, which is not the same as eaten.
+    lost: item ? mislaid(state, item) : state.lost,
+    farm: { ...state.farm, beds },
+    notice: null,
+  };
+}
+
+/** Why there is nothing to collect, or null. */
+export function farmCollectRefusal(world: World, state: GameState): string | null {
+  const standing = atFarm(world, state);
+  if (standing) return standing;
+  if (!Object.keys(state.farm.basket).length) return "the basket is empty";
+  return null;
+}
+
+function farmCollect(world: World, state: GameState): GameState {
+  const refusal = farmCollectRefusal(world, state);
+  if (refusal) throw new IllegalInput(refusal);
+
+  let bag = state.bag;
+  let berries = 0;
+  for (const [item, count] of Object.entries(state.farm.basket)) {
+    bag = addItem(bag, item, count);
+    berries += count;
+  }
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    bag,
+    farm: { ...state.farm, basket: {} },
+    notice: { t: "harvest", berries, kinds: Object.keys(state.farm.basket).length },
+  };
+}
+
+/** One step of the farm: a harvest when the count comes round. */
+function farmStep(world: World, state: GameState): GameState {
+  if (!farmWorking(state.farm)) return state;
+
+  const steps = state.farm.steps + 1;
+  if (steps < farmEvery(state.farm)) return { ...state, farm: { ...state.farm, steps } };
+
+  const berry = farmPicks(world.seed, state.farm);
+  return {
+    ...state,
+    farm: {
+      ...state.farm,
+      steps: 0,
+      harvests: state.farm.harvests + 1,
+      basket: { ...state.farm.basket, [berry]: (state.farm.basket[berry] ?? 0) + FARM_YIELD },
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ hunt
+ *
+ * The board is derived (see hunt.ts); what the save carries is which of the
+ * five was taken, when, and how far its quarry has walked. The creature is
+ * rebuilt from the offer at the moment you walk into it.
+ *
+ * The loop it walks is the one the world's own roamers walk — `roamPath`,
+ * cached here by the three things it is a function of, because it is a search
+ * over a route and a step is not the moment to run one.
+ */
+
+const QUARRY_RADIUS = 9;
+const paths = new Map<string, { x: number; y: number }[] | null>();
+
+/** The loop this hunt's quarry walks, or null if the route had no room for one. */
+function quarryPath(world: World, hunt: Hunt): { x: number; y: number }[] | null {
+  const key = `${world.seed}:${hunt.offer.routeId}:${hunt.since}`;
+  const known = paths.get(key);
+  if (known !== undefined) return known;
+
+  const route = world.routes.get(hunt.offer.routeId);
+  if (!route) {
+    paths.set(key, null);
+    return null;
+  }
+
+  const rng = rngFor(world.seed, "quarry-path", hunt.since);
+  const centre = { x: route.entry.x, y: route.entry.y };
+  const built = roamPath(route, rng, centre, QUARRY_RADIUS, () => true);
+  paths.set(key, built);
+  return built;
+}
+
+/** Where the quarry is standing, or null when there is no hunt or nowhere to stand. */
+export function quarryAt(world: World, state: GameState): { x: number; y: number } | null {
+  if (!state.hunt || huntLeft(state.hunt, state.stepsTaken) <= 0) return null;
+  const path = quarryPath(world, state.hunt);
+  if (!path?.length) return null;
+  const at = ((state.hunt.walked % path.length) + path.length) % path.length;
+  return path[at];
+}
+
+/** The five he has on his board right now. */
+export function huntOffers(world: World, state: GameState): HuntOffer[] {
+  return huntBoard(
+    world.seed,
+    huntRound(state.stepsTaken),
+    [...world.routes.values()].filter((route) => route.kind === "route"),
+  );
+}
+
+/** Why you cannot take that one, or null. */
+export function huntRefusal(world: World, state: GameState, index: number): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (state.hunt) return "you are already after something";
+  if (!huntOffers(world, state)[index]) return "nothing like that on the board";
+  return null;
+}
+
+function takeHunt(world: World, state: GameState, index: number): GameState {
+  const refusal = huntRefusal(world, state, index);
+  if (refusal) throw new IllegalInput(refusal);
+  const offer = huntOffers(world, state)[index];
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    hunt: { offer, since: state.stepsTaken, walked: 0 },
+    talking: null,
+    notice: { t: "huntOn", speciesId: offer.speciesId, routeId: offer.routeId },
+  };
+}
+
+/**
+ * The quarry's step, taken after yours.
+ *
+ * Away from you nine steps in ten, exactly as the world's roamers move and for
+ * the same reason: a chase you can win by walking the same way round is not a
+ * chase, and one you can never win is not a hunt.
+ */
+function quarryStep(world: World, state: GameState, at: { x: number; y: number }): GameState {
+  const hunt = state.hunt;
+  if (!hunt || state.route !== hunt.offer.routeId) return state;
+  const path = quarryPath(world, hunt);
+  if (!path?.length) return state;
+  if (!quarryMoves(world.seed, hunt, state.tick)) return state;
+
+  const index = ((hunt.walked % path.length) + path.length) % path.length;
+  const ahead = path[(index + 1) % path.length];
+  const behind = path[(index - 1 + path.length) % path.length];
+  const far = (spot: { x: number; y: number }) => Math.abs(spot.x - at.x) + Math.abs(spot.y - at.y);
+  const step = far(ahead) >= far(behind) ? 1 : -1;
+
+  return { ...state, hunt: { ...hunt, walked: hunt.walked + step } };
+}
+
+/* ------------------------------------------------------------------ news
+ *
+ * A channel that comments on your own game: see `news.ts` for the voice.
+ *
+ * In the funnel and derived from what changed, rather than written at the
+ * dozen places something interesting happens — a catch, a hatching, a badge
+ * and a level are already four, and the fifth would be the one somebody
+ * forgot. Everything here is read by comparing the state before an input with
+ * the state after it, which is the one place both are in hand.
+ */
+function reported(world: World, before: GameState, state: GameState): GameState {
+  const say = (item: NewsItem): GameState => ({
+    ...state,
+    news: [...state.news, item].slice(-NEWS_KEPT),
+  });
+  const at = state.stepsTaken;
+
+  // What the notice already says happened, said again with an opinion on it.
+  const notice = state.notice;
+  if (notice && notice !== before.notice) {
+    const all = [...state.party, ...state.box];
+    if (notice.t === "caught") {
+      const caught = all.at(-1);
+      if (caught) return say(newsItem(world.seed, at, "caught", { creature: caught }));
+    }
+    if (notice.t === "hatched") {
+      const hatched = all.find((one) => one.speciesId === notice.speciesId) ?? all.at(-1);
+      if (hatched) return say(newsItem(world.seed, at, "hatched", { creature: hatched }));
+    }
+    if (notice.t === "evolved") {
+      const grown = all.find((one) => one.uid === notice.uid);
+      if (grown) return say(newsItem(world.seed, at, "evolved", { creature: grown }));
+    }
+    if (notice.t === "badge") {
+      return say(newsItem(world.seed, at, "badge", { badges: state.badges.length }));
+    }
+    if (notice.t === "whiteout") {
+      return say(newsItem(world.seed, at, "beaten", {}));
+    }
+    // Somebody out on a route, beaten. The Cup and the brackets carry their
+    // own notices; this is the ordinary fight you walked into.
+    if (notice.t === "won") {
+      return say(newsItem(world.seed, at, "trainer", {}));
+    }
+    if (notice.t === "traded" || notice.t === "swindled") {
+      const got = all.at(-1);
+      return say(newsItem(world.seed, at, "traded", { creature: got }));
+    }
+    // Won rather than caught: a bracket's prize, a lot settled, a gift.
+    if (notice.t === "prize" || notice.t === "bidsSettled") {
+      const got = all.at(-1);
+      if (got) return say(newsItem(world.seed, at, "prize", { creature: got }));
+    }
+  }
+
+  // A level worth remarking on, crossed by anybody in the party.
+  for (const one of state.party) {
+    const was = before.party.find((each) => each.uid === one.uid);
+    if (!was || was.level >= one.level) continue;
+    const crossed = NEWS_LEVELS.filter((level) => was.level < level && one.level >= level).at(-1);
+    if (crossed) return say(newsItem(world.seed, at, "level", { creature: one, level: crossed }));
+  }
+
+  // And, when nothing has happened for a while, something anyway. That is
+  // what a feed is: the quiet is the thing it exists to fill.
+  // Nothing said yet means the quiet started when the game did, not before
+  // it: a feed that opened with a remark on step one would be a feed nobody
+  // had walked far enough to have earned.
+  const last = state.news.at(-1)?.at ?? 0;
+  if (state.phase === "field" && at > 0 && at - last >= NEWS_QUIET && at !== before.stepsTaken) {
+    const who = state.party[intBelow(rngFor(world.seed, "news-who", at), Math.max(1, state.party.length))];
+    return say(newsItem(world.seed, at, "idle", { creature: who, steps: at }));
+  }
+
+  return state;
+}
+
+/* ------------------------------------------------------------ doomscroll
+ *
+ * The three buttons on the feed: a hundred steps, five hundred, a thousand,
+ * without going anywhere. Everything a step does happens — eggs walk, the
+ * daycare pairs, the workshop pays, poison bites every fifth one, lures burn
+ * down, cooldowns run and the stream's pool drains a coin a step — because
+ * "skipping" a step that only ever counted down would be a button that
+ * fabricates time rather than passing it.
+ *
+ * What does *not* happen is an encounter: nothing is walked into, because
+ * nothing is walked.
+ */
+
+/** The three lengths of a sit-down with the feed. */
+export const DOOMSCROLL_STEPS: readonly number[] = [100, 500, 1000];
+
+/** Why the feed cannot be scrolled on, or null. */
+export function doomscrollRefusal(state: GameState, steps: number): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (state.talking) return "somebody is talking to you";
+  if (!hasItem(state.bag, DOOMSCROLLER)) return "you have no feed to scroll";
+  if (!DOOMSCROLL_STEPS.includes(steps)) return "not one of the three";
+  return null;
+}
+
+function doomscroll(world: World, state: GameState, steps: number): GameState {
+  const refusal = doomscrollRefusal(state, steps);
+  if (refusal) throw new IllegalInput(refusal);
+
+  let next = state;
+  for (let step = 0; step < steps; step++) next = walked(world, next);
+  return { ...next, tick: next.tick + 1, notice: { t: "scrolled", steps } };
+}
+
+/* ------------------------------------------------------------- fight club
+ *
+ * He takes one of yours and stands it in front of the rest of your party.
+ * Both sides of the battle are your own creatures, which is the whole of the
+ * joke and most of the difficulty: the thing across the field has your levels,
+ * your moves and your held item.
+ *
+ * The one he is holding leaves the party for the length of the bout and comes
+ * back as it finished — fainted, usually, because a bout ends when one side is
+ * down. The series runs until only one of your creatures is still standing.
+ */
+
+/** What one bout pays, win or lose. He is not a promoter; this is the door money. */
+export const CLUB_PURSE = 900;
+/** And what the last one standing is worth on top. */
+export const CLUB_BONUS = 2500;
+
+/** Why he will not start, or null. */
+export function clubRefusal(state: GameState): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (state.club) return "you are already in one";
+  const able = state.party.filter((one) => !isFainted(one)).length;
+  // One to hold and one to fight, at the very least.
+  if (able < 2) return "you need two standing";
+  return null;
+}
+
+/** Why the next bout cannot start, or null. */
+export function clubBoutRefusal(state: GameState): string | null {
+  if (state.phase !== "field") return "not in the middle of this";
+  if (!state.club) return "no series is running";
+  if (state.party.filter((one) => !isFainted(one)).length < 2) return "only one of yours is still standing";
+  return null;
+}
+
+/** Which of the party he takes for this bout. His pick, from the seed. */
+function clubPick(world: World, state: GameState): number {
+  const standing = state.party.flatMap((one, at) => (isFainted(one) ? [] : [at]));
+  const rng = rngFor(world.seed, "fightclub", state.tick, state.club?.round ?? 0);
+  return standing[intBetween(rng, 0, standing.length - 1)];
+}
+
+function enterClub(world: World, state: GameState): GameState {
+  const refusal = clubRefusal(state);
+  if (refusal) throw new IllegalInput(refusal);
+  return startBout(world, { ...state, club: { round: 0, slot: 0 } });
+}
+
+function clubBout(world: World, state: GameState): GameState {
+  const refusal = clubBoutRefusal(state);
+  if (refusal) throw new IllegalInput(refusal);
+  return startBout(world, state);
+}
+
+/** Takes one out of the party and puts it across the field from the rest. */
+function startBout(world: World, state: GameState): GameState {
+  const slot = clubPick(world, state);
+  const held = state.party[slot];
+  const rest = state.party.filter((_, at) => at !== slot);
+  const lead = rest.findIndex((one) => !isFainted(one));
+  if (lead < 0) throw new IllegalInput("nobody to field");
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    phase: "battle",
+    party: rest,
+    club: { round: state.club?.round ?? 0, slot },
+    // Its own tag, so the end of the battle knows what it was.
+    battle: startBattle(world.seed, `${CLUB_TAG}${state.club?.round ?? 0}`, rest, [held], lead, state.stepsTaken),
+    talking: null,
+    notice: null,
+  };
+}
+
+/**
+ * The end of one bout: paid, and then either another or the end of the series.
+ *
+ * A series ends when only one of the party is still standing, whichever side
+ * of the last bout that one was on — which is the thing he said it would be
+ * when he explained the rules, twice.
+ */
+function clubBoutOver(base: GameState, club: { round: number; slot: number }, purse: number): GameState {
+  const round = club.round + 1;
+  const standing = base.party.filter((one) => !isFainted(one));
+  const done = standing.length < 2;
+
+  return {
+    ...base,
+    phase: "battleEnd",
+    club: done ? null : { ...club, round },
+    money: base.money + withAmuletCoin(base.battle, purse) + (done ? CLUB_BONUS : 0),
+    notice: done
+      ? {
+          t: "clubDone",
+          speciesId: (standing[0] ?? base.party[0]).speciesId,
+          rounds: round,
+          purse: purse + CLUB_BONUS,
+        }
+      : { t: "clubRound", round },
   };
 }
 
@@ -2823,9 +3602,37 @@ function layEgg(world: World, state: GameState, to: "party" | "incubator"): { st
 function incubated(world: World, state: GameState): GameState {
   const daycare = state.daycare;
   if (!daycare.eggReady || !daycare.slots[0] || !daycare.slots[1]) return state;
+  // Not while you are standing in the room. The incubator is a convenience
+  // for an egg that turns up while you are three rings away; in front of the
+  // counter it was taking the egg out of your hands before you could say
+  // which of the two you wanted — and a carried egg is the only kind you can
+  // show anybody, which is how Gus buys them.
+  if (atDaycare(world, state)) return state;
   if (daycare.incubating.length >= incubatorSlots(daycare.applied)) return state;
   const laid = layEgg(world, state, "incubator");
   return { ...laid.state, notice: state.notice ?? { t: "eggIncubated" } };
+}
+
+/** Why an incubated egg cannot be taken into the party, or null. */
+export function uncubateRefusal(world: World, state: GameState, index: number): string | null {
+  if (!atDaycare(world, state)) return "you are not in the daycare";
+  if (!state.daycare.incubating[index]) return "no such egg";
+  if (partyFull(state)) return "your party is full — an egg needs a slot";
+  return null;
+}
+
+/** An incubated egg, picked back up: it takes a party slot again and hatches in your hands. */
+function uncubateEgg(world: World, state: GameState, index: number): GameState {
+  const refusal = uncubateRefusal(world, state, index);
+  if (refusal) throw new IllegalInput(refusal);
+  const egg = state.daycare.incubating[index];
+  return {
+    ...state,
+    tick: state.tick + 1,
+    eggs: [...state.eggs, egg],
+    daycare: { ...state.daycare, incubating: state.daycare.incubating.filter((_, at) => at !== index) },
+    notice: { t: "eggTaken", steps: egg.steps },
+  };
 }
 
 /** Why a carried egg cannot go into an incubator, or null. */
@@ -3019,8 +3826,10 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
   }
 
   const rng = rngFor(world.seed, "starter", index);
-  const ivs = {} as StatTable;
-  for (const stat of STAT_IDS) ivs[stat] = intBetween(rng, 0, STARTER_IV_MAX);
+  // The same table the grass rolls off — see `IV_WEIGHTS`. A starter used to
+  // roll a flat nought to twelve, which averaged the same six and could never
+  // deal anything worth keeping for its numbers alone.
+  const ivs = rollIvs(rng);
 
   return atFullHealth(
     withMoves({
@@ -3057,6 +3866,17 @@ export function offeredStarter(world: World, index: number, uid = 1): Individual
 
 /** The level a creature from the vault starts a new run at. */
 export const VAULT_LEVEL = 5;
+
+/**
+ * How many of them a Vault Adventure may set out with.
+ *
+ * Three rather than one, because a vault full of bred creatures is a place
+ * you want to *build a team* out of; and three rather than six, because a run
+ * that opens with a full party has nothing left to fill. They arrive as they
+ * always did — level five, no effort, marked — so what three buys is variety
+ * rather than power.
+ */
+export const VAULT_TAKE = 3;
 
 /**
  * A creature out of the vault, as it arrives in a new run — or an error if it
@@ -3108,15 +3928,21 @@ export function vaultArrival(creature: Individual, uid: number): Individual {
   );
 }
 
-function vaultStart(state: GameState, creature: Individual): GameState {
+function vaultStart(state: GameState, creatures: readonly Individual[]): GameState {
   if (state.phase !== "starter") throw new IllegalInput("a vault creature can only start a run");
-  const arrival = vaultArrival(creature, state.nextUid);
+  if (!creatures.length) throw new IllegalInput("nothing to set out with");
+  if (creatures.length > VAULT_TAKE) throw new IllegalInput(`take at most ${VAULT_TAKE}`);
+
+  // Each rebuilt from the parts this engine can check — see `vaultArrival` —
+  // and each given its own uid, in the order they were picked.
+  const party = creatures.map((one, at) => vaultArrival(one, state.nextUid + at));
+
   return {
     ...state,
     tick: state.tick + 1,
     phase: "field",
-    party: [arrival],
-    nextUid: state.nextUid + 1,
+    party,
+    nextUid: state.nextUid + party.length,
     notice: { t: "starter" },
   };
 }
@@ -3809,7 +4635,7 @@ function applyFieldMove(
       // — the census is what a route *is*, and a move that rolled fresh would
       // be a way to fish for the one true shiny.
       const slot = nextEncounterSlot(world, spent, state.route);
-      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid)));
+      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid, spent.stepsTaken)));
       const lead = party.findIndex((one) => !isFainted(one));
 
       return {
@@ -3818,7 +4644,7 @@ function applyFieldMove(
         phase: "battle",
         // Its own tag, so a creature shaken out of a tree and one met in the
         // grass never share a roll even at the same slot.
-        battle: startBattle(world.seed, `${TREE_TAG}${state.route}:${slot}`, party, [wild], lead),
+        battle: startBattle(world.seed, `${TREE_TAG}${state.route}:${slot}`, party, [wild], lead, spent.stepsTaken),
         nextUid: spent.nextUid + 1,
         notice: { t: "encounter" },
       };
@@ -3826,7 +4652,7 @@ function applyFieldMove(
 
     case "draw": {
       const slot = nextEncounterSlot(world, spent, state.route);
-      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid)));
+      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid, spent.stepsTaken)));
       const lead = party.findIndex((one) => !isFainted(one));
 
       return {
@@ -3835,7 +4661,7 @@ function applyFieldMove(
         phase: "battle",
         // The grass tag, because this *is* the grass — drawn out early rather
         // than walked into, and it should be the same encounter either way.
-        battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, party, [wild], lead),
+        battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, party, [wild], lead, spent.stepsTaken),
         nextUid: spent.nextUid + 1,
         notice: { t: "encounter" },
       };
@@ -3913,6 +4739,19 @@ function waterBeside(world: World, state: GameState): boolean {
   });
 }
 
+/**
+ * What a cast costs, in steps.
+ *
+ * Standing at a pond and pressing the same button is the cheapest fight in the
+ * game — no walking, no encounter roll, and a creature every time. Without a
+ * price it is also the cheapest *training*, and every clock in the game is
+ * measured in steps: eggs, the daycare, the auction board, a gym's level, the
+ * cooldown on every machine. So a cast costs the same eight steps it would
+ * take to walk to the next patch of water and back, and those steps are real
+ * ones — the egg in your bag is eight nearer hatching.
+ */
+export const FISH_STEPS = 8;
+
 /** Why you cannot fish here, or null if you can. */
 export function fishRefusal(world: World, state: GameState): string | null {
   if (state.phase !== "field") return "not right now";
@@ -3930,20 +4769,24 @@ function fish(world: World, state: GameState): GameState {
   const key = `${state.route}:rod`;
   const index = state.nextSlot[key] ?? 0;
 
+  // The time it takes, before the thing on the end of the line arrives.
+  let waited = state;
+  for (let step = 0; step < FISH_STEPS; step++) waited = walked(world, waited);
+
   const hooked = atFullHealth(
-    withMoves(fishAt(world, ALL_SPECIES, state.route, rod.reach ?? 1, index, state.nextUid)),
+    withMoves(fishAt(world, ALL_SPECIES, waited.route, rod.reach ?? 1, index, waited.nextUid)),
   );
-  const leadIndex = state.party.findIndex((creature) => creature.hp > 0);
+  const leadIndex = waited.party.findIndex((creature) => creature.hp > 0);
 
   return {
-    ...state,
-    tick: state.tick + 1,
+    ...waited,
+    tick: waited.tick + 1,
     // Its own counter, so casting a line never consumes a patch of grass and
     // walking the grass never consumes the pond.
-    nextSlot: { ...state.nextSlot, [key]: index + 1 },
+    nextSlot: { ...waited.nextSlot, [key]: index + 1 },
     phase: "battle",
-    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:rod:${index}`, state.party, [hooked], leadIndex),
-    nextUid: state.nextUid + 1,
+    battle: startBattle(world.seed, `${WILD_TAG}${waited.route}:rod:${index}`, waited.party, [hooked], leadIndex, waited.stepsTaken),
+    nextUid: waited.nextUid + 1,
     notice: null,
   };
 }
@@ -3965,6 +4808,31 @@ export const MART_GATES: readonly { upTo: number; level: number; badges: number 
   { upTo: 20000, level: 45, badges: 5 },
   { upTo: Infinity, level: 60, badges: 7 },
 ];
+
+/** Everything you hold, wherever you have left it. */
+function everything(state: GameState): Individual[] {
+  return [
+    ...state.party,
+    ...state.box,
+    ...state.daycare.slots.flatMap((one) => (one ? [one] : [])),
+    ...WORKSHOP_STATIONS.flatMap((station) => (state.workshop[station] ? [state.workshop[station]!.creature] : [])),
+    ...FARM_JOBS.flatMap((job) => (state.farm.hands[job] ? [state.farm.hands[job]!.creature] : [])),
+    ...(state.tutoring ? [state.tutoring.creature] : []),
+    ...(state.therapy ? [state.therapy.creature] : []),
+    ...(state.influencing ? [state.influencing.creature] : []),
+  ];
+}
+
+/**
+ * Every ability something of yours is carrying, wherever it is standing.
+ *
+ * The question the handbook and a wild encounter both ask: do I have one of
+ * these already. An ability belongs to the individual, so "have" means a
+ * creature of yours carries it — not that you have met one.
+ */
+export function ownedAbilities(state: GameState): Set<string> {
+  return new Set(everything(state).flatMap((one) => one.abilities));
+}
 
 /** The highest level of anything you own: party, box, daycare, workshop, tutor, couch. */
 export function highestLevel(state: GameState): number {
@@ -4046,6 +4914,8 @@ function sellItem(world: World, state: GameState, itemId: string, count: number)
     tick: state.tick + 1,
     money: state.money + spec.sell * count,
     bag: removeItem(state.bag, itemId, count),
+    // Sold over a counter is the commonest way to lose something you wanted.
+    lost: mislaid(state, itemId, count),
     notice: { t: "sold", item: itemId, count },
   };
 }
@@ -4111,7 +4981,10 @@ function applyTool(world: World, state: GameState, itemId: string, dir: Directio
 
 /** Whether the whole of a route is visible, or only what is close. */
 export function canSee(state: GameState, route: Route): boolean {
-  return route.ring < DARK_FROM_RING || hasItem(state.bag, "hm-flash");
+  if (hasItem(state.bag, "hm-flash")) return true;
+  // A cave is dark at any depth. Out on the routes the dark is a thing the
+  // outer rings do; underground it is what the place is.
+  return route.kind !== "cave" && route.ring < DARK_FROM_RING;
 }
 
 /**
@@ -4265,6 +5138,7 @@ export function flyRefusal(world: World, state: GameState, id: string): string |
   const route = world.routes.get(id);
   if (!route) return "no such place";
   if (route.kind === "interior") return "you cannot fly indoors";
+  if (route.kind === "cave") return "you cannot fly underground";
   if (!state.visited.includes(id)) return "you have never been there";
   if (id === state.route) return "you are already there";
   return null;
@@ -4477,7 +5351,7 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
     ...state,
     tick: state.tick + 1,
     phase: "battle",
-    battle: startBattle(world.seed, `${CRITTER_TAG}${spec.id}`, state.party, [creature], lead),
+    battle: startBattle(world.seed, `${CRITTER_TAG}${spec.id}`, state.party, [creature], lead, state.stepsTaken),
     nextUid: state.nextUid + 1,
     talking: null,
     notice: { t: "encounter" },
@@ -4724,6 +5598,30 @@ export function offerRefusal(world: World, state: GameState): string | null {
 
     case "arena":
       return "they want to know whether you are entering, which is its own button";
+
+    // Nor does he. He is asking whether you are stepping in, and that is its
+    // own button with its own refusal.
+    case "fightclub":
+      return clubRefusal(state) ?? "they want to know whether you are stepping in";
+
+    // Tim's board is its own panel, and every line on it is somebody else's
+    // business rather than his.
+    case "post":
+      return "the board is the answer, not him";
+
+    // Her counter is a list of what has come in, and each line is its own
+    // button with its own fee.
+    case "lost":
+      return Object.keys(state.lost).length ? "they want to know which one" : "nothing of yours has been handed in";
+
+    // The farm asks three questions at once — who is on which job — and the
+    // basket is its own button. None of them is a yes.
+    case "farm":
+      return "they want to know who is working, which is its own list";
+
+    // Nor he: the board is the answer, and every line on it is its own button.
+    case "hunt":
+      return state.hunt ? "you are already after something" : "they want to know which one, not whether";
 
     // Also no yes. He wants to know *which one*, and every answer is a
     // different creature with a different refusal — see `shredRefusal`.
@@ -5115,14 +6013,32 @@ function atAuctioneer(world: World, state: GameState): string | null {
   return null;
 }
 
-/** Why a bid on lot `n` would be refused, or null. */
+/** What lot `n` is going for right now. */
+export function currentAsk(world: World, state: GameState, n: number): number {
+  return askingPrice(world.seed, n, state.stepsTaken);
+}
+
+/** Whether the room has bid past what you put down, so the lot is not yours. */
+export function outbid(world: World, state: GameState, n: number): boolean {
+  const bid = state.bids.find((one) => one.n === n);
+  return Boolean(bid) && currentAsk(world, state, n) > bid!.price;
+}
+
+/**
+ * Why a bid on lot `n` would be refused, or null.
+ *
+ * A second bid on a lot you are already on is allowed — but only once the
+ * room has gone past you, because bidding against yourself is not a thing
+ * anybody does. What you already put down comes off the price of the new one.
+ */
 export function bidRefusal(world: World, state: GameState, n: number): string | null {
   const standing = atAuctioneer(world, state);
   if (standing) return standing;
   if (!board(world.seed, state.stepsTaken).some((one) => one.n === n)) return "that lot is not on the board";
-  if (state.bids.some((bid) => bid.n === n)) return "you already have a bid on that lot";
-  const price = auctionLot(world.seed, n).price;
-  if (state.money < price) return `that lot costs ¤${price.toLocaleString()}`;
+  const already = state.bids.find((bid) => bid.n === n);
+  if (already && !outbid(world, state, n)) return "yours is the bid on the table";
+  const owed = currentAsk(world, state, n) - (already?.price ?? 0);
+  if (state.money < owed) return `it is going for ¤${currentAsk(world, state, n).toLocaleString()}`;
   return null;
 }
 
@@ -5130,20 +6046,29 @@ function placeBid(world: World, state: GameState, n: number): GameState {
   const refusal = bidRefusal(world, state, n);
   if (refusal) throw new IllegalInput(refusal);
   const spec = auctionLot(world.seed, n);
+  const already = state.bids.find((bid) => bid.n === n);
+  const price = currentAsk(world, state, n);
   return {
     ...state,
     tick: state.tick + 1,
-    money: state.money - spec.price,
-    bids: [...state.bids, { n, price: spec.price }].sort((a, b) => a.n - b.n),
-    notice: { t: "bidPlaced", speciesId: spec.speciesId, price: spec.price },
+    money: state.money - (price - (already?.price ?? 0)),
+    bids: [...state.bids.filter((bid) => bid.n !== n), { n, price }].sort((a, b) => a.n - b.n),
+    notice: { t: "bidPlaced", speciesId: spec.speciesId, price },
   };
 }
 
-/** The bids whose lots have closed, and so can be settled. */
+/**
+ * The bids whose lots have closed, and so can be settled.
+ *
+ * Won when the hammer came down on your number: nobody in the room went past
+ * what you put on the table between your bid and the close. Lost is not a
+ * coin any more — it is somebody else wanting it more than you did, which you
+ * could have seen happening if you had been watching the board.
+ */
 export function closedBids(world: World, state: GameState): { n: number; price: number; won: boolean }[] {
   return state.bids
     .filter((bid) => state.stepsTaken >= auctionLot(world.seed, bid.n).closesAt)
-    .map((bid) => ({ ...bid, won: bidWins(world.seed, bid.n) }));
+    .map((bid) => ({ ...bid, won: askingPrice(world.seed, bid.n, auctionLot(world.seed, bid.n).closesAt) <= bid.price }));
 }
 
 /** Why there is nothing to settle, or null. */
@@ -6450,6 +7375,7 @@ export function rematchIn(state: GameState, id: string): number {
 
 /** The tag a gym battle carries, so winning one can be recognised. */
 const GYM_TAG = "gym:";
+const CLUB_TAG = "club:";
 const ARENA_TAG = "arena:";
 
 /**
@@ -6540,7 +7466,7 @@ function challengeGym(world: World, state: GameState, id: string): GameState {
     tick: state.tick + 1,
     talking: null,
     phase: "battle",
-    battle: startBattle(world.seed, `${GYM_TAG}${id}`, state.party, team, lead),
+    battle: startBattle(world.seed, `${GYM_TAG}${id}`, state.party, team, lead, state.stepsTaken),
     nextUid: state.nextUid + team.length,
     notice: null,
   };
@@ -6770,7 +7696,7 @@ function challengeCup(world: World, state: GameState, id: string): GameState {
     tick: state.tick + 1,
     talking: null,
     phase: "battle",
-    battle: startBattle(world.seed, `${CUP_TAG}${id}`, state.party, team, lead),
+    battle: startBattle(world.seed, `${CUP_TAG}${id}`, state.party, team, lead, state.stepsTaken),
     nextUid: state.nextUid + team.length,
     notice: null,
   };
@@ -6907,27 +7833,50 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     roamers: roamed(world, state, { x: nx, y: ny }),
   });
 
+  // The thing you are hunting, which has just moved, and which you may have
+  // walked into. Before the floor and the grass: a quarry standing on a
+  // patch of grass is the quarry, not an encounter.
+  // Where it was when you stepped, not where it fled to: you catch it by
+  // walking onto the tile it is standing on, and it only runs afterwards.
+  const quarry = quarryAt(world, moved);
+  const chasing = quarryStep(world, moved, { x: nx, y: ny });
+  if (quarry && quarry.x === nx && quarry.y === ny && moved.hunt) {
+    const lead = moved.party.findIndex((one) => !isFainted(one));
+    if (lead >= 0) {
+      const creature = atFullHealth(withMoves(huntCreature(moved.hunt.offer, moved.nextUid)));
+      return {
+        ...moved,
+        phase: "battle",
+        // A wild battle, because catching it is the entire point of the hunt.
+        battle: startBattle(world.seed, `${WILD_TAG}hunt:${moved.hunt.since}`, moved.party, [creature], lead, moved.stepsTaken),
+        nextUid: moved.nextUid + 1,
+        hunt: null,
+        notice: { t: "encounter" },
+      };
+    }
+  }
+
   // Something on the floor. Picked up by standing on it, once ever.
-  const lying = (world.pickups.get(state.route) ?? []).find(
+  const lying = (world.pickups.get(chasing.route) ?? []).find(
     (drop) => drop.x === nx && drop.y === ny && !state.taken.includes(drop.id),
   );
   // An egg rather than an item: it goes where eggs go, and needs a free slot
   // in the party. With none it stays where it is for another visit.
   if (lying?.egg) {
-    if (partyFull(moved)) return { ...moved, notice: { t: "foundEgg", taken: false } };
+    if (partyFull(chasing)) return { ...chasing, notice: { t: "foundEgg", taken: false } };
     const creature = atFullHealth(withMoves(foundEggCreature(world.seed, lying.id, lying.egg.speciesId)));
     return {
-      ...moved,
-      eggs: [...moved.eggs, { creature, steps: FOUND_EGG_STEPS, total: FOUND_EGG_STEPS }],
-      taken: [...moved.taken, lying.id].sort(),
+      ...chasing,
+      eggs: [...chasing.eggs, { creature, steps: FOUND_EGG_STEPS, total: FOUND_EGG_STEPS }],
+      taken: [...chasing.taken, lying.id].sort(),
       notice: { t: "foundEgg", taken: true },
     };
   }
   if (lying) {
     return {
-      ...moved,
-      bag: addItem(moved.bag, lying.item),
-      taken: [...moved.taken, lying.id].sort(),
+      ...chasing,
+      bag: addItem(chasing.bag, lying.item),
+      taken: [...chasing.taken, lying.id].sort(),
       notice: { t: "picked", item: lying.item },
     };
   }
@@ -6972,43 +7921,43 @@ function move(world: World, state: GameState, dir: Direction): GameState {
       });
 
       return {
-        ...moved,
+        ...chasing,
         phase: "battle",
-        battle: startBattle(world.seed, `${TRAINER_TAG}${trainer.id}`, state.party, team, lead),
+        battle: startBattle(world.seed, `${TRAINER_TAG}${trainer.id}`, state.party, team, lead, state.stepsTaken),
         nextUid: uid,
         notice: null,
       };
     }
   }
 
-  if (!hidesEncounters(tile) || route.kind !== "route") return moved;
+  if (!hidesEncounters(tile) || (route.kind !== "route" && route.kind !== "cave")) return chasing;
 
   const stepped = (state.steps[state.route] ?? 0) + 1;
   const steps = { ...state.steps, [state.route]: stepped };
-  if (!encounterTriggers(world.seed, state.route, stepped)) return { ...moved, steps };
+  if (!encounterTriggers(world.seed, state.route, stepped)) return { ...chasing, steps };
 
   // A repel. Checked after the roll and before the creature is built, which is
   // the one ordering that keeps its promise: the step is spent, the roll is
   // spent, and `nextSlot` — the census — is not. Whatever is waiting in that
   // grass is still waiting, in the same order, when the repel runs out.
-  if (activeRepel(state)) return { ...moved, steps };
+  if (activeRepel(state)) return { ...chasing, steps };
 
   // Nothing able to fight means nothing to fight with, so the grass stays
   // quiet rather than starting a battle that cannot be played.
   const leadIndex = state.party.findIndex((creature) => !isFainted(creature));
-  if (leadIndex < 0) return { ...moved, steps };
+  if (leadIndex < 0) return { ...chasing, steps };
 
   const slot = nextEncounterSlot(world, state, state.route);
-  const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, state.nextUid)));
+  const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, state.nextUid, state.stepsTaken)));
 
   return {
-    ...moved,
+    ...chasing,
     steps,
     nextSlot: { ...state.nextSlot, [state.route]: slot + 1 },
     phase: "battle",
     // The tag keeps this encounter's rolls distinct from every other one in
     // the world, so two battles never share a critical hit.
-    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, state.party, [wild], leadIndex),
+    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, state.party, [wild], leadIndex, state.stepsTaken),
     nextUid: state.nextUid + 1,
     notice: { t: "encounter" },
   };
@@ -7068,11 +8017,20 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
     event.t === "exp" && event.evolved ? [{ uid: event.uid, to: event.evolved }] : [],
   );
 
+  // A fight club bout has one of your own on the far side, so the party that
+  // comes back out of the battle is the party minus that one. It goes back
+  // into the slot it was taken from, as it finished — which is fainted when
+  // the rest of them won, and standing when it did.
+  const ourTeam = result.battle.sides[0].team;
+  const club = state.club && result.battle.tag.startsWith(CLUB_TAG) ? state.club : null;
+  const back = [...ourTeam];
+  if (club && result.battle.outcome) back.splice(club.slot, 0, result.battle.sides[1].team[0]);
+
   const base: GameState = {
     ...streamed(state, state.battle, result.battle),
     tick: state.tick + 1,
     // The party fought inside the battle, so it comes back out of it.
-    party: result.battle.sides[0].team,
+    party: club ? back : ourTeam,
     pendingMoves: withOffers(state, offers),
     pendingEvolutions: withEvolutions(state, changes),
     bag: result.ballsUsed ? removeItem(state.bag, ballIdOf(action), result.ballsUsed) : state.bag,
@@ -7122,6 +8080,9 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
       return whiteout(world, base);
 
     case "win": {
+      // The club again: the one he held won, so it is the last one standing
+      // and the series is over. Not a whiteout — somebody of yours is up.
+      if (club && outcome.side === 1) return clubBoutOver(base, club, CLUB_PURSE);
       if (outcome.side === 1 || wipedOut) return whiteout(world, base);
 
       const trainerId = trainerIdOf(result.battle);
@@ -7130,6 +8091,8 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
       // A round of a bracket, won. Advanced here rather than by a separate
       // input because the win *is* the advance: an input to confirm it would
       // be a button that can only be pressed one way.
+      if (club) return clubBoutOver(base, club, CLUB_PURSE);
+
       const arenaRound = arenaRoundOf(base.battle);
       if (arenaRound !== null && base.arena) {
         const round = base.arena.round + 1;
@@ -7413,6 +8376,16 @@ export function stateHash(state: GameState): string {
     state.influencing ? `${individual(state.influencing.creature)}@${state.influencing.since}` : "-",
     state.stream ? `${state.stream.uid}$${state.stream.pool}` : "-",
     state.pageantEntered ?? "-",
+    state.club ? `${state.club.round}@${state.club.slot}` : "-",
+    state.news.map((item) => `${item.at}:${item.kind}`).join(","),
+    state.hunt ? `${state.hunt.offer.speciesId}@${state.hunt.since}+${state.hunt.walked}` : "-",
+    bagEntries(state.lost).map(([id, count]) => `${id}x${count}`).join(","),
+    [
+      FARM_JOBS.map((job) => (state.farm.hands[job] ? individual(state.farm.hands[job]!.creature) : "-")).join("/"),
+      state.farm.beds.map((bed) => bed ?? "-").join("/"),
+      `${state.farm.steps}@${state.farm.harvests}`,
+      bagEntries(state.farm.basket).map(([id, count]) => `${id}x${count}`).join(","),
+    ].join(";"),
     Object.keys(state.arenaWon ?? {})
       .sort()
       .map((id) => `${id}@${state.arenaWon[id]}`)

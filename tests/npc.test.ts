@@ -306,6 +306,12 @@ describe("what people do", () => {
     expect(matchesWant(creature("magikarp", { level: 20 }), want)).toBe(true);
     expect(matchesWant(creature("magikarp", { level: 5 }), want)).toBe(false);
     expect(matchesWant(creature("machop", { level: 40 }), want)).toBe(false);
+
+    // A species is asked for by dex number, so every form of it counts.
+    const pikachu = NPCS.find((who) => who.id === "trade-swindler")!.wants!;
+    expect(matchesWant(creature("pikachu", { level: 10 }), pikachu)).toBe(true);
+    expect(matchesWant(creature("pikachualola", { level: 10 }), pikachu)).toBe(true);
+    expect(matchesWant(creature("raichu", { level: 40 }), pikachu)).toBe(false);
   });
 });
 

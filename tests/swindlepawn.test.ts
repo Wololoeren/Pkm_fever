@@ -51,6 +51,19 @@ describe("the swindler and the pawnbroker", () => {
     expect(offerRefusal(world, state)).not.toBeNull();
   });
 
+  it("SW2b: any Pikachu will do — there are eleven of them — but a Raichu will not", () => {
+    // Asked by dex number, so the caps, the Alolan one and the partner all
+    // count, and the thing it grows into does not.
+    for (const id of ["pikachu", "pikachualola", "pikachucosplay", "pikachupartner", "pikachuworld"]) {
+      const state = standingBy("trade-swindler", { ...base, party: [...base.party, creature(id, { uid: 602, level: 12 })] });
+      expect(offerRefusal(world, state), id).toBeNull();
+    }
+    for (const id of ["raichu", "raichualola", "pichu"]) {
+      const state = standingBy("trade-swindler", { ...base, party: [...base.party, creature(id, { uid: 603, level: 12 })] });
+      expect(offerRefusal(world, state), id).not.toBeNull();
+    }
+  });
+
   it("PB1: the pawnbroker pays fifty a level, gives back the held item, and waits 1200 steps", () => {
     const seller = creature("rattata", { uid: 700, level: 23, heldItem: "berry-oran" });
     const state = standingBy("pawn-broker", { ...base, party: [...base.party, seller] });

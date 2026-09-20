@@ -5,6 +5,7 @@ import {
   bestRod,
   buyRefusal,
   fishRefusal,
+  FISH_STEPS,
   initialState,
   reduce,
   sellRefusal,
@@ -249,6 +250,17 @@ describe("fishing", () => {
 
     // Casting again gives the next one along, never a second roll at the last.
     expect(hooked.nextSlot[`${spot!.route}:rod`]).toBe(1);
+
+    // And it costs the walk it saves: eight steps of the world go by, so a
+    // pond is not a way to train without spending any of the game's clock.
+    expect(hooked.stepsTaken).toBe(spot!.stepsTaken + FISH_STEPS);
+
+    // Real steps: an egg in the bag is eight nearer hatching.
+    const carrying = {
+      ...spot!,
+      eggs: [{ creature: hooked.party[0], steps: 100, total: 100 }],
+    };
+    expect(applyInput(world, carrying, { t: "fish" }).eggs[0].steps).toBe(100 - FISH_STEPS);
   });
 
   it("I18: what bites is a water creature, and a better rod reaches better ones", () => {

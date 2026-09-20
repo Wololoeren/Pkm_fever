@@ -65,6 +65,23 @@ const SHELF_LABEL: Record<ItemKind, string> = {
   ink: "Inks",
 };
 
+/**
+ * What a search looks at: the name, what it does, and the shelf it is on.
+ *
+ * Word by word, so "great ball" and "ball great" both find it, and so
+ * "berry cure" narrows rather than widens. The same rule the bag and the box
+ * search by, because three panels with three ideas of what a search means is
+ * three panels nobody trusts.
+ */
+function matches(spec: { name: string; blurb: string; kind: ItemKind }, query: string): boolean {
+  const haystack = `${spec.name} ${spec.blurb} ${SHELF_LABEL[spec.kind]}`.toLowerCase();
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => haystack.includes(word));
+}
+
 export function MartPanel({
   world,
   state,
@@ -76,11 +93,22 @@ export function MartPanel({
 }) {
   const [count, setCount] = useState(1);
   const [shelf, setShelf] = useState<ItemKind | null>(null);
+  const [query, setQuery] = useState("");
+  const [selling, setSelling] = useState(false);
+
+  const searching = query.trim().length > 0;
 
   // What is on the shelves at all, in reading order.
   const shelves = SHELF_ORDER.filter((kind) => MART_STOCK.some((spec) => spec.kind === kind));
   const open = shelf && shelves.includes(shelf) ? shelf : shelves[0];
-  const stock = MART_STOCK.filter((spec) => spec.kind === open);
+  // A search looks through the whole shop rather than the open shelf: which
+  // shelf a thing is on is exactly what you did not know.
+  const stock = searching
+    ? MART_STOCK.filter((spec) => matches(spec, query))
+    : MART_STOCK.filter((spec) => spec.kind === open);
+
+  // What you are carrying that the shop will take, under the same search.
+  const sellable = bagEntries(state.bag).filter(([id]) => !searching || matches(item(id), query));
 
   return (
     <div className="mart">
@@ -89,6 +117,15 @@ export function MartPanel({
         <p className="muted">
           Purse <strong>¤{state.money.toLocaleString()}</strong>
         </p>
+        <input
+          type="search"
+          className="boxSearch"
+          placeholder="Search the shop…"
+          value={query}
+          aria-label="Search the Mart"
+          spellCheck={false}
+          onChange={(event) => setQuery(event.target.value)}
+        />
         <label className="martCount">
           How many
           <input
@@ -101,25 +138,39 @@ export function MartPanel({
         </label>
       </div>
 
-      <h4>For sale</h4>
+      <h4>
+        For sale{searching ? ` · ${stock.length} found` : ""}
+      </h4>
 
       <div className="tabs" role="tablist">
-        {shelves.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            role="tab"
-            aria-selected={kind === open}
-            className={kind === open ? "tab on" : "tab"}
-            onClick={() => setShelf(kind)}
-          >
-            {SHELF_LABEL[kind]}
-            <span className="tabCount">
-              {MART_STOCK.filter((spec) => spec.kind === kind).length}
-            </span>
-          </button>
-        ))}
+        {shelves.map((kind) => {
+          const hits = searching ? MART_STOCK.filter((spec) => spec.kind === kind && matches(spec, query)).length : 0;
+          return (
+            <button
+              key={kind}
+              type="button"
+              role="tab"
+              aria-selected={!searching && kind === open}
+              // While searching the shelves are a map of where the hits are
+              // rather than a choice: clicking one clears the search and
+              // opens it, which is what somebody who has found the shelf
+              // they wanted wants next.
+              className={`tab${!searching && kind === open ? " on" : ""}${hits ? " hasHits" : ""}`}
+              onClick={() => {
+                setShelf(kind);
+                setQuery("");
+              }}
+            >
+              {SHELF_LABEL[kind]}
+              <span className="tabCount">
+                {searching ? hits : MART_STOCK.filter((spec) => spec.kind === kind).length}
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      {searching && !stock.length ? <p className="hint">Nothing on any shelf matches that.</p> : null}
 
       <div className="items">
         {stock.map((spec) => {
@@ -159,10 +210,22 @@ export function MartPanel({
         })}
       </div>
 
-      <h4>Your bag</h4>
-      {bagEntries(state.bag).length ? (
+      <h4>
+        <button
+          type="button"
+          className="ghost small martFold"
+          aria-expanded={selling}
+          onClick={() => setSelling(!selling)}
+        >
+          {selling ? "▾" : "▸"} Your bag · {sellable.length}
+          {searching ? " found" : ""}
+        </button>
+      </h4>
+      {!selling ? (
+        <p className="hint">What you are carrying, to sell. Closed by default: a shop is for buying.</p>
+      ) : sellable.length ? (
         <div className="items">
-          {bagEntries(state.bag).map(([id, held]) => {
+          {sellable.map(([id, held]) => {
             const spec = item(id);
             const wanted = Math.min(count, held);
             const refusal = sellRefusal(world, state, id, wanted);

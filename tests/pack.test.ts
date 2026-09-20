@@ -93,6 +93,8 @@ describe("packing a log", () => {
       { t: "workshopTake", station: "fire" },
       { t: "vaultStart", creature: creature("dratini", { uid: 2 }) },
       { t: "incubateEgg", index: 0 },
+      { t: "uncubateEgg", index: 0 },
+      { t: "doomscroll", steps: 500 },
       { t: "sellEgg", index: 0, confirm: 9 },
       { t: "chromaTrade", index: 1, confirm: 4 },
       { t: "tutorLeave", n: 3, index: 1, confirm: 4 },

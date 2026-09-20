@@ -1,11 +1,17 @@
 "use client";
 
+import { useState } from "react";
+import type { FriendPost } from "@/lib/friends";
+import type { PartyStatus } from "@/lib/party";
+import { normaliseRoomCode, randomRoomCode } from "@/lib/room";
 import { ability } from "@/engine/abilities";
 import { lot as auctionLot } from "@/engine/auction";
 import { eggSteps } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
 import {
   closedBids,
+  DOOMSCROLL_STEPS,
+  doomscrollRefusal,
   EGGOMETER,
   pawnWait,
   shredWait,
@@ -17,6 +23,7 @@ import {
   WORKSHOP_JOBS,
   WORKSHOP_STATIONS,
   type GameState,
+  type Input,
 } from "@/engine/engine";
 import { hasItem } from "@/engine/items";
 import { cutWait } from "@/engine/lapidary";
@@ -148,8 +155,41 @@ export function feedPosts(world: World, state: GameState): Post[] {
   return [...posts.filter((one) => one.ready), ...posts.filter((one) => !one.ready)];
 }
 
-export function Doomscroller({ world, state, onClose }: { world: World; state: GameState; onClose: () => void }) {
+/** Everything the page knows about the room of friends, handed down. */
+export interface FriendsFeed {
+  /** The code we are in, or "" for nowhere. */
+  code: string;
+  status: PartyStatus | null;
+  /** How many other people are in the room. */
+  here: number;
+  posts: readonly FriendPost[];
+  onCode: (code: string) => void;
+}
+
+export function Doomscroller({
+  world,
+  state,
+  onInput,
+  friends,
+  onClose,
+}: {
+  world: World;
+  state: GameState;
+  onInput: (input: Input) => void;
+  friends?: FriendsFeed;
+  onClose: () => void;
+}) {
+  const [typed, setTyped] = useState("");
   const posts = feedPosts(world, state);
+  // What each of the three is called. Nobody sits down meaning to lose a
+  // thousand steps, which is the joke and also what the buttons say.
+  // Two tabs: the timers, and what the world has said about your game.
+  const [tab, setTab] = useState<"timers" | "news" | "friends">("timers");
+  const sittings: [number, string][] = [
+    [DOOMSCROLL_STEPS[0], "A bit"],
+    [DOOMSCROLL_STEPS[1], "A little more"],
+    [DOOMSCROLL_STEPS[2], "Just one more"],
+  ];
   return (
     <div className="cheatBackdrop" role="dialog" aria-label="Doomscroller">
       <section className="cheatPanel handbook doomscroller">
@@ -163,8 +203,153 @@ export function Doomscroller({ world, state, onClose }: { world: World; state: G
           <p className="muted small">
             {posts.filter((one) => one.ready).length} ready · {posts.length} posts · you have been scrolling for {state.stepsTaken.toLocaleString()} steps
           </p>
+          {/* And the thing a feed is actually for: passing time you meant to
+              spend on something else. Every step counts as a step — eggs walk,
+              poison bites, the stream's pool drains — you simply do not move. */}
+          <div className="row scrollOn">
+            {sittings.map(([steps, label]) => (
+              <button
+                key={steps}
+                type="button"
+                className="ghost small"
+                disabled={Boolean(doomscrollRefusal(state, steps))}
+                title={doomscrollRefusal(state, steps) ?? `${steps.toLocaleString()} steps go by where you stand`}
+                onClick={() => onInput({ t: "doomscroll", steps })}
+              >
+                {label} · {steps.toLocaleString()}
+              </button>
+            ))}
+          </div>
+          <div className="tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "timers"}
+              className={`tab${tab === "timers" ? " on" : ""}`}
+              onClick={() => setTab("timers")}
+            >
+              Timers<span className="tabCount">{posts.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "news"}
+              className={`tab${tab === "news" ? " on" : ""}`}
+              onClick={() => setTab("news")}
+            >
+              News<span className="tabCount">{state.news.length}</span>
+            </button>
+            {friends ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "friends"}
+                className={`tab${tab === "friends" ? " on" : ""}`}
+                onClick={() => setTab("friends")}
+              >
+                Friends<span className="tabCount">{friends.posts.length}</span>
+              </button>
+            ) : null}
+          </div>
         </header>
-        {posts.length ? (
+
+        {tab === "news" ? (
+          <>
+            {state.news.length ? (
+              <ol className="newsList">
+                {[...state.news].reverse().map((item) => (
+                  <li key={`${item.at}:${item.kind}`} className="newsLine">
+                    <span className="newsWhen">{item.at.toLocaleString()}</span>
+                    <span>{item.text}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="hint">Nothing yet. Walk about, catch something, and it will find an opinion.</p>
+            )}
+            <p className="muted small">
+              The newest line pops up in the corner as it is written, unless you have muted it — muting
+              only stops the corner, and every line is kept here either way.
+            </p>
+          </>
+        ) : null}
+        {tab === "friends" && friends ? (
+          <>
+            {/* A room code and nothing else: everybody who types the same one
+                hears everybody else's feed. Nothing received here touches the
+                game — it is somebody's word about their own save. */}
+            <div className="row">
+              {friends.code ? (
+                <>
+                  <span className="tag rise">{friends.code}</span>
+                  <span className="muted small">
+                    {friends.status === "live" || friends.here > 0
+                      ? `${friends.here} other${friends.here === 1 ? "" : "s"} here`
+                      : friends.status === "connecting"
+                        ? "finding the room…"
+                        : friends.status === "failed"
+                          ? "no relay would have us"
+                          : "waiting for somebody"}
+                  </span>
+                  <button type="button" className="ghost small" onClick={() => friends.onCode("")}>
+                    Leave
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    value={typed}
+                    onChange={(event) => setTyped(normaliseRoomCode(event.target.value))}
+                    placeholder="ROOM CODE"
+                    aria-label="Room code"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={typed.length < 4}
+                    title={typed.length < 4 ? "A code is at least four characters" : "Listen to this room"}
+                    onClick={() => friends.onCode(typed)}
+                  >
+                    Subscribe
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    title="Make one up and tell your friends"
+                    onClick={() => {
+                      const code = randomRoomCode();
+                      setTyped(code);
+                      friends.onCode(code);
+                    }}
+                  >
+                    Start a room
+                  </button>
+                </>
+              )}
+            </div>
+            {friends.posts.length ? (
+              <ol className="newsList">
+                {[...friends.posts].reverse().map((post) => (
+                  <li key={`${post.who}:${post.heard}`} className="newsLine">
+                    <span className="newsWhen">{post.who}</span>
+                    <span>{post.text}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="hint">
+                Nothing from anybody yet. Your own lines go out as they are written, so leave it open.
+              </p>
+            )}
+            <p className="muted small">
+              Everybody on this code hears everybody. What crosses is a line of text and the name you
+              chose — never a creature, never a save. Nothing here can change your game.
+            </p>
+          </>
+        ) : null}
+
+        {tab === "timers" && posts.length ? (
           <ol className="feed">
             {posts.map((one, at) => (
               <li key={at} className={`feedPost${one.ready ? " ready" : ""}`}>
@@ -176,9 +361,9 @@ export function Doomscroller({ world, state, onClose }: { world: World; state: G
               </li>
             ))}
           </ol>
-        ) : (
+        ) : tab === "timers" ? (
           <p className="muted">Nothing on your feed. Go and start a clock somewhere — touch grass, as they say.</p>
-        )}
+        ) : null}
       </section>
     </div>
   );

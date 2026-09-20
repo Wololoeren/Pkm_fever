@@ -271,7 +271,10 @@ describe("signs", () => {
     for (const seed of ["A1", "B2", "C3", "D4"]) {
       const world = testWorld(seed);
       for (const route of world.routes.values()) {
-        if (route.kind === "interior") continue;
+        // Underground has no boards: the staircases are the only doors down
+        // there, and a cave that sign-posted its own stairs would be a cave
+        // with a receptionist. The mouth above ground is sign-posted.
+        if (route.kind === "interior" || route.kind === "cave") continue;
 
         // A door you can see from outside has a board beside it.
         expect(route.signs.length).toBe(route.doors.length);

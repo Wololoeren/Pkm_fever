@@ -24,7 +24,9 @@ describe("where they stand", () => {
       expect(world.trainers.has("hub-0")).toBe(false);
 
       for (const route of world.routes.values()) {
-        if (route.ring < 1) continue;
+        // Caves carry a ring — that is what their encounters read — but
+        // nobody stands about underground waiting for a match.
+        if (route.kind !== "route" || route.ring < 1) continue;
         const here = world.trainers.get(route.id) ?? [];
         // Four to seven. It was one to three, written when a route was 44x34;
         // on a map four times that size, with a maze through it, one or two

@@ -128,6 +128,18 @@ const OPS: Record<Exclude<Input["t"], "move">, number> = {
   streamUnregister: 72,
   pageantEnter: 73,
   photoshoot: 74,
+  clubEnter: 75,
+  clubFight: 76,
+  uncubateEgg: 77,
+  doomscroll: 78,
+  huntTake: 79,
+  huntDrop: 80,
+  farmLeave: 81,
+  farmTake: 82,
+  farmPlant: 83,
+  farmCollect: 84,
+  reclaim: 85,
+  postDeal: 86,
 };
 
 /** The same table read backwards, built once. */

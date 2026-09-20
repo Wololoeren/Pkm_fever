@@ -11,6 +11,7 @@ import {
 import { effortYield, gainEffort } from "./effort";
 import { awardExp, expYield } from "./progression";
 import { abilitiesOf, effectApplies, hasPerk, swappedType, typesWith, type AbilityEffect } from "./abilities";
+import { timeOf, type TimeOfDay } from "./daynight";
 import { heldEffects, isConsumedOnUse } from "./carry";
 import { item as itemSpec } from "./items";
 import { canStillEvolve } from "./progression";
@@ -658,6 +659,16 @@ export interface Combatant {
 }
 
 export interface BattleState {
+  /**
+   * What the sky was doing when this started.
+   *
+   * Written once, at the top, and never again: the hour abilities read it, and
+   * a creature that lost its bonus on turn nine because the sun went down
+   * would be a fight lost to arithmetic nobody could see. Optional because a
+   * battle from before the cycle existed has no sky, and daylight is the
+   * honest default for one.
+   */
+  hour?: TimeOfDay;
   /** Names every roll, together with `tag`. */
   seed: string;
   /** Distinguishes this battle from every other one under the same seed. */
@@ -1285,8 +1296,11 @@ export function startBattle(
   ours: readonly Individual[],
   theirs: readonly Individual[],
   ourActive = 0,
+  /** The step count it starts at, for the hour the hour abilities read. */
+  stepsTaken = 0,
 ): BattleState {
   return {
+    hour: timeOf(stepsTaken),
     seed,
     tag,
     turn: 0,
@@ -1337,6 +1351,8 @@ function effectiveStat(
    * by a Swords Dance — the split rewrote the base, not the ladder.
    */
   override?: Partial<Record<StageStat, number>>,
+  /** The sky the battle began under, for the hour abilities. */
+  hour?: TimeOfDay,
 ): number {
   const base = override?.[stat] ?? computeStats(speciesById(individual.speciesId), individual)[stat];
   const [numerator, denominator] = stageFactor(stage);
@@ -1359,6 +1375,13 @@ function effectiveStat(
 
     const named = effect.stat === "offence" ? stat === "atk" || stat === "spa" : effect.stat === stat;
     if (named) value = scaled(value, effect.mille);
+  }
+
+  // The hours again: the same multiplication, asked of the sky rather than of
+  // the creature's health or its status.
+  for (const effect of effects(individual, "hour")) {
+    if (effect.stat === "power" || effect.stat !== stat) continue;
+    if (effect.at.includes(hour ?? "day")) value = scaled(value, effect.mille);
   }
 
   return Math.max(1, value);
@@ -1524,7 +1547,7 @@ function other(side: SideIndex): SideIndex {
  */
 function speedOf(turn: Turn, side: SideIndex): number {
   const base = scaled(
-    effectiveStat(active(turn, side), "spe", turn.battle.sides[side].stages.spe, volatiles(turn, side).stats),
+    effectiveStat(active(turn, side), "spe", turn.battle.sides[side].stages.spe, volatiles(turn, side).stats, turn.battle.hour),
     fieldStatMille(turn, side, "spe"),
   );
   return screened(turn, side, "tailwind") ? base * 2 : base;
@@ -2311,8 +2334,8 @@ function confusionStops(turn: Turn, side: SideIndex): boolean {
   // Into itself, with its own Attack against its own Defence and no type at
   // all. Through `applyDamage` so a Focus Sash still answers.
   const creature = active(turn, side);
-  const attack = effectiveStat(creature, "atk", turn.battle.sides[side].stages.atk, state.stats);
-  const defence = effectiveStat(creature, "def", turn.battle.sides[side].stages.def, state.stats);
+  const attack = effectiveStat(creature, "atk", turn.battle.sides[side].stages.atk, state.stats, turn.battle.hour);
+  const defence = effectiveStat(creature, "def", turn.battle.sides[side].stages.def, state.stats, turn.battle.hour);
   let value = Math.floor((2 * creature.level) / 5) + 2;
   value = Math.floor((value * CONFUSED_POWER * attack) / Math.max(1, defence));
   value = Math.floor(value / 50) + 2;
@@ -2708,7 +2731,7 @@ function applyMoveEffect(turn: Turn, side: SideIndex, effect: MoveEffect): boole
       const target = active(turn, foe);
       const stages = turn.battle.sides[foe].stages;
       if (stages.atk <= -6) return false;
-      const drawn = effectiveStat(target, "atk", stages.atk, volatiles(turn, foe).stats);
+      const drawn = effectiveStat(target, "atk", stages.atk, volatiles(turn, foe).stats, turn.battle.hour);
       const mended = applyHeal(turn, side, drawn);
       if (mended > 0) turn.events.push({ t: "heal", side, amount: mended });
       applyBoosts(turn, foe, { atk: -1 }, true);
@@ -4033,6 +4056,7 @@ function damageFor(
       attackStat,
       turn.battle.sides[attackSide].stages[attackStat],
       volatiles(turn, attackSide).stats,
+      turn.battle.hour,
     ),
     fieldStatMille(turn, attackSide, attackStat),
   );
@@ -4044,6 +4068,7 @@ function damageFor(
         defendStat,
         IGNORES_DEFENCE_STAGES.has(move.id) ? 0 : turn.battle.sides[other(side)].stages[defendStat],
         wonderStats(turn, other(side), defendStat),
+        turn.battle.hour,
       ),
       fieldStatMille(turn, other(side), defendStat),
     ),
@@ -4136,6 +4161,12 @@ function damageFor(
         effect.type === move.type &&
         attacker.hp * 3 <= maxHp(attacker));
     if (applies) value = scaled(value, effect.mille);
+  }
+
+  // And the hours, which multiply what it deals rather than one of its stats.
+  for (const effect of effects(attacker, "hour")) {
+    if (effect.stat !== "power" || !effect.at.includes(turn.battle.hour ?? "day")) continue;
+    value = scaled(value, effect.mille);
   }
 
   value = Math.floor((value * quarters) / 4);
