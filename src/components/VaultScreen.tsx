@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { species as speciesById } from "@/engine/dex";
+import { DEFAULT_DIFFICULTY } from "@/engine/difficulty";
 import { cleanTrainerName, TRAINER_NAME_MAX, VAULT_LEVEL, VAULT_TAKE } from "@/engine/engine";
 import type { Individual } from "@/engine/types";
 import { displayName } from "@/lib/narrate";
@@ -18,6 +19,7 @@ import {
 import { rememberedTrainerName, rememberTrainerName } from "./MainMenu";
 import { GenderMark } from "./PartyStrip";
 import { Sprite } from "./Sprite";
+import { DifficultyPicker } from "./DifficultyPicker";
 import { StatHover } from "./StatHover";
 
 /** Cells per page, the box's seven by seven. */
@@ -50,7 +52,7 @@ export function VaultScreen({
 }: {
   /** The raw autosave in this browser, if there is one, so it can be added in a click. */
   autosave: string | null;
-  onBegin: (seed: string, trainer: string, creatures: Individual[]) => void;
+  onBegin: (seed: string, trainer: string, creatures: Individual[], difficulty: string) => void;
   onExit: () => void;
 }) {
   const [entries, setEntries] = useState<VaultEntry[]>([]);
@@ -70,6 +72,8 @@ export function VaultScreen({
   const [busy, setBusy] = useState(false);
   const [seed, setSeed] = useState(() => randomSeed());
   const [trainer, setTrainer] = useState("");
+  /** How hard the adventure is, asked here because there is no starter screen. */
+  const [hard, setHard] = useState(DEFAULT_DIFFICULTY);
   // A save that has been read but not yet added: its creatures wait in a side
   // panel, and only the ones moved across go into the vault.
   const [staged, setStaged] = useState<VaultEntry[] | null>(null);
@@ -266,12 +270,14 @@ export function VaultScreen({
           <StatHover creature={chosen.creature} />
           <p className="muted small">
             Going with you: {going.length ? going.map((entry) => displayName(entry.creature)).join(", ") : "nobody yet"} ·{" "}
-            {VAULT_TAKE} at most, each at level {VAULT_LEVEL} with no effort and the vault mark.
+            a full party of {VAULT_TAKE} at most, each at level {VAULT_LEVEL} with no effort and the
+            vault mark.
           </p>
           <p className="muted small">
             From seed <code>{chosen.seed}</code> (engine {chosen.engine}) ·{" "}
             {chosen.proven ? "proven: read by replaying its save" : "unproven: read from a snapshot or a vault file"}
           </p>
+          <DifficultyPicker value={hard} onPick={setHard} />
           <div className="row">
             <input
               value={trainer}
@@ -293,7 +299,7 @@ export function VaultScreen({
                 onTeam
                   ? "Leave it behind"
                   : team.length >= VAULT_TAKE
-                    ? `Three is the most you can take`
+                    ? `A party holds ${VAULT_TAKE}`
                     : "Take it with you"
               }
               onClick={() => takeOrDrop(chosen.id)}
@@ -313,7 +319,7 @@ export function VaultScreen({
               }
               onClick={() => {
                 rememberTrainerName(cleanTrainerName(trainer));
-                onBegin(seed, trainer, going.map((entry) => entry.creature));
+                onBegin(seed, trainer, going.map((entry) => entry.creature), hard);
               }}
             >
               Begin Vault Adventure{going.length > 1 ? ` · ${going.length}` : ""}

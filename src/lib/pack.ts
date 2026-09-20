@@ -140,6 +140,10 @@ const OPS: Record<Exclude<Input["t"], "move">, number> = {
   farmCollect: 84,
   reclaim: 85,
   postDeal: 86,
+  setDifficulty: 87,
+  saveLoadout: 88,
+  loadLoadout: 89,
+  dropLoadout: 90,
 };
 
 /** The same table read backwards, built once. */

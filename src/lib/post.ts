@@ -25,6 +25,8 @@ export interface Listing {
   who: string;
   /** The peer it came from, which the transport vouches for. */
   from: string;
+  /** Which room it came in on. Filled in by the page, not by the wire. */
+  code?: string;
   creature: Individual;
   /** What they are asking in cash, or 0 for "make me an offer". */
   asking: number;
@@ -41,6 +43,8 @@ export interface Bid {
   listing: string;
   who: string;
   from: string;
+  /** Which room it came in on, so an answer goes back the way it came. */
+  code?: string;
   /** What they are putting up, if anything. */
   creature: Individual | null;
   /** What they are paying, if anything. */
@@ -103,7 +107,7 @@ export function postId(): string {
  * friends and trading with them are the same circle of people, and asking
  * for a second code would be asking twice for the same thing.
  */
-export async function joinPost(code: string, who: string, handlers: PostHandlers): Promise<PostRoom> {
+export async function joinPost(code: string, who: () => string, handlers: PostHandlers): Promise<PostRoom> {
   let room: PartyRoom<Wire> | null = null;
   let mine: Omit<Listing, "from" | "heard">[] = [];
 
@@ -112,7 +116,7 @@ export async function joinPost(code: string, who: string, handlers: PostHandlers
       switch (message.t) {
         case "hello":
           // Somebody arrived at the board; tell them what is on it.
-          if (mine.length) room?.send({ t: "board", who, listings: mine });
+          if (mine.length) room?.send({ t: "board", who: who(), listings: mine });
           return;
         case "board":
           handlers.onBoard(
@@ -137,7 +141,7 @@ export async function joinPost(code: string, who: string, handlers: PostHandlers
     },
     onStatus: handlers.onStatus,
     onJoin: () => {
-      if (mine.length) room?.send({ t: "board", who, listings: mine });
+      if (mine.length) room?.send({ t: "board", who: who(), listings: mine });
     },
     onLeave: (id) => handlers.onGone(id),
   });
@@ -147,11 +151,11 @@ export async function joinPost(code: string, who: string, handlers: PostHandlers
   return {
     show: (listings) => {
       mine = listings;
-      room?.send({ t: "board", who, listings });
+      room?.send({ t: "board", who: who(), listings });
     },
-    bid: (bid) => room?.send({ t: "bid", who, bid }),
+    bid: (bid) => room?.send({ t: "bid", who: who(), bid }),
     pull: (bidId) => room?.send({ t: "pull", bid: bidId }),
-    strike: (deal) => room?.send({ t: "struck", ...deal, who }),
+    strike: (deal) => room?.send({ t: "struck", ...deal, who: who() }),
     decline: (bidId) => room?.send({ t: "declined", bid: bidId }),
     leave: () => room?.leave(),
   };

@@ -1,4 +1,4 @@
-import { move as moveById, species as speciesById } from "./dex";
+import { FORM_BASE, move as moveById, species as speciesById } from "./dex";
 import type { Gender } from "./gender";
 import { isItem, item } from "./items";
 import type { Individual } from "./types";
@@ -72,7 +72,7 @@ function traded(from: string, to: string, held: string | null): EvolutionRule[] 
  * The table. Order matters where one species has two doors: the first rule
  * that fits wins, so the pickier door is listed first.
  */
-export const EVOLUTION_RULES: readonly EvolutionRule[] = [
+const BASE_RULES: readonly EvolutionRule[] = [
   // Trades.
   ...traded("poliwhirl", "politoed", "King's Rock"),
   ...traded("kadabra", "alakazam", null),
@@ -181,6 +181,23 @@ export const EVOLUTION_RULES: readonly EvolutionRule[] = [
 function heldName(individual: Individual): string | null {
   return individual.heldItem && isItem(individual.heldItem) ? item(individual.heldItem).name : null;
 }
+
+
+/**
+ * And the same rules again for the event forms, which evolve the way the form
+ * they are a costume of does — see `FORM_BASE` in dex.ts for which those are
+ * and why.
+ *
+ * Copied rather than written out, because a spiky-eared Pichu that needed a
+ * Soothe Bell on Tuesdays while an ordinary one did not would be a bug wearing
+ * a feature's clothes. Appended rather than interleaved: a rule only ever
+ * fires on its own `from`, so nothing here can get in front of anything above.
+ */
+const FORM_RULES: readonly EvolutionRule[] = [...FORM_BASE].flatMap(([form, base]) =>
+  BASE_RULES.filter((rule) => rule.from === base).map((rule) => ({ ...rule, from: form })),
+);
+
+export const EVOLUTION_RULES: readonly EvolutionRule[] = [...BASE_RULES, ...FORM_RULES];
 
 function meets(individual: Individual, need: EvolutionNeed): boolean {
   switch (need.t) {

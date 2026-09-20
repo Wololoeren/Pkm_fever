@@ -58,7 +58,7 @@ export function dealText(
 
 export function TradePost({
   state,
-  code,
+  codes,
   here,
   listings,
   mine,
@@ -71,8 +71,8 @@ export function TradePost({
   onClose,
 }: {
   state: GameState;
-  /** The room this board is on, or "" when you have subscribed to nobody. */
-  code: string;
+  /** The rooms this board is drawn from. Empty when you have subscribed to nobody. */
+  codes: readonly string[];
   /** How many other people are standing at it. */
   here: number;
   /** What everybody else has up. */
@@ -109,9 +109,9 @@ export function TradePost({
             </button>
           </div>
           <p className="muted small">
-            {code
-              ? `Room ${code} · ${here} other${here === 1 ? "" : "s"} at the board. Nothing is held for you: a deal happens when you both press the button.`
-              : "You have subscribed to nobody. Open the Doomscroller, join a room with a friend's code, and the board fills with what they are offering."}
+            {codes.length
+              ? `${codes.join(", ")} · ${here} other${here === 1 ? "" : "s"} at the board. What you pin up shows on every room you are in. Nothing is held for you: a deal happens when you both press the button.`
+              : "You have subscribed to nobody. Subscribe to a friend under the node map, and the board fills with what they are offering."}
           </p>
           <div className="tabs" role="tablist">
             <button
@@ -205,9 +205,9 @@ export function TradePost({
                   key={creature.uid}
                   type="button"
                   className="itemCard"
-                  disabled={!code || listed.has(creature.uid) || state.locked.includes(creature.uid)}
+                  disabled={!codes.length || listed.has(creature.uid) || state.locked.includes(creature.uid)}
                   title={
-                    !code
+                    !codes.length
                       ? "Subscribe to somebody first"
                       : listed.has(creature.uid)
                         ? "Already on the board"
@@ -236,7 +236,8 @@ export function TradePost({
                   <li key={`${one.from}:${one.id}`} className="postItem">
                     <Line creature={one.creature} />
                     <span className="muted small">
-                      <strong>{one.who}</strong> ·{" "}
+                      <strong>{one.who}</strong>
+                      {codes.length > 1 && one.code ? ` (${one.code})` : ""} ·{" "}
                       {one.asking ? `asking ¤${one.asking.toLocaleString()}` : "open to offers"}
                       {one.wants ? ` · wants ${one.wants}` : ""}
                     </span>
@@ -255,7 +256,9 @@ export function TradePost({
               </ol>
             ) : (
               <p className="hint">
-                {code ? "Nothing on the board. Somebody has to be standing at it with something to spare." : "Join a room first."}
+                {codes.length
+                  ? "Nothing on the board. Somebody has to be standing at it with something to spare."
+                  : "Join a room first."}
               </p>
             )}
           </>

@@ -6,6 +6,7 @@ import { STAT_IDS } from "@/engine/types";
 import { isSpecial } from "@/engine/variants";
 import type { World } from "@/engine/world";
 import { typeColor } from "@/render/palette";
+import { DifficultyPicker } from "./DifficultyPicker";
 import { GenderMark, VariantTag } from "./PartyStrip";
 import { StatHover } from "./StatHover";
 import { Sprite } from "./Sprite";
@@ -35,10 +36,15 @@ const STAT_LABELS: Record<string, string> = {
  */
 export function StarterPick({
   world,
+  chosen,
+  onDifficulty,
   onPick,
   onReroll,
 }: {
   world: World;
+  /** Which difficulty is set, which is Normal until it is not. */
+  chosen: string;
+  onDifficulty: (id: string) => void;
   onPick: (index: number) => void;
   /** Start over on a fresh random seed, for a different three. */
   onReroll?: () => void;
@@ -62,6 +68,10 @@ export function StarterPick({
           </button>
         ) : null}
       </header>
+
+      {/* Asked before the partner, because it is the one decision in this
+          game that cannot be revisited: it is the first input of the run. */}
+      <DifficultyPicker value={chosen} onPick={onDifficulty} />
 
       <div className="starterGrid">
         {world.starters.map((id, index) => {

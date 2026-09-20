@@ -669,6 +669,15 @@ export interface BattleState {
    * honest default for one.
    */
   hour?: TimeOfDay;
+  /**
+   * What a ball is worth here, in per-mille, from the run's difficulty.
+   *
+   * On the battle rather than read from the save, because the catch is rolled
+   * deep inside a turn that has never been given a `GameState` and should not
+   * start now. Optional for the same reason `hour` is: a battle from before
+   * presets existed catches at the rate it always did.
+   */
+  catchMille?: number;
   /** Names every roll, together with `tag`. */
   seed: string;
   /** Distinguishes this battle from every other one under the same seed. */
@@ -1298,9 +1307,12 @@ export function startBattle(
   ourActive = 0,
   /** The step count it starts at, for the hour the hour abilities read. */
   stepsTaken = 0,
+  /** What a ball is worth, in per-mille. 1,000 is the rate Normal throws at. */
+  catchMille = 1000,
 ): BattleState {
   return {
     hour: timeOf(stepsTaken),
+    catchMille,
     seed,
     tag,
     turn: 0,
@@ -1496,25 +1508,35 @@ export function ballMultiplier(
   const base = spec.ballMult ?? 1000;
   const kind = speciesById(wild.speciesId);
 
+  /*
+   * The difficulty's share, applied to whatever the ball works out to.
+   *
+   * Here rather than in `catchOdds`, so that a Master Ball still cannot fail
+   * — it returns null before this, and "always" is not a number that should
+   * be scaled by anything. Every other ball is worth less on a hard run, in
+   * the same proportion, which keeps the ordering between them intact.
+   */
+  const harder = (mult: number) => Math.max(1, Math.floor((mult * (state.catchMille ?? 1000)) / 1000));
+
   switch (spec.ballRule) {
     case "master":
       return null;
     case "quick":
-      return state.turn === 0 ? 5000 : base;
+      return harder(state.turn === 0 ? 5000 : base);
     case "timer":
-      return Math.min(4000, base + 300 * state.turn);
+      return harder(Math.min(4000, base + 300 * state.turn));
     case "net":
-      return kind.types.includes("water") || kind.types.includes("bug") ? 3500 : base;
+      return harder(kind.types.includes("water") || kind.types.includes("bug") ? 3500 : base);
     case "nest":
-      return wild.level < 30 ? Math.max(base, (41 - wild.level) * 100) : base;
+      return harder(wild.level < 30 ? Math.max(base, (41 - wild.level) * 100) : base);
     case "level":
-      return ours.level >= wild.level * 4 ? 8000 : ours.level >= wild.level * 2 ? 4000 : ours.level > wild.level ? 2000 : base;
+      return harder(ours.level >= wild.level * 4 ? 8000 : ours.level >= wild.level * 2 ? 4000 : ours.level > wild.level ? 2000 : base);
     case "fast":
-      return kind.base.spe >= 100 ? 4000 : base;
+      return harder(kind.base.spe >= 100 ? 4000 : base);
     case "dive":
-      return state.tag.includes(":rod:") ? 3500 : base;
+      return harder(state.tag.includes(":rod:") ? 3500 : base);
     default:
-      return base;
+      return harder(base);
   }
 }
 

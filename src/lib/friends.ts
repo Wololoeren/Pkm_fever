@@ -23,6 +23,8 @@ import { joinParty, type PartyRoom, type PartyStatus } from "./party";
 export interface FriendPost {
   /** Who says so. Their trainer name, which they chose and which proves nothing. */
   who: string;
+  /** Which room it came in on. Filled in by the page rather than by the wire. */
+  code?: string;
   /** Their step count when it happened, for their own sense of time. */
   at: number;
   kind: NewsKind;
@@ -53,9 +55,57 @@ export interface FeedRoom {
 /** How many posts a tab keeps. A feed is not an archive. */
 export const FRIEND_POSTS_KEPT = 60;
 
-/** Where the code and what we have heard are remembered, per browser. */
+/** Where the codes and what we have heard are remembered, per browser. */
 export const FRIENDS_CODE_KEY = "pkm-fever.friendsCode";
 export const FRIENDS_POSTS_KEY = "pkm-fever.friendsPosts";
+
+/**
+ * How many rooms can be subscribed to at once.
+ *
+ * Not one: friends are not a single group, and the person who plays with
+ * their brother and with three people from a forum should not have to pick.
+ * Not unlimited either — every room is a swarm of WebRTC connections over
+ * public relays, and a browser holding twenty of them is a browser that has
+ * stopped doing anything else.
+ */
+export const FRIENDS_ROOMS_MAX = 5;
+
+/**
+ * The codes this browser is subscribed to.
+ *
+ * Stored comma-separated under the key that used to hold a single code, so a
+ * browser that remembered one room before this existed reads back as a list
+ * of one rather than as nothing.
+ */
+export function readFriendsCodes(): string[] {
+  try {
+    return cleanCodes((localStorage.getItem(FRIENDS_CODE_KEY) ?? "").split(","));
+  } catch {
+    return [];
+  }
+}
+
+export function writeFriendsCodes(codes: readonly string[]): void {
+  try {
+    const clean = cleanCodes(codes);
+    if (clean.length) localStorage.setItem(FRIENDS_CODE_KEY, clean.join(","));
+    else localStorage.removeItem(FRIENDS_CODE_KEY);
+  } catch {
+    // No storage: subscribed for this sitting only.
+  }
+}
+
+/** Trimmed, upper-cased, no blanks, no duplicates, no more than the limit. */
+export function cleanCodes(codes: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const code of codes) {
+    const clean = String(code ?? "").trim().toUpperCase();
+    if (!clean || out.includes(clean)) continue;
+    out.push(clean);
+    if (out.length >= FRIENDS_ROOMS_MAX) break;
+  }
+  return out;
+}
 
 /**
  * Joins the room for this code and starts listening.
@@ -63,8 +113,14 @@ export const FRIENDS_POSTS_KEY = "pkm-fever.friendsPosts";
  * `who` is our own trainer name, sent with every line. It is a label rather
  * than an identity — the transport knows which peer sent what, and nothing
  * here depends on the name being true.
+ *
+ * Asked for rather than handed over, because the room is joined before there
+ * is a game: a code remembered in this browser is rejoined as the page loads,
+ * which is well before a save has been continued and a trainer has a name. A
+ * name read once at that moment is "Somebody" for the rest of the sitting,
+ * which is exactly what every line arriving at a friend's feed used to say.
  */
-export async function joinFeed(code: string, who: string, handlers: FeedHandlers): Promise<FeedRoom> {
+export async function joinFeed(code: string, who: () => string, handlers: FeedHandlers): Promise<FeedRoom> {
   let room: PartyRoom<Wire> | null = null;
 
   room = await joinParty<Wire>(code, "feed", {
@@ -86,16 +142,16 @@ export async function joinFeed(code: string, who: string, handlers: FeedHandlers
     },
     onStatus: handlers.onStatus,
     onJoin: () => {
-      room?.send({ t: "hello", who });
+      room?.send({ t: "hello", who: who() });
       handlers.onCount(Math.max(0, (room?.peers().length ?? 1) - 1));
     },
     onLeave: () => handlers.onCount(Math.max(0, (room?.peers().length ?? 1) - 1)),
   });
 
-  room.send({ t: "hello", who });
+  room.send({ t: "hello", who: who() });
 
   return {
-    say: (item) => room?.send({ t: "news", who, at: item.at, kind: item.kind, text: item.text }),
+    say: (item) => room?.send({ t: "news", who: who(), at: item.at, kind: item.kind, text: item.text }),
     leave: () => room?.leave(),
   };
 }

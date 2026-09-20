@@ -2,6 +2,7 @@
 
 import type { GameState, Input } from "@/engine/engine";
 import type { World } from "@/engine/world";
+import { difficulty } from "@/engine/difficulty";
 import { journalOf } from "@/lib/journal";
 
 /**
@@ -24,6 +25,9 @@ export function JournalPanel({
   const journal = journalOf(world, state, inputs);
 
   const rows: [string, string][] = [
+    // First, because it is the thing every other number on this list has
+    // to be read against.
+    ["Difficulty", difficulty(state.difficulty).name],
     ["Moves", journal.moves.toLocaleString()],
     ["Steps", journal.steps.toLocaleString()],
     ["Battles", journal.battles.toLocaleString()],

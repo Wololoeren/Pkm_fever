@@ -2050,3 +2050,41 @@ button.auctionLot:hover { border-color: var(--accent); }
 .tradePost .postDeal { border: 1px solid var(--warn); border-radius: 8px; padding: 10px; margin-top: 10px; background: var(--panel-2); }
 .tradePost .itemCard.on { border-color: var(--good); }
 .tradePost .postItem .statHover { position: static; opacity: 1; pointer-events: auto; }
+
+/* Choosing how hard the run is, before it starts. */
+.difficulty { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
+.difficultyRow { display: flex; flex-wrap: wrap; gap: 6px; }
+.difficultyCard { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.difficultyCard:hover { border-color: var(--accent); }
+.difficultyCard.on { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn); }
+.difficultyFacts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 14px; margin: 0; font-size: 0.85rem; }
+.difficultyFacts > div { display: flex; gap: 6px; }
+.difficultyFacts dt { color: var(--muted); min-width: 7.5em; }
+.difficultyFacts dd { margin: 0; }
+
+/* The box's loadouts tab: teams written down, ready to put back. */
+.loadoutTab { margin-left: auto; }
+.loadouts { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.loadoutList { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.loadoutItem { border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; }
+.loadoutItem .row { align-items: center; gap: 8px; }
+.loadoutTeam { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+.loadoutMember { display: flex; gap: 6px; align-items: center; font-size: 0.85rem; }
+.loadoutMember.gone { opacity: 0.45; }
+.loadoutGone { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); }
+
+/* Subscribing to a friend, under the node map. */
+.miniFriends { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.miniFriends .row { flex-wrap: wrap; gap: 6px; align-items: center; }
+.miniFriends input { width: 9em; }
+.miniFriends .mapPop.on { border-color: var(--good); }
+.miniFriends p { margin: 0; }
+
+/* Several rooms at once: one line each, then the way to add another. */
+.friendsRooms { display: flex; flex-direction: column; gap: 6px; }
+.friendsRooms .row { flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* A friend's line: the same strip as your own, stacked above it so the two
+   can be on screen at once, and marked as somebody else's. */
+.friendToast { bottom: 76px; border-left-color: var(--good); }
+.friendToast .newsWho { font-weight: 600; color: var(--good); margin-right: 6px; white-space: nowrap; }

@@ -35,6 +35,8 @@ export type NewsKind =
   | "beaten"
   /** Somebody standing on a route, beaten. */
   | "trainer"
+  /** The grass, beaten — reported once in a while rather than every time. */
+  | "wild"
   /** A creature swapped for another. */
   | "traded"
   /** A creature won rather than caught: a bracket, a lot, a pageant. */
@@ -46,6 +48,17 @@ export const NEWS_KEPT = 40;
 
 /** How many steps of quiet before the feed says something unprompted. */
 export const NEWS_QUIET = 400;
+
+/**
+ * How many wild fights it takes before the feed mentions one.
+ *
+ * Every wild win used to be a post, which is thirty posts crossing one route
+ * and a feed nobody can read — and they were filed under `trainer`, so the
+ * grass was reported as "a trainer has been beaten" besides. A feed that
+ * comments on everything says nothing; this is a running tally with a line at
+ * the end of it.
+ */
+export const NEWS_WILD_EVERY = 30;
 
 /** The levels worth remarking on. The same list the friend feed will use. */
 export const NEWS_LEVELS: readonly number[] = [50, 60, 70, 80, 90, 100];
@@ -127,6 +140,14 @@ const TRAINER = [
   "Reports of a brief, decisive fight. Witnesses: nobody. Source: the winner.",
 ];
 
+const WILD = [
+  "{name} has been through the grass {count} times now and is starting to take it personally.",
+  "That is {count} wild fights. The grass has filed a complaint.",
+  "Sources close to {name} confirm another {count} in the books and no plans to stop.",
+  "Local grass reports {count} incidents involving {name} and requests a word.",
+  "{count} scraps deep. Nobody out there has learned anything yet.",
+];
+
 const TRADED = [
   "{name} has changed hands. The paperwork is somewhere.",
   "A trade! {name} is somebody else's problem now, and their {name} is yours.",
@@ -163,6 +184,7 @@ const LINES: Record<NewsKind, readonly string[]> = {
   badge: BADGE,
   beaten: BEATEN,
   trainer: TRAINER,
+  wild: WILD,
   traded: TRADED,
   prize: PRIZE,
   idle: IDLE,
@@ -171,14 +193,15 @@ const LINES: Record<NewsKind, readonly string[]> = {
 /** Fills a line's blanks. Anything not given is simply not mentioned. */
 function fill(
   line: string,
-  about: { creature?: Individual; level?: number; badges?: number; steps?: number },
+  about: { creature?: Individual; level?: number; badges?: number; steps?: number; count?: number },
 ): string {
   return line
     .replaceAll("{name}", about.creature ? nameOf(about.creature) : "somebody")
     .replaceAll("{type}", about.creature ? typeOf(about.creature) : "unlabelled")
     .replaceAll("{level}", String(about.level ?? about.creature?.level ?? 1))
     .replaceAll("{badges}", String(about.badges ?? 0))
-    .replaceAll("{steps}", (about.steps ?? 0).toLocaleString());
+    .replaceAll("{steps}", (about.steps ?? 0).toLocaleString())
+    .replaceAll("{count}", (about.count ?? 0).toLocaleString());
 }
 
 /** One item for the feed, written from the seed so a replay writes the same one. */
@@ -186,7 +209,7 @@ export function newsItem(
   seed: string,
   at: number,
   kind: NewsKind,
-  about: { creature?: Individual; level?: number; badges?: number; steps?: number } = {},
+  about: { creature?: Individual; level?: number; badges?: number; steps?: number; count?: number } = {},
 ): NewsItem {
   // A shiny catch is a catch the feed cares about; the caller decides which.
   const shiny = kind === "caught" && about.creature && variant(about.creature.variantId).tier >= 5;

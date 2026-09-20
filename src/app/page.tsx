@@ -33,7 +33,10 @@ import {
   joinFeed,
   readFriendPosts,
   writeFriendPosts,
-  FRIENDS_CODE_KEY,
+  FRIENDS_ROOMS_MAX,
+  cleanCodes,
+  readFriendsCodes,
+  writeFriendsCodes,
   FRIEND_POSTS_KEPT,
   type FeedRoom,
   type FriendPost,
@@ -200,8 +203,44 @@ function PoisonFlash({ at }: { at: number | null }) {
   return flash == null ? null : <div key={flash} className="poisonFlash" aria-hidden="true" />;
 }
 
+/**
+ * What sits in the map of rooms while a join is still in flight.
+ *
+ * A room that has been asked for but has not arrived yet still has to be in
+ * the map, or a second render opens it again — and two swarms on one code is
+ * every message twice. It is never called: the moment the real room lands it
+ * takes this one's place, and if the code was dropped meanwhile the arriving
+ * room leaves immediately.
+ */
+const PENDING_FEED: FeedRoom = { say: () => {}, leave: () => {} };
+const PENDING_POST: PostRoom = {
+  show: () => {},
+  bid: () => {},
+  pull: () => {},
+  strike: () => {},
+  decline: () => {},
+  leave: () => {},
+};
+
 export default function Page() {
   const [session, setSession] = useState<Session | null>(null);
+  /**
+   * The live state, for the room handlers.
+   *
+   * They are built once, when a room is joined, and outlive every render
+   * after it — so anything of the game they need has to be read through a
+   * ref rather than closed over.
+   */
+  const stateRef = useRef<GameState | null>(null);
+  /**
+   * What to call us, asked at the moment a line is sent.
+   *
+   * Not read when a room is joined: a code remembered in this browser is
+   * rejoined as the page loads, before a save has been continued, so a name
+   * taken then is "Somebody" for the whole sitting — which is what every line
+   * reaching a friend used to say.
+   */
+  const trainerName = useCallback(() => stateRef.current?.trainerName || "Somebody", []);
   const [autosaves, setAutosaves] = useState<SaveFile[]>([]);
   const [pvp, setPvp] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
@@ -318,6 +357,8 @@ export default function Page() {
   }, []);
 
   const state = session?.state;
+  // Read by the room handlers, which outlive the render that built them.
+  stateRef.current = state ?? null;
 
   /**
    * The evolution to sit through, if a stone produced one and it has not been.
@@ -400,63 +441,90 @@ export default function Page() {
     }
   }, []);
   /*
-   * The friends' feed: everybody on one room code shouting their own lines.
+   * The friends' feed: everybody on a room code shouting their own lines.
+   *
+   * Several codes at once, because friends are not one group - see
+   * `FRIENDS_ROOMS_MAX`. Each code is its own swarm with its own status and
+   * its own head count; what they share is the one pile of posts, each
+   * tagged with the room it arrived on.
    *
    * Kept out of the game state on purpose. What a friend says happened in
    * their game is a claim about somebody else's save, and the engine takes
-   * nothing from the network — so this lives in the page and in this
+   * nothing from the network - so this lives in the page and in this
    * browser's storage, and the Doomscroller reads it there.
    */
-  const [friendsCode, setFriendsCode] = useState("");
-  const [friendsStatus, setFriendsStatus] = useState<PartyStatus | null>(null);
-  const [friendsHere, setFriendsHere] = useState(0);
+  const [friendsCodes, setFriendsCodes] = useState<string[]>([]);
+  const [friendsStatus, setFriendsStatus] = useState<Record<string, PartyStatus | null>>({});
+  const [friendsHere, setFriendsHere] = useState<Record<string, number>>({});
   const [friendPosts, setFriendPosts] = useState<FriendPost[]>([]);
-  const feedRoom = useRef<FeedRoom | null>(null);
+  const feedRooms = useRef<Map<string, FeedRoom>>(new Map());
   useEffect(() => {
     setFriendPosts(readFriendPosts());
-    try {
-      setFriendsCode(localStorage.getItem(FRIENDS_CODE_KEY) ?? "");
-    } catch {
-      // No storage: no code remembered, which is only an inconvenience.
-    }
+    setFriendsCodes(readFriendsCodes());
   }, []);
 
+  /**
+   * Every code we are in, joined; everything else, left.
+   *
+   * A diff against what is already open rather than a teardown and rebuild,
+   * because a swarm takes seconds to form and adding a fourth room should
+   * not drop the three that are working.
+   */
+  const joinedFeeds = friendsCodes.join(",");
   useEffect(() => {
-    if (!friendsCode) {
-      feedRoom.current?.leave();
-      feedRoom.current = null;
-      setFriendsStatus(null);
-      setFriendsHere(0);
-      return;
+    const wanted = joinedFeeds ? joinedFeeds.split(",") : [];
+    const open = feedRooms.current;
+
+    for (const [code, room] of [...open]) {
+      if (wanted.includes(code)) continue;
+      room.leave();
+      open.delete(code);
+      setFriendsStatus((before) => ({ ...before, [code]: null }));
+      setFriendsHere((before) => ({ ...before, [code]: 0 }));
     }
 
     let live = true;
-    void joinFeed(friendsCode, state?.trainerName || "Somebody", {
-      onPost: (post) =>
-        setFriendPosts((before) => {
-          const next = [...before, post].slice(-FRIEND_POSTS_KEPT);
-          writeFriendPosts(next);
-          return next;
-        }),
-      onStatus: (status) => live && setFriendsStatus(status),
-      onCount: (count) => live && setFriendsHere(count),
-    }).then((room) => {
-      if (!live) {
-        room.leave();
-        return;
-      }
-      feedRoom.current = room;
-    });
+    for (const code of wanted) {
+      if (open.has(code)) continue;
+      // Held before the promise settles, so two renders in a row cannot open
+      // the same room twice.
+      open.set(code, PENDING_FEED);
+      void joinFeed(code, trainerName, {
+        onPost: (post) =>
+          setFriendPosts((before) => {
+            const next = [...before, { ...post, code }].slice(-FRIEND_POSTS_KEPT);
+            writeFriendPosts(next);
+            return next;
+          }),
+        onStatus: (status) => live && setFriendsStatus((before) => ({ ...before, [code]: status })),
+        onCount: (count) => live && setFriendsHere((before) => ({ ...before, [code]: count })),
+      }).then((room) => {
+        if (!live || open.get(code) !== PENDING_FEED) {
+          room.leave();
+          return;
+        }
+        open.set(code, room);
+      });
+    }
 
     return () => {
       live = false;
-      feedRoom.current?.leave();
-      feedRoom.current = null;
     };
-    // The trainer name is read once on joining; renaming mid-room is not a
-    // thing, and re-joining on every keystroke of a name would be.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [friendsCode]);
+    // The trainer name is read through a ref on joining: renaming mid-room
+    // is not a thing, and re-joining on every keystroke of a name would be.
+  }, [joinedFeeds]);
+
+  // Everything left behind when the tab goes.
+  useEffect(() => {
+    const feeds = feedRooms.current;
+    const boards = postRooms.current;
+    return () => {
+      for (const room of feeds.values()) room.leave();
+      for (const room of boards.values()) room.leave();
+      feeds.clear();
+      boards.clear();
+    };
+  }, []);
 
   /*
    * Tim's board, on the same room code the feed uses.
@@ -468,113 +536,181 @@ export default function Page() {
   const [boards, setBoards] = useState<Record<string, Listing[]>>({});
   const [myListings, setMyListings] = useState<Listing[]>([]);
   const [bids, setBids] = useState<Bid[]>([]);
-  const [postHere, setPostHere] = useState(0);
   /**
    * What we offered in each bid we sent, by bid id.
    *
-   * Our own bids never reach `bids` — that is the pile of what other people
-   * have offered *us* — so without this a struck deal had nothing to hand
+   * Our own bids never reach `bids` - that is the pile of what other people
+   * have offered *us* - so without this a struck deal had nothing to hand
    * over and the creature we bid stayed in the party.
    */
   const sentBids = useRef<Record<string, number>>({});
-  const postRoom = useRef<PostRoom | null>(null);
+  const postRooms = useRef<Map<string, PostRoom>>(new Map());
   const listingsRef = useRef<Listing[]>([]);
 
   useEffect(() => {
-    if (!friendsCode) {
-      postRoom.current?.leave();
-      postRoom.current = null;
-      setBoards({});
-      setBids([]);
-      setPostHere(0);
-      return;
+    const wanted = joinedFeeds ? joinedFeeds.split(",") : [];
+    const open = postRooms.current;
+
+    for (const [code, room] of [...open]) {
+      if (wanted.includes(code)) continue;
+      room.leave();
+      open.delete(code);
+      // A board only exists while its room does.
+      setBoards((before) => {
+        const next: Record<string, Listing[]> = {};
+        for (const [key, listings] of Object.entries(before)) {
+          if (!key.startsWith(code + ":")) next[key] = listings;
+        }
+        return next;
+      });
+      setBids((before) => before.filter((one) => one.code !== code));
     }
 
     let live = true;
-    void joinPost(friendsCode, state?.trainerName || "Somebody", {
-      onBoard: (from, who, listings) =>
-        live &&
-        setBoards((before) => ({
-          ...before,
-          [from]: listings.map((one) => ({ ...one, who })),
-        })),
-      onBid: (bid) => live && setBids((before) => [...before.filter((one) => one.id !== bid.id), bid]),
-      onPull: (id) => live && setBids((before) => before.filter((one) => one.id !== id)),
-      onDeclined: () => {
-        // Their no is only ours to hear: the listing stays up and the bid we
-        // made is simply gone from their board.
-      },
-      onStruck: (deal) => {
-        // Their half is done. Ours is the mirror of it: what they gave, we
-        // receive; what they took, we pay.
-        // What we put up for it: our own bid, or — if this is somehow an
-        // answer to somebody else's — nothing of ours goes.
-        const offeredUid = sentBids.current[deal.bid];
-        const giving =
-          offeredUid === undefined ? -1 : (stateRef.current?.party.findIndex((one) => one.uid === offeredUid) ?? -1);
-        delete sentBids.current[deal.bid];
-        dispatch({
-          t: "postDeal",
-          give: giving >= 0 ? giving : null,
-          receive: deal.creature,
-          paid: -(deal.cash ?? 0),
-          who: deal.who,
-        });
-        setBids((before) => before.filter((one) => one.id !== deal.bid));
-      },
-      onStatus: () => {
-        /* The feed's own status line is the one worth showing. */
-      },
-      onGone: (from) =>
-        live &&
-        setBoards((before) => {
-          const next = { ...before };
-          delete next[from];
-          return next;
-        }),
-    }).then((room) => {
-      if (!live) {
-        room.leave();
-        return;
-      }
-      postRoom.current = room;
-      setPostHere(0);
-    });
+    for (const code of wanted) {
+      if (open.has(code)) continue;
+      open.set(code, PENDING_POST);
+      void joinPost(code, trainerName, {
+        onBoard: (from, who, listings) =>
+          live &&
+          setBoards((before) => ({
+            ...before,
+            [code + ":" + from]: listings.map((one) => ({ ...one, who, code })),
+          })),
+        onBid: (bid) =>
+          live && setBids((before) => [...before.filter((one) => one.id !== bid.id), { ...bid, code }]),
+        onPull: (id) => live && setBids((before) => before.filter((one) => one.id !== id)),
+        onDeclined: () => {
+          // Their no is only ours to hear: the listing stays up and the bid we
+          // made is simply gone from their board.
+        },
+        onStruck: (deal) => {
+          // Their half is done. Ours is the mirror of it: what they gave, we
+          // receive; what they took, we pay.
+          // What we put up for it: our own bid, or - if this is somehow an
+          // answer to somebody else's - nothing of ours goes.
+          const offeredUid = sentBids.current[deal.bid];
+          const giving =
+            offeredUid === undefined ? -1 : (stateRef.current?.party.findIndex((one) => one.uid === offeredUid) ?? -1);
+          delete sentBids.current[deal.bid];
+          dispatch({
+            t: "postDeal",
+            give: giving >= 0 ? giving : null,
+            receive: deal.creature,
+            paid: -(deal.cash ?? 0),
+            who: deal.who,
+          });
+          setBids((before) => before.filter((one) => one.id !== deal.bid));
+        },
+        onStatus: () => {
+          /* The feed's own status line is the one worth showing. */
+        },
+        onGone: (from) =>
+          live &&
+          setBoards((before) => {
+            const next = { ...before };
+            delete next[code + ":" + from];
+            return next;
+          }),
+      }).then((room) => {
+        if (!live || open.get(code) !== PENDING_POST) {
+          room.leave();
+          return;
+        }
+        open.set(code, room);
+        // Whatever we already have up goes onto the new board too.
+        room.show(
+          listingsRef.current.map(({ id, who, creature, asking, wants }) => ({ id, who, creature, asking, wants })),
+        );
+      });
+    }
 
     return () => {
       live = false;
-      postRoom.current?.leave();
-      postRoom.current = null;
     };
-    // The name is read once, on joining, like the feed's.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [friendsCode, dispatch]);
+    // The name is read through the ref on joining, like the feed's.
+  }, [joinedFeeds, dispatch]);
 
   // What the handlers above need to read without re-joining the room.
-  const stateRef = useRef<GameState | null>(null);
-  stateRef.current = state ?? null;
   listingsRef.current = myListings;
 
-  /** Our board, shouted again whenever it changes. */
+  /** Our board, shouted again to every room we are in whenever it changes. */
   const showBoard = useCallback((listings: Listing[]) => {
     setMyListings(listings);
-    postRoom.current?.show(listings.map(({ id, who, creature, asking, wants }) => ({ id, who, creature, asking, wants })));
+    const wire = listings.map(({ id, who, creature, asking, wants }) => ({ id, who, creature, asking, wants }));
+    for (const room of postRooms.current.values()) room.show(wire);
   }, []);
 
-  const latest = state?.news.at(-1) ?? null;
+  /**
+   * The room of friends, in one object.
+   *
+   * Two places want it now — the Doomscroller's Friends tab and the button
+   * under the node map — and a fresh object built in each of their props
+   * would be two rooms that happened to agree, plus a re-render of both on
+   * every keystroke.
+   */
+  const friendsRoom = useMemo(
+    () => ({
+      codes: friendsCodes,
+      status: friendsStatus,
+      here: friendsHere,
+      posts: friendPosts,
+      max: FRIENDS_ROOMS_MAX,
+      onJoin: (code: string) =>
+        setFriendsCodes((before) => {
+          const next = cleanCodes([...before, code]);
+          writeFriendsCodes(next);
+          return next;
+        }),
+      onLeave: (code: string) =>
+        setFriendsCodes((before) => {
+          const next = before.filter((one) => one !== code);
+          writeFriendsCodes(next);
+          return next;
+        }),
+    }),
+    [friendsCodes, friendsStatus, friendsHere, friendPosts],
+  );
 
-  // Our own lines, out to the room. Only the newest, and only once: the feed
-  // is append-only, so "newest changed" is exactly "there is something to
-  // say". Nothing is replayed to somebody who joins later, because a feed
-  // that shouted your last forty lines at every arrival would be a feed
-  // nobody kept open.
-  const said = useRef<number | null>(null);
+  const news = state?.news;
+  const latest = news?.at(-1) ?? null;
+
+  /*
+   * Our own lines, out to every room.
+   *
+   * Everything written since the last one we sent, not just the newest: one
+   * input can write two lines — winning a fight and the fifty that the
+   * experience for it crossed — and sending "the latest" dropped the first
+   * of them. It used to remember the step count it last spoke on, which was
+   * worse again: a battle does not move your step count, so a second line in
+   * the same fight looked like one already said.
+   *
+   * The line itself is remembered, and the feed is append-only, so "the ones
+   * after that one" is exactly "the ones not yet said". Nothing is replayed
+   * to somebody who joins later: a feed that shouted your last forty lines at
+   * every arrival would be a feed nobody kept open.
+   */
+  const said = useRef<NewsItem | null>(null);
   useEffect(() => {
-    if (!latest || !feedRoom.current) return;
-    if (said.current === latest.at) return;
-    said.current = latest.at;
-    feedRoom.current.say(latest);
-  }, [latest]);
+    if (!news?.length || !feedRooms.current.size) return;
+    const from = said.current ? news.indexOf(said.current) : -1;
+    if (from < 0) {
+      // Nothing of ours to match against: this is the first pass, a loaded
+      // save, or a room joined just now. Whatever is already in the feed is
+      // old, so it becomes the mark and nothing goes out — otherwise every
+      // reload would announce the last line again to everybody listening.
+      said.current = news[news.length - 1];
+      return;
+    }
+    const fresh = news.slice(from + 1);
+    if (!fresh.length) return;
+    said.current = news[news.length - 1];
+    for (const room of feedRooms.current.values()) {
+      for (const item of fresh) room.say(item);
+    }
+    // `joinedFeeds` so that joining a room sets the mark rather than
+    // shouting whatever was last said before it was joined.
+  }, [news, joinedFeeds]);
   const [shown, setShown] = useState<NewsItem | null>(null);
   useEffect(() => {
     if (!latest || newsMuted) return;
@@ -582,6 +718,40 @@ export default function Page() {
     const timer = setTimeout(() => setShown(null), NEWS_TOAST_MS);
     return () => clearTimeout(timer);
   }, [latest, newsMuted]);
+
+  /*
+   * And a friend's line pops up the same way.
+   *
+   * Subscribing to somebody was only visible inside the Doomscroller's
+   * Friends tab, which is an item found hours in — so for most of a run the
+   * answer to "did that reach them?" was that it had, silently, where nobody
+   * was looking. Same strip, same mute, and never on the first render: posts
+   * read back from storage are old news by definition.
+   */
+  const [heard, setHeard] = useState<FriendPost | null>(null);
+  const lastHeard = useRef<FriendPost | null>(null);
+  /**
+   * Whether the first pass has gone by.
+   *
+   * Its own flag rather than "there was a post before this one", which is the
+   * same thing only when there *was* one: a browser subscribing for the first
+   * time has none, so the first line a friend ever sent looked like the
+   * restored-from-storage case and was swallowed.
+   */
+  const settled = useRef(false);
+  const newestPost = friendPosts.at(-1) ?? null;
+  useEffect(() => {
+    const before = lastHeard.current;
+    lastHeard.current = newestPost;
+    if (!settled.current) {
+      settled.current = true;
+      return;
+    }
+    if (!newestPost || newestPost === before || newsMuted) return;
+    setHeard(newestPost);
+    const timer = setTimeout(() => setHeard(null), NEWS_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [newestPost, newsMuted]);
   const changeBigMaps = useCallback((change: Partial<BigMapsOpen>) => setBigMaps((open) => ({ ...open, ...change })), []);
   // Not while a hatching or an evolution is on screen: a key still held from
   // the last step would otherwise walk on underneath the scene.
@@ -839,11 +1009,14 @@ export default function Page() {
         <VaultScreen
           autosave={readAutosaveRaw()}
           onExit={() => setVaultOpen(false)}
-          onBegin={(seed, trainer, creatures) => {
+          onBegin={(seed, trainer, creatures, hard) => {
             clearAutosave();
             setVaultOpen(false);
             start(seed, [
               { t: "trainer", name: trainer },
+              // Before the creature arrives, because it is only legal while
+              // the run has not started.
+              { t: "setDifficulty", id: hard },
               // The first one on its own as well as the whole team: a log
               // written here is read by engines that predate taking three.
               { t: "vaultStart", creature: creatures[0], creatures },
@@ -895,6 +1068,8 @@ export default function Page() {
       <main className="shell">
         <StarterPick
           world={session.world}
+          chosen={state.difficulty}
+          onDifficulty={(id) => dispatch({ t: "setDifficulty", id })}
           onPick={(index) => dispatch({ t: "pickStarter", index })}
           // A new world on a new seed, keeping what was already decided before
           // the pick — the trainer's name, a vault creature — so rerolling is
@@ -971,8 +1146,8 @@ export default function Page() {
       {state?.talking === "trader" && session && state ? (
         <TradePost
           state={state}
-          code={friendsCode}
-          here={Math.max(postHere, Object.keys(boards).length)}
+          codes={friendsCodes}
+          here={Object.keys(boards).length}
           listings={Object.values(boards).flat()}
           mine={myListings}
           bids={bids}
@@ -997,7 +1172,7 @@ export default function Page() {
             const creature = giving === null ? null : (state.party[giving] ?? null);
             const id = postId();
             if (creature) sentBids.current[id] = creature.uid;
-            postRoom.current?.bid({
+            postRooms.current.get(listing.code ?? "")?.bid({
               id,
               listing: listing.id,
               who: state.trainerName || "Somebody",
@@ -1018,7 +1193,7 @@ export default function Page() {
               paid: bid.cash,
               who: bid.who,
             });
-            postRoom.current?.strike({
+            postRooms.current.get(bid.code ?? "")?.strike({
               bid: bid.id,
               listing: listing.id,
               creature: listing.creature,
@@ -1028,11 +1203,18 @@ export default function Page() {
             setBids((before) => before.filter((one) => one.id !== bid.id));
           }}
           onDecline={(bid) => {
-            postRoom.current?.decline(bid.id);
+            postRooms.current.get(bid.code ?? "")?.decline(bid.id);
             setBids((before) => before.filter((one) => one.id !== bid.id));
           }}
           onClose={() => dispatch({ t: "endTalk" })}
         />
+      ) : null}
+
+      {heard && !newsMuted ? (
+        <aside className="newsToast friendToast" role="status" aria-live="polite">
+          <span className="newsWho">{heard.who}</span>
+          <span>{heard.text}</span>
+        </aside>
       ) : null}
 
       {shown && !newsMuted ? (
@@ -1120,7 +1302,14 @@ export default function Page() {
             <GameCanvas world={session.world} state={state} onTileClick={walkTo} />
             {/* Straight under the map on a phone, where a thumb is; hidden elsewhere. */}
             <TouchPad onDown={padDown} onUp={padUp} />
-            <MiniMap world={session.world} state={state} onTileClick={walkTo} bigMaps={bigMaps} onBigMaps={changeBigMaps} />
+            <MiniMap
+              world={session.world}
+              state={state}
+              onTileClick={walkTo}
+              bigMaps={bigMaps}
+              onBigMaps={changeBigMaps}
+              friends={friendsRoom}
+            />
             <section className="panel questsBeside">
               <h3>Quests</h3>
               <QuestPanel world={session.world} state={state} onInput={dispatch} />
@@ -1142,7 +1331,8 @@ export default function Page() {
           {state.notice?.t === "whiteout" ? (
             <p className="error">
               Everything fainted. You woke up in{" "}
-              {session.world.routes.get(state.notice.at)?.label ?? "Hearth"}, patched up.
+              {session.world.routes.get(state.notice.at)?.label ?? "Hearth"}, patched up
+              {state.notice.lost ? ` — and ¤${state.notice.lost.toLocaleString()} lighter` : ""}.
             </p>
           ) : null}
           {state.notice?.t === "caught" ? (
@@ -1223,6 +1413,13 @@ export default function Page() {
           {state.notice?.t === "gift" ? (
             <p className="good">
               {state.notice.from} gave you a {item(state.notice.item).name}.
+            </p>
+          ) : null}
+          {state.notice?.t === "loadedOut" ? (
+            <p className="good">
+              {state.notice.name} is back: {state.notice.brought}{" "}
+              {state.notice.brought === 1 ? "creature" : "creatures"} in the party
+              {state.notice.missing ? `, ${state.notice.missing} of them no longer with you` : ""}.
             </p>
           ) : null}
           {state.notice?.t === "healed" ? (
@@ -1628,21 +1825,7 @@ export default function Page() {
               state={state}
               onInput={dispatch}
               opened={openBagItem}
-              friends={{
-                code: friendsCode,
-                status: friendsStatus,
-                here: friendsHere,
-                posts: friendPosts,
-                onCode: (code) => {
-                  setFriendsCode(code);
-                  try {
-                    if (code) localStorage.setItem(FRIENDS_CODE_KEY, code);
-                    else localStorage.removeItem(FRIENDS_CODE_KEY);
-                  } catch {
-                    // No storage: joined for this sitting only.
-                  }
-                },
-              }}
+              friends={friendsRoom}
             />
 
             {/* And what your party can do out here, under the bag because it

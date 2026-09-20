@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { FriendsRoom, roomsSummary, type FriendsFeed } from "./FriendsRoom";
 import { createPortal } from "react-dom";
 import { hasSeen, peopleOn, wantsRematch, type GameState } from "@/engine/engine";
 import { TILE } from "@/engine/terrain";
@@ -88,6 +89,7 @@ export function MiniMap({
   onTileClick,
   bigMaps,
   onBigMaps,
+  friends,
 }: {
   world: World;
   state: GameState;
@@ -95,7 +97,12 @@ export function MiniMap({
   onTileClick?: (x: number, y: number) => void;
   bigMaps: BigMapsOpen;
   onBigMaps: (change: Partial<BigMapsOpen>) => void;
+  /** The room of friends, when the page is holding one. */
+  friends?: FriendsFeed;
 }) {
+  /** Whether the subscribe row is showing. Closed by default: it is a thing
+   * you do once and then forget about. */
+  const [asking, setAsking] = useState(false);
   const route = world.routes.get(state.route);
   // Standing indoors, the region map should still light up the town you are
   // indoors in — a door is not a journey.
@@ -131,6 +138,36 @@ export function MiniMap({
           {poppedRegion ? "Close node map" : "Big node map"}
         </button>
       </div>
+
+      {/* Under the node map, because playing alongside somebody is a thing
+          you decide at the start rather than when you eventually find a
+          Doomscroller — which is where this used to be the only way in. */}
+      {friends ? (
+        <div className="miniFriends">
+          <button
+            type="button"
+            className={`ghost small mapPop${friends.codes.length ? " on" : ""}`}
+            aria-expanded={asking}
+            title={
+              friends.codes.length
+                ? `Subscribed to ${roomsSummary(friends)}`
+                : "Type a friend's room code and hear their game: what they catch, what beats them, and what they have up for trade at Tim's. You can be in several at once."
+            }
+            onClick={() => setAsking(!asking)}
+          >
+            {friends.codes.length ? `Friends · ${roomsSummary(friends)}` : "Subscribe to a friend"}
+          </button>
+          {asking ? (
+            <>
+              <FriendsRoom friends={friends} />
+              <p className="muted small">
+                A code shared between you, and as many of them as you have circles of friends. Nothing
+                that arrives touches your save: it is their word about their own game.
+              </p>
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

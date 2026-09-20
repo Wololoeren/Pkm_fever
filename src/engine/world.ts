@@ -362,6 +362,8 @@ export function fishAt(
   reach: number,
   index: number,
   uid: number,
+  /** What the difficulty adds to every wild level. Normal adds nothing. */
+  harder = 0,
 ): Individual {
   const target = world.routes.get(route);
   if (!target) throw new Error(`unknown route: ${route}`);
@@ -370,7 +372,10 @@ export function fishAt(
   const table = fishingTable(allSpecies, target.ring, reach, world.config.rings);
   const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
 
-  const level = Math.max(2, levelForRing(target.ring) + (reach - 1) * 4 + intBetween(rng, -2, 2));
+  // The bump is added after the roll rather than folded into it, so which
+  // creature a pond deals is the same on every difficulty and only how grown
+  // it is changes.
+  const level = Math.min(100, Math.max(2, levelForRing(target.ring) + (reach - 1) * 4 + intBetween(rng, -2, 2)) + harder);
 
   return {
     uid,
@@ -3432,6 +3437,8 @@ export function wildAt(
    * about the sky wants, and what the tests that predate the cycle assume.
    */
   stepsTaken = 0,
+  /** What the difficulty adds to every wild level. Normal adds nothing. */
+  harder = 0,
 ): Individual {
   const target = world.routes.get(route);
   if (!target) throw new Error(`unknown route: ${route}`);
@@ -3448,7 +3455,13 @@ export function wildAt(
   );
   const speciesId = weighted(rng, table, (row) => row.weight).speciesId;
 
-  const level = Math.max(2, levelForRing(target.ring) + intBetween(rng, -WILD_LEVEL_SPREAD, WILD_LEVEL_SPREAD));
+  // Added after the roll, so the grass holds the same creatures on every
+  // preset and only their levels move. The bracket on the route sign reads
+  // the same arithmetic — see `levelBracket`.
+  const level = Math.min(
+    100,
+    Math.max(2, levelForRing(target.ring) + intBetween(rng, -WILD_LEVEL_SPREAD, WILD_LEVEL_SPREAD)) + harder,
+  );
   const exp = level * level * level;
   const ivs = rollWildIvs(rng);
   const natureId = pickNature(rng);

@@ -47,14 +47,25 @@ export interface TradeView {
   completed: { given: Individual; received: Individual } | null;
 }
 
-/** Identifies a pair of offers, so an acceptance cannot be reused for a
- * different one. Ordered by uid so both sides compute the same string. */
+/**
+ * Identifies a pair of offers, so an acceptance cannot be reused for a
+ * different one.
+ *
+ * Both sides have to compute the same string for the same two creatures, and
+ * each holds them the other way round — so the two stamps are **sorted**
+ * rather than ordered by anything about either creature's place in the trade.
+ *
+ * It used to order them by uid, which is not an order at all here: a uid is a
+ * save's own counter, so both players are holding a uid 1 more often than
+ * not. On a tie each side put its own creature first, the two keys never
+ * matched, and the trade sat on "Waiting for them…" on both screens forever —
+ * every test had passed because every test gave the two sides different uids.
+ */
 function pairKey(a: Individual | null, b: Individual | null): string {
   if (!a || !b) return "-";
   const stamp = (creature: Individual) =>
     `${creature.uid}:${creature.speciesId}:${creature.level}:${creature.natureId}:${creature.variantId}`;
-  const [low, high] = a.uid <= b.uid ? [a, b] : [b, a];
-  return `${stamp(low)}|${stamp(high)}`;
+  return [stamp(a), stamp(b)].sort().join("|");
 }
 
 export class TradeSession {

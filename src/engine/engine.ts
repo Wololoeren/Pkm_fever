@@ -84,6 +84,13 @@ import {
   type QuestView,
 } from "./quests";
 import { gym as gymSpec, gymLevel } from "./gyms";
+import {
+  DEFAULT_DIFFICULTY,
+  difficulty,
+  effortFor,
+  FOE_HELD_ITEMS,
+  isDifficulty,
+} from "./difficulty";
 import { hint, type Hint } from "./hints";
 import {
   contender as cupSpec,
@@ -96,7 +103,7 @@ import {
   CUP_SIZE,
   isContender,
 } from "./cup";
-import { newsItem, NEWS_KEPT, NEWS_LEVELS, NEWS_QUIET, type NewsItem } from "./news";
+import { newsItem, NEWS_KEPT, NEWS_LEVELS, NEWS_QUIET, NEWS_WILD_EVERY, type NewsItem } from "./news";
 import {
   emptyFarm,
   farmEvery,
@@ -204,8 +211,23 @@ export type Direction = "n" | "s" | "e" | "w";
 
 export type Input =
   | { t: "pickStarter"; index: number }
+  /**
+   * The party as it stands, written down: who is in it, in what order, with
+   * their moves in which order and holding what. See `Loadout`.
+   */
+  | { t: "saveLoadout"; name?: string }
+  /** That arrangement, put back. */
+  | { t: "loadLoadout"; index: number }
+  | { t: "dropLoadout"; index: number }
   /** The player's trainer name. Given once, normally before the starter. */
   | { t: "trainer"; name: string }
+  /**
+   * How hard the run is. Chosen on the start screen, before the starter, and
+   * never again — see `difficulty.ts`. An input rather than a setting because
+   * it changes what the engine builds, and anything that changes what the
+   * engine builds has to be in the log or the log does not replay.
+   */
+  | { t: "setDifficulty"; id: string }
   /**
    * A Vault Adventure: the run begins with a copy of a creature from the
    * player's vault instead of a starter pick. Carried whole, like a trade,
@@ -597,7 +619,7 @@ export type Notice =
   | { t: "won" }
   | { t: "fled" }
   /** `at` is the place you woke up, for the message to name. */
-  | { t: "whiteout"; at: string }
+  | { t: "whiteout"; at: string; lost: number }
   | { t: "found"; item: BreedingItem }
   /** An egg went into the bag, and how long it will take. */
   | { t: "eggTaken"; steps: number }
@@ -658,6 +680,8 @@ export type Notice =
   | { t: "arenaRound"; id: string; round: number }
   /** And the last one. */
   | { t: "arenaWon"; id: string }
+  /** A saved arrangement, put back — and what of it could not be. */
+  | { t: "loadedOut"; name: string; brought: number; missing: number }
   /** A deal struck at the trading post. */
   | { t: "dealt"; who: string; given: string | null; received: string | null; paid: number }
   /** Something back from the lost property office, and what it cost. */
@@ -819,11 +843,28 @@ export interface GameState {
    * index keeps meaning what it meant.
    */
   boxNames: string[];
+  /** Arrangements of the party, saved to be put back. See `Loadout`. */
+  loadouts: Loadout[];
+  /**
+   * How many wild fights have been won, ever.
+   *
+   * A tally rather than an event: the feed mentions the grass every
+   * `NEWS_WILD_EVERY` of these instead of every one of them. See `reported`.
+   */
+  wildsFought: number;
   boxOf: Record<number, number>;
   /** Whether the Exp. Share has been handed over. Once per save. */
   expShareGiven: boolean;
   /** The player's trainer name, written on everything they catch. Null until chosen. */
   trainerName: string | null;
+  /**
+   * Which difficulty this run is being played at — see `difficulty.ts`.
+   *
+   * Always a real id. A save that never chose is Normal, which is the game as
+   * it was before presets existed, so every log written before this field
+   * replays to exactly the state it always did.
+   */
+  difficulty: string;
   /** Steps taken on the map, counting towards the next poison tick. */
   poisonWalk: number;
   /** Steps taken on the map, counting towards the next forage find. */
@@ -1234,9 +1275,12 @@ export function initialState(world: World): GameState {
     party: [],
     box: [],
     boxNames: [defaultBoxName(0)],
+    loadouts: [],
+    wildsFought: 0,
     boxOf: {},
     expShareGiven: false,
     trainerName: null,
+    difficulty: DEFAULT_DIFFICULTY,
     poisonWalk: 0,
     forageWalk: 0,
     stepsTaken: 0,
@@ -1897,10 +1941,23 @@ function applyOne(world: World, state: GameState, input: Input): GameState {
       return cheat(world, state, input.cheat);
     case "setMoves":
       return setMoves(world, state, input.index, input.moves);
+    case "saveLoadout":
+      return saveLoadout(state, input.name);
+    case "loadLoadout":
+      return loadLoadout(state, input.index);
+    case "dropLoadout":
+      return dropLoadout(state, input.index);
     case "reorderParty":
       return reorderParty(state, input.from, input.to);
     case "rename":
       return rename(state, input.uid, input.name);
+    case "setDifficulty": {
+      if (state.phase !== "starter") throw new IllegalInput("the run has already started");
+      if (!isDifficulty(input.id)) throw new IllegalInput("no such difficulty");
+      // Out of the tick, like the trainer name: neither is a thing that
+      // happens, and the starter screen has no clock running yet.
+      return { ...state, difficulty: input.id, notice: null };
+    }
     case "trainer": {
       const refusal = trainerRefusal(state, input.name);
       if (refusal) throw new IllegalInput(refusal);
@@ -3263,11 +3320,28 @@ function quarryStep(world: World, state: GameState, at: { x: number; y: number }
  * the state after it, which is the one place both are in hand.
  */
 function reported(world: World, before: GameState, state: GameState): GameState {
-  const say = (item: NewsItem): GameState => ({
-    ...state,
-    news: [...state.news, item].slice(-NEWS_KEPT),
-  });
   const at = state.stepsTaken;
+  /*
+   * Everything worth saying about this one input, in the order it happened.
+   *
+   * A list rather than a return, because one input can be two pieces of news
+   * and the first `return` used to eat the rest. That is not a corner: you
+   * beat something in the grass and the experience for it takes a party
+   * member past fifty on the same input, so "you won" returned and the fifty
+   * — the rarer and by far the more interesting of the two — was never
+   * written down at all, on your feed or on your friends'.
+   */
+  const lines: NewsItem[] = [];
+  let next = state;
+
+  // A level worth remarking on, crossed by anybody in the party. First,
+  // because it is the one that was being lost.
+  for (const one of state.party) {
+    const was = before.party.find((each) => each.uid === one.uid);
+    if (!was || was.level >= one.level) continue;
+    const crossed = NEWS_LEVELS.filter((level) => was.level < level && one.level >= level).at(-1);
+    if (crossed) lines.push(newsItem(world.seed, at, "level", { creature: one, level: crossed }));
+  }
 
   // What the notice already says happened, said again with an opinion on it.
   const notice = state.notice;
@@ -3275,44 +3349,57 @@ function reported(world: World, before: GameState, state: GameState): GameState 
     const all = [...state.party, ...state.box];
     if (notice.t === "caught") {
       const caught = all.at(-1);
-      if (caught) return say(newsItem(world.seed, at, "caught", { creature: caught }));
-    }
-    if (notice.t === "hatched") {
+      if (caught) lines.push(newsItem(world.seed, at, "caught", { creature: caught }));
+    } else if (notice.t === "hatched") {
       const hatched = all.find((one) => one.speciesId === notice.speciesId) ?? all.at(-1);
-      if (hatched) return say(newsItem(world.seed, at, "hatched", { creature: hatched }));
-    }
-    if (notice.t === "evolved") {
+      if (hatched) lines.push(newsItem(world.seed, at, "hatched", { creature: hatched }));
+    } else if (notice.t === "evolved") {
       const grown = all.find((one) => one.uid === notice.uid);
-      if (grown) return say(newsItem(world.seed, at, "evolved", { creature: grown }));
-    }
-    if (notice.t === "badge") {
-      return say(newsItem(world.seed, at, "badge", { badges: state.badges.length }));
-    }
-    if (notice.t === "whiteout") {
-      return say(newsItem(world.seed, at, "beaten", {}));
-    }
-    // Somebody out on a route, beaten. The Cup and the brackets carry their
-    // own notices; this is the ordinary fight you walked into.
-    if (notice.t === "won") {
-      return say(newsItem(world.seed, at, "trainer", {}));
-    }
-    if (notice.t === "traded" || notice.t === "swindled") {
+      if (grown) lines.push(newsItem(world.seed, at, "evolved", { creature: grown }));
+    } else if (notice.t === "badge") {
+      lines.push(newsItem(world.seed, at, "badge", { badges: state.badges.length }));
+    } else if (notice.t === "whiteout") {
+      lines.push(newsItem(world.seed, at, "beaten", {}));
+    } else if (notice.t === "won") {
+      /*
+       * Who it was, which decides whether it is worth saying at all.
+       *
+       * This used to be one line for every win of any sort, which meant every
+       * patch of grass was reported - thirty posts crossing one route - and
+       * reported as "a trainer has been beaten" besides, because there was no
+       * other kind of line to file it under.
+       *
+       * A person standing on a route is an event: they are named, they are
+       * finite, and beating one is a thing you did. The grass is a tally, so
+       * it is kept as one and mentioned every `NEWS_WILD_EVERY` - which is
+       * also what stops the friend feed shouting at your friends every time
+       * you walk through a meadow.
+       */
+      const tag = (state.battle ?? before.battle)?.tag ?? "";
+      if (tag.startsWith(WILD_TAG) || tag.startsWith(TREE_TAG)) {
+        const fought = state.wildsFought + 1;
+        // The tally is kept whether or not this is the one that gets a line.
+        next = { ...next, wildsFought: fought };
+        if (fought % NEWS_WILD_EVERY === 0) {
+          const who = state.party.find((one) => !isFainted(one)) ?? state.party[0];
+          lines.push(newsItem(world.seed, at, "wild", { creature: who, count: fought }));
+        }
+      }
+      // Anything else wearing a plain `won` - a roamer, a gym beaten twice,
+      // a round of the fight club - has no line of its own, and silence beats
+      // filing it under somebody else's.
+    } else if (notice.t === "beatTrainer") {
+      // A person, beaten: a route trainer, the rival, one of the Cup. They pay
+      // a purse and say so, which is what tells them apart from the grass.
+      lines.push(newsItem(world.seed, at, "trainer", {}));
+    } else if (notice.t === "traded" || notice.t === "swindled") {
       const got = all.at(-1);
-      return say(newsItem(world.seed, at, "traded", { creature: got }));
-    }
-    // Won rather than caught: a bracket's prize, a lot settled, a gift.
-    if (notice.t === "prize" || notice.t === "bidsSettled") {
+      lines.push(newsItem(world.seed, at, "traded", { creature: got }));
+    } else if (notice.t === "prize" || notice.t === "bidsSettled") {
+      // Won rather than caught: a bracket's prize, a lot settled, a gift.
       const got = all.at(-1);
-      if (got) return say(newsItem(world.seed, at, "prize", { creature: got }));
+      if (got) lines.push(newsItem(world.seed, at, "prize", { creature: got }));
     }
-  }
-
-  // A level worth remarking on, crossed by anybody in the party.
-  for (const one of state.party) {
-    const was = before.party.find((each) => each.uid === one.uid);
-    if (!was || was.level >= one.level) continue;
-    const crossed = NEWS_LEVELS.filter((level) => was.level < level && one.level >= level).at(-1);
-    if (crossed) return say(newsItem(world.seed, at, "level", { creature: one, level: crossed }));
   }
 
   // And, when nothing has happened for a while, something anyway. That is
@@ -3321,12 +3408,13 @@ function reported(world: World, before: GameState, state: GameState): GameState 
   // it: a feed that opened with a remark on step one would be a feed nobody
   // had walked far enough to have earned.
   const last = state.news.at(-1)?.at ?? 0;
-  if (state.phase === "field" && at > 0 && at - last >= NEWS_QUIET && at !== before.stepsTaken) {
+  if (!lines.length && state.phase === "field" && at > 0 && at - last >= NEWS_QUIET && at !== before.stepsTaken) {
     const who = state.party[intBelow(rngFor(world.seed, "news-who", at), Math.max(1, state.party.length))];
-    return say(newsItem(world.seed, at, "idle", { creature: who, steps: at }));
+    lines.push(newsItem(world.seed, at, "idle", { creature: who, steps: at }));
   }
 
-  return state;
+  if (!lines.length) return next;
+  return { ...next, news: [...next.news, ...lines].slice(-NEWS_KEPT) };
 }
 
 /* ------------------------------------------------------------ doomscroll
@@ -3811,6 +3899,176 @@ function moveBetweenParty(state: GameState, index: number, direction: "store" | 
   };
 }
 
+/* -------------------------------------------------------------- loadouts
+ *
+ * A team, written down: who was in the party, in what order, with their moves
+ * in which order and holding what.
+ *
+ * What it stores is *references* — uids, move ids, item ids — and never
+ * creatures. A loadout is a note saying "these six, arranged like this", so a
+ * creature that has since levelled up, evolved or been traded away is found
+ * as it is now or not at all. Storing copies would make a loadout a second
+ * source of truth about a creature, and every bug in this engine worth
+ * remembering has been two copies of one fact.
+ *
+ * Loading is deliberately forgiving: anything missing is skipped and counted,
+ * anything that will not fit is left where it is. A saved team from before
+ * you released two of them should still put the other four back, because the
+ * alternative is a button that stops working and will not say why.
+ */
+
+/** The most that can be kept. Eight rather than a number: a list you scroll is a list you do not read. */
+export const LOADOUTS_MAX = 8;
+export const LOADOUT_NAME_MAX = 20;
+
+/** One member of a saved arrangement. */
+export interface LoadoutMember {
+  /** Which creature, wherever it is now. */
+  uid: number;
+  /** Its moves, in the order they sat in. Restored as a permutation of what it knows. */
+  moves: string[];
+  /** What it was holding, or null for nothing. */
+  heldItem: string | null;
+}
+
+export interface Loadout {
+  name: string;
+  members: LoadoutMember[];
+}
+
+/** A name fit to write down, or a numbered one. */
+function cleanLoadoutName(name: string | undefined, at: number): string {
+  const trimmed = (name ?? "").replace(/\s+/g, " ").trim().slice(0, LOADOUT_NAME_MAX);
+  return trimmed || `Team ${at + 1}`;
+}
+
+/** Why the party cannot be written down right now, or null. */
+export function saveLoadoutRefusal(state: GameState): string | null {
+  if (state.phase !== "field") return "not right now";
+  if (!state.party.length) return "there is nobody to write down";
+  if (state.loadouts.length >= LOADOUTS_MAX) return `no more than ${LOADOUTS_MAX} loadouts`;
+  return null;
+}
+
+function saveLoadout(state: GameState, name?: string): GameState {
+  const refusal = saveLoadoutRefusal(state);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const loadout: Loadout = {
+    name: cleanLoadoutName(name, state.loadouts.length),
+    members: state.party.map((one) => ({
+      uid: one.uid,
+      moves: [...one.moves],
+      heldItem: one.heldItem ?? null,
+    })),
+  };
+
+  return { ...state, tick: state.tick + 1, loadouts: [...state.loadouts, loadout], notice: null };
+}
+
+function dropLoadout(state: GameState, index: number): GameState {
+  if (!state.loadouts[index]) throw new IllegalInput("no such loadout");
+  return {
+    ...state,
+    tick: state.tick + 1,
+    loadouts: state.loadouts.filter((_, at) => at !== index),
+    notice: null,
+  };
+}
+
+/** Why this loadout cannot be put back, or null. */
+export function loadLoadoutRefusal(state: GameState, index: number): string | null {
+  if (state.phase !== "field") return "not in the middle of something";
+  const loadout = state.loadouts[index];
+  if (!loadout) return "no such loadout";
+
+  const here = new Set([...state.party, ...state.box].map((one) => one.uid));
+  if (!loadout.members.some((who) => here.has(who.uid))) return "none of them are still here";
+  // Eggs sit in party slots, so a party of eggs is a party with no room.
+  if (PARTY_LIMIT - state.eggs.length < 1) return "your party is all eggs";
+  return null;
+}
+
+function loadLoadout(state: GameState, index: number): GameState {
+  const refusal = loadLoadoutRefusal(state, index);
+  if (refusal) throw new IllegalInput(refusal);
+
+  const loadout = state.loadouts[index];
+  const everyone = new Map([...state.party, ...state.box].map((one) => [one.uid, one]));
+  const room = PARTY_LIMIT - state.eggs.length;
+
+  let bag = state.bag;
+  const party: Individual[] = [];
+  let missing = 0;
+
+  for (const member of loadout.members) {
+    const found = everyone.get(member.uid);
+    if (!found) {
+      missing += 1;
+      continue;
+    }
+    if (party.length >= room) {
+      missing += 1;
+      continue;
+    }
+
+    /*
+     * Its moves, in the order they were in — and never any other moves.
+     *
+     * A permutation of what it knows *now*, which is what keeps this clear of
+     * the rule that moves are rearranged in town: nothing is taught and
+     * nothing is forgotten here, so there is nothing for a town to be needed
+     * for. Anything it has learned since goes on the end rather than being
+     * dropped, and the uses travel with the move — see `alignPp`.
+     */
+    const knows = new Set(found.moves);
+    const ordered = [
+      ...member.moves.filter((moveId) => knows.has(moveId)),
+      ...found.moves.filter((moveId) => !member.moves.includes(moveId)),
+    ];
+    let one = alignPp({ ...found, moves: ordered }, found);
+
+    /*
+     * And what it was holding, if it is there to be held.
+     *
+     * Its current item goes back to the bag first, so asking for the
+     * Leftovers it is already carrying cannot mint a second pair — the same
+     * order `setHeld` uses, for the same reason. An item that has since been
+     * sold, lost or handed to somebody else leaves the creature carrying
+     * whatever it has now: a loadout is a note, not a claim on the bag.
+     */
+    if ((one.heldItem ?? null) !== member.heldItem) {
+      const freed = one.heldItem ? addItem(bag, one.heldItem) : bag;
+      if (member.heldItem === null) {
+        bag = freed;
+        one = { ...one, heldItem: null };
+      } else if (hasItem(freed, member.heldItem)) {
+        bag = removeItem(freed, member.heldItem);
+        one = { ...one, heldItem: member.heldItem };
+      }
+    }
+
+    party.push(one);
+  }
+
+  // Whoever was in the party and is not in the loadout goes to the box —
+  // `shelved`, in the funnel above, finds each of them a tab.
+  const taken = new Set(party.map((one) => one.uid));
+  const box = [
+    ...state.box.filter((one) => !taken.has(one.uid)),
+    ...state.party.filter((one) => !taken.has(one.uid)),
+  ];
+
+  return {
+    ...state,
+    tick: state.tick + 1,
+    party,
+    box,
+    bag,
+    notice: { t: "loadedOut", name: loadout.name, brought: party.length, missing },
+  };
+}
+
 /**
  * The creature behind one of the three cards, before anything is chosen.
  *
@@ -3870,13 +4128,15 @@ export const VAULT_LEVEL = 5;
 /**
  * How many of them a Vault Adventure may set out with.
  *
- * Three rather than one, because a vault full of bred creatures is a place
- * you want to *build a team* out of; and three rather than six, because a run
- * that opens with a full party has nothing left to fill. They arrive as they
- * always did — level five, no effort, marked — so what three buys is variety
- * rather than power.
+ * A full party, which is to say no limit of its own: the only ceiling left is
+ * the one every party has. It was three for a while, on the argument that a
+ * run opening with six has nothing left to fill — but that is the player's
+ * argument to make about their own run, not the engine's to make for them,
+ * and a vault full of bred creatures is a place you want to *build a team*
+ * out of. They arrive as they always did — level five, no effort, marked — so
+ * what a bigger team buys is variety rather than power.
  */
-export const VAULT_TAKE = 3;
+export const VAULT_TAKE = PARTY_LIMIT;
 
 /**
  * A creature out of the vault, as it arrives in a new run — or an error if it
@@ -3931,7 +4191,7 @@ export function vaultArrival(creature: Individual, uid: number): Individual {
 function vaultStart(state: GameState, creatures: readonly Individual[]): GameState {
   if (state.phase !== "starter") throw new IllegalInput("a vault creature can only start a run");
   if (!creatures.length) throw new IllegalInput("nothing to set out with");
-  if (creatures.length > VAULT_TAKE) throw new IllegalInput(`take at most ${VAULT_TAKE}`);
+  if (creatures.length > VAULT_TAKE) throw new IllegalInput(`a party holds ${VAULT_TAKE}`);
 
   // Each rebuilt from the parts this engine can check — see `vaultArrival` —
   // and each given its own uid, in the order they were picked.
@@ -4635,7 +4895,7 @@ function applyFieldMove(
       // — the census is what a route *is*, and a move that rolled fresh would
       // be a way to fish for the one true shiny.
       const slot = nextEncounterSlot(world, spent, state.route);
-      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid, spent.stepsTaken)));
+      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid, spent.stepsTaken, difficulty(spent.difficulty).wildLevels)));
       const lead = party.findIndex((one) => !isFainted(one));
 
       return {
@@ -4644,7 +4904,7 @@ function applyFieldMove(
         phase: "battle",
         // Its own tag, so a creature shaken out of a tree and one met in the
         // grass never share a roll even at the same slot.
-        battle: startBattle(world.seed, `${TREE_TAG}${state.route}:${slot}`, party, [wild], lead, spent.stepsTaken),
+        battle: startBattle(world.seed, `${TREE_TAG}${state.route}:${slot}`, party, [wild], lead, spent.stepsTaken, difficulty(spent.difficulty).catchMille),
         nextUid: spent.nextUid + 1,
         notice: { t: "encounter" },
       };
@@ -4652,7 +4912,7 @@ function applyFieldMove(
 
     case "draw": {
       const slot = nextEncounterSlot(world, spent, state.route);
-      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid, spent.stepsTaken)));
+      const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, spent.nextUid, spent.stepsTaken, difficulty(spent.difficulty).wildLevels)));
       const lead = party.findIndex((one) => !isFainted(one));
 
       return {
@@ -4661,7 +4921,7 @@ function applyFieldMove(
         phase: "battle",
         // The grass tag, because this *is* the grass — drawn out early rather
         // than walked into, and it should be the same encounter either way.
-        battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, party, [wild], lead, spent.stepsTaken),
+        battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, party, [wild], lead, spent.stepsTaken, difficulty(spent.difficulty).catchMille),
         nextUid: spent.nextUid + 1,
         notice: { t: "encounter" },
       };
@@ -4774,7 +5034,7 @@ function fish(world: World, state: GameState): GameState {
   for (let step = 0; step < FISH_STEPS; step++) waited = walked(world, waited);
 
   const hooked = atFullHealth(
-    withMoves(fishAt(world, ALL_SPECIES, waited.route, rod.reach ?? 1, index, waited.nextUid)),
+    withMoves(fishAt(world, ALL_SPECIES, waited.route, rod.reach ?? 1, index, waited.nextUid, difficulty(waited.difficulty).wildLevels)),
   );
   const leadIndex = waited.party.findIndex((creature) => creature.hp > 0);
 
@@ -4785,7 +5045,7 @@ function fish(world: World, state: GameState): GameState {
     // walking the grass never consumes the pond.
     nextSlot: { ...waited.nextSlot, [key]: index + 1 },
     phase: "battle",
-    battle: startBattle(world.seed, `${WILD_TAG}${waited.route}:rod:${index}`, waited.party, [hooked], leadIndex, waited.stepsTaken),
+    battle: startBattle(world.seed, `${WILD_TAG}${waited.route}:rod:${index}`, waited.party, [hooked], leadIndex, waited.stepsTaken, difficulty(waited.difficulty).catchMille),
     nextUid: waited.nextUid + 1,
     notice: null,
   };
@@ -5351,7 +5611,7 @@ function metCritter(world: World, state: GameState, spec: CritterSpec): GameStat
     ...state,
     tick: state.tick + 1,
     phase: "battle",
-    battle: startBattle(world.seed, `${CRITTER_TAG}${spec.id}`, state.party, [creature], lead, state.stepsTaken),
+    battle: startBattle(world.seed, `${CRITTER_TAG}${spec.id}`, state.party, [creature], lead, state.stepsTaken, difficulty(state.difficulty).catchMille),
     nextUid: state.nextUid + 1,
     talking: null,
     notice: { t: "encounter" },
@@ -5704,6 +5964,11 @@ function npcAccept(world: World, state: GameState): GameState {
       };
 
     case "heal":
+      // Free, on every difficulty. A Centre that charged would be a Centre a
+      // broke player with a fainted party could not use, and a run that
+      // cannot be continued is a bug rather than a hard mode. What a hard
+      // preset takes instead is a share of your money when you go down —
+      // which cannot strand you, because it cannot take what you do not have.
       return {
         ...state,
         tick: state.tick + 1,
@@ -7336,6 +7601,18 @@ const GYM_PURSE = 5000;
  * about — the battle deals in health and experience, and the purse is the
  * engine's business.
  */
+/**
+ * What winning is worth on this difficulty.
+ *
+ * Wrapped around the Amulet Coin rather than the other way round, so the
+ * coin doubles what the preset left rather than the preset shaving what the
+ * coin doubled. The two orders differ by a rounding step, and this one is the
+ * one that makes the item feel like an item.
+ */
+function purseOn(state: GameState, battle: BattleState | null, purse: number): number {
+  return Math.floor((withAmuletCoin(battle, purse) * difficulty(state.difficulty).moneyMille) / 1000);
+}
+
 function withAmuletCoin(battle: BattleState | null, purse: number): number {
   if (!battle) return purse;
   const standing = battle.sides[0].team[battle.sides[0].active];
@@ -7398,7 +7675,8 @@ export function gymIdOf(battle: BattleState | null): string | null {
  */
 export function gymTeam(world: World, state: GameState, id: string): Individual[] {
   const spec = gymSpec(id);
-  const level = gymLevel(spec, state.tick, state.badges.length);
+  const hard = difficulty(state.difficulty);
+  const level = gymLevel(spec, state.tick, state.badges.length, hard);
 
   // Everything of the right type, weakest first, so a gym at level twelve is
   // not fielding the same creature as a gym at level eighty.
@@ -7411,13 +7689,18 @@ export function gymTeam(world: World, state: GameState, id: string): Individual[
   const team: Individual[] = [];
   let uid = state.nextUid;
 
-  for (let slot = 0; slot < spec.team; slot++) {
+  // A harder run puts more bodies behind the leader. The extra ones are
+  // ordinary members, not extra aces: the shape of the fight stays the same
+  // and there is simply more of it.
+  const size = Math.min(PARTY_LIMIT, spec.team + hard.gymTeam);
+
+  for (let slot = 0; slot < size; slot++) {
     const rng = rngFor(world.seed, "gym", id, level, slot);
 
     // The ace goes last and comes from the strong end of the pool; the rest
     // are drawn from the whole of it, so a gym has a shape rather than five
     // copies of its best answer.
-    const ace = slot === spec.team - 1;
+    const ace = slot === size - 1;
     const from = ace ? Math.floor(pool.length * 0.75) : 0;
     const upto = ace ? pool.length - 1 : pool.length - 1;
     const pick = pool[intBetween(rng, from, upto)];
@@ -7426,20 +7709,37 @@ export function gymTeam(world: World, state: GameState, id: string): Individual[
       atFullHealth(
         withMoves({
           pp: [],
-          abilities: rollAbilities(rng),
+          // What a leader's creatures were born with. The wild odds on
+          // Normal — which is what this was before presets — and a great deal
+          // more above it: by Fever Dream nothing they field has none.
+          abilities: rollAbilities(rng, hard.gymAbilities),
           uid: uid++,
           speciesId: pick.id,
           level: ace ? level : Math.max(2, level - 2 - intBelow(rng, 3)),
           exp: expForLevel(level),
-          ivs: { hp: 20, atk: 20, def: 20, spa: 20, spd: 20, spe: 20 },
-          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+          ivs: {
+            hp: hard.gymIv,
+            atk: hard.gymIv,
+            def: hard.gymIv,
+            spa: hard.gymIv,
+            spd: hard.gymIv,
+            spe: hard.gymIv,
+          },
+          // A leader who has trained. The spread is derived from the species'
+          // own base stats rather than authored, so it is right for whatever
+          // the type pool deals and stays right when the dex grows.
+          evs: effortFor(pick.base, hard.gymEv),
           natureId: NATURE_IDS[intBelow(rng, NATURE_IDS.length)],
           variantId: "normal",
           hp: 0,
           status: null,
           sleepTurns: 0,
           moves: [],
-          heldItem: null,
+          // Its own named stream, so turning held items on does not move a
+          // single one of the rolls above.
+          heldItem: hard.gymHeld
+            ? FOE_HELD_ITEMS[intBelow(rngFor(world.seed, "gym-held", id, level, slot), FOE_HELD_ITEMS.length)]
+            : null,
           nickname: null,
           traded: false,
           prize: false,
@@ -7848,7 +8148,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
         ...moved,
         phase: "battle",
         // A wild battle, because catching it is the entire point of the hunt.
-        battle: startBattle(world.seed, `${WILD_TAG}hunt:${moved.hunt.since}`, moved.party, [creature], lead, moved.stepsTaken),
+        battle: startBattle(world.seed, `${WILD_TAG}hunt:${moved.hunt.since}`, moved.party, [creature], lead, moved.stepsTaken, difficulty(moved.difficulty).catchMille),
         nextUid: moved.nextUid + 1,
         hunt: null,
         notice: { t: "encounter" },
@@ -7888,7 +8188,24 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     const lead = state.party.findIndex((creature) => !isFainted(creature));
     if (lead >= 0) {
       let uid = state.nextUid;
-      const team = trainer.team.map((member, slot) => {
+      const hard = difficulty(state.difficulty);
+      /*
+       * Who they are fielding, before the preset has had its say.
+       *
+       * The extra bodies a hard run adds are drawn from the team the world
+       * already dealt this person rather than from the encounter table: the
+       * table would need the route's band and the rings here, and a trainer
+       * who fields two of the same thing reads as somebody with a favourite,
+       * which is fine. Each extra one is its own slot, so its rolls are its
+       * own.
+       */
+      const fielding = [...trainer.team];
+      for (let extra = 0; extra < hard.trainerTeam && fielding.length < PARTY_LIMIT; extra++) {
+        const from = trainer.team[intBelow(rngFor(world.seed, "trainer-extra", trainer.id, extra), trainer.team.length)];
+        fielding.push(from);
+      }
+
+      const team = fielding.map((member, slot) => {
         const built = withMoves({
           pp: [],
           // The people out on the routes roll too, from the trainer's own
@@ -7899,17 +8216,30 @@ function move(world: World, state: GameState, dir: Direction): GameState {
           // Three levels for every beating they have already taken from you,
           // which is what stops the first ring being worthless by the fourth
           // badge — the people on it grew up too.
-          level: Math.min(100, member.level + (state.wins[trainer.id] ?? 0) * REMATCH_LEVELS),
+          level: Math.min(
+            100,
+            member.level + hard.trainerLevels + (state.wins[trainer.id] ?? 0) * REMATCH_LEVELS,
+          ),
           exp: member.level * member.level * member.level,
-          ivs: { hp: 8, atk: 8, def: 8, spa: 8, spd: 8, spe: 8 },
-          evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+          ivs: {
+            hp: hard.trainerIv,
+            atk: hard.trainerIv,
+            def: hard.trainerIv,
+            spa: hard.trainerIv,
+            spd: hard.trainerIv,
+            spe: hard.trainerIv,
+          },
+          // The people on the routes train too, on the harder presets.
+          evs: effortFor(speciesById(member.speciesId).base, hard.trainerEv),
           natureId: NATURE_IDS[member.level % NATURE_IDS.length],
           variantId: "normal",
           hp: 0,
           status: null,
           sleepTurns: 0,
           moves: [],
-          heldItem: null,
+          heldItem: hard.trainerHeld
+            ? FOE_HELD_ITEMS[intBelow(rngFor(world.seed, "trainer-held", trainer.id, slot), FOE_HELD_ITEMS.length)]
+            : null,
           nickname: null,
           traded: false,
           prize: false,
@@ -7948,7 +8278,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
   if (leadIndex < 0) return { ...chasing, steps };
 
   const slot = nextEncounterSlot(world, state, state.route);
-  const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, state.nextUid, state.stepsTaken)));
+  const wild = atFullHealth(withMoves(wildAt(world, ALL_SPECIES, state.route, slot, state.nextUid, state.stepsTaken, difficulty(state.difficulty).wildLevels)));
 
   return {
     ...chasing,
@@ -7957,7 +8287,7 @@ function move(world: World, state: GameState, dir: Direction): GameState {
     phase: "battle",
     // The tag keeps this encounter's rolls distinct from every other one in
     // the world, so two battles never share a critical hit.
-    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, state.party, [wild], leadIndex, state.stepsTaken),
+    battle: startBattle(world.seed, `${WILD_TAG}${state.route}:${slot}`, state.party, [wild], leadIndex, state.stepsTaken, difficulty(state.difficulty).catchMille),
     nextUid: state.nextUid + 1,
     notice: { t: "encounter" },
   };
@@ -8116,7 +8446,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
           ...base,
           phase: "battleEnd",
           badges: already ? base.badges : [...base.badges, gymId].sort(),
-          money: base.money + (already ? 0 : withAmuletCoin(base.battle, GYM_PURSE)),
+          money: base.money + (already ? 0 : purseOn(base, base.battle, GYM_PURSE)),
           bag: already ? base.bag : addItem(base.bag, gymSpec(gymId).tool),
           notice: already ? { t: "won" } : { t: "badge", gym: gymId },
         };
@@ -8163,7 +8493,7 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
       // happen to you between gyms and because he turned up uninvited.
       const rivalId = rivalIdOf(base.battle);
       if (rivalId) {
-        const purse = withAmuletCoin(base.battle, RIVAL_PURSE);
+        const purse = purseOn(base, base.battle, RIVAL_PURSE);
         return {
           ...base,
           phase: "battleEnd",
@@ -8176,7 +8506,8 @@ function battleTurn(world: World, state: GameState, action: BattleAction): GameS
 
       const trainer = [...world.trainers.values()].flat().find((who) => who.id === trainerId);
       const wins = (base.wins[trainerId] ?? 0) + 1;
-      const purse = withAmuletCoin(
+      const purse = purseOn(
+        base,
         result.battle,
         trainerPurse(trainer?.team.length ?? 1, world.routes.get(base.route)?.ring ?? 1) * wins,
       );
@@ -8217,12 +8548,23 @@ function whiteout(world: World, state: GameState): GameState {
   const woke = centre ?? world.routes.get(HUB_ID);
   if (!woke) throw new Error("world has no hub");
 
+  /*
+   * And on the harder presets, what it costs.
+   *
+   * Money rather than a creature, because losing a creature is a different
+   * game — see above — and because money is the one thing in this world you
+   * can rebuild by playing well. Taken as a share of what you are carrying,
+   * so it stings at every stage of a run rather than only at the start.
+   */
+  const lost = Math.floor((state.money * difficulty(state.difficulty).whiteoutMille) / 1000);
+
   return {
     ...state,
     phase: "battleEnd",
     route: woke.id,
     x: woke.entry.x,
     y: woke.entry.y,
+    money: state.money - lost,
     // Beaten, carried in, and put right — uses included. Losing is the one
     // thing in this game that costs you nothing but the walk back.
     party: state.party.map(restored),
@@ -8233,7 +8575,7 @@ function whiteout(world: World, state: GameState): GameState {
     arena: null,
     // The town rather than the room, because "you woke up in the Poké Center"
     // is true of every one of them and says nothing.
-    notice: { t: "whiteout", at: woke.parent ?? woke.id },
+    notice: { t: "whiteout", at: woke.parent ?? woke.id, lost },
   };
 }
 
@@ -8356,6 +8698,8 @@ export function stateHash(state: GameState): string {
     state.box.map(individual).join("|"),
     // How many tabs, not what they are called — names stay out of the hash.
     state.boxNames.length,
+    state.difficulty,
+    state.loadouts.map((one) => `${one.name}:${one.members.map((who) => who.uid).join("+")}`).join(","),
     state.expShareGiven ? "1" : "0",
     state.poisonWalk,
     state.forageWalk,

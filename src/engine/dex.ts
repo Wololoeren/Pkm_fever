@@ -171,6 +171,64 @@ export interface MoveEntry {
 }
 
 export const ALL_SPECIES = speciesData as unknown as SpeciesEntry[];
+
+/**
+ * Event forms, wired to evolve the way the form they are a costume of does.
+ *
+ * A handful of species in the manifest are one species wearing something: a
+ * Pichu with a spiky ear, ten Pikachus in hats, the partner Eevee, AZ's
+ * Floette. The games make these one-offs that cannot evolve at all, and the
+ * manifest records that faithfully — an empty `evolvesTo` — which in a game
+ * about raising things is a creature you can catch and then never finish.
+ *
+ * So each is given its ordinary form's evolutions. Derived rather than listed:
+ * a form is an entry with the same dex number whose id is the base's id with
+ * something on the end, and the base is the longest such id that evolves. No
+ * species is named here, so a rebuilt roster brings its own forms with it.
+ *
+ * What this deliberately does **not** touch is the other direction: Kantonian
+ * Farfetch'd, Mr. Mime, Qwilfish, Corsola, Linoone and Basculin have no
+ * evolution while their regional cousins do, and that is the games being
+ * interesting rather than an omission — the base is the one with nothing, so
+ * the rule above never fires on them.
+ *
+ * The entries are filled in place, which is the one mutation of the loaded
+ * manifest in the engine: `evolvesTo` is read from a dozen places through
+ * `speciesById`, and a second corrected copy would be a second truth. Checked
+ * against every pool the world draws from — the auction's exotics and legends,
+ * the starter pool, the prize bench — and none of them moves, because every
+ * form here is either in the Undiscovered egg group or grows into something
+ * the pools already weigh. See tests/evolutions.test.ts EV9.
+ */
+export const FORM_BASE: ReadonlyMap<string, string> = (() => {
+  const byNum = new Map<number, SpeciesEntry[]>();
+  for (const entry of ALL_SPECIES) {
+    const group = byNum.get(entry.num);
+    if (group) group.push(entry);
+    else byNum.set(entry.num, [entry]);
+  }
+
+  // Decided against the manifest as it arrived, then applied — so that a form
+  // filled in by this pass can never itself become another form's base.
+  const pairs: [SpeciesEntry, SpeciesEntry][] = [];
+  for (const entry of ALL_SPECIES) {
+    if (entry.evolvesTo.length) continue;
+    let base: SpeciesEntry | null = null;
+    for (const other of byNum.get(entry.num) ?? []) {
+      if (other.id === entry.id || !other.evolvesTo.length) continue;
+      if (!entry.id.startsWith(other.id)) continue;
+      if (!base || other.id.length > base.id.length) base = other;
+    }
+    if (base) pairs.push([entry, base]);
+  }
+
+  const forms = new Map<string, string>();
+  for (const [form, base] of pairs) {
+    forms.set(form.id, base.id);
+    form.evolvesTo = base.evolvesTo.map((step) => ({ ...step }));
+  }
+  return forms;
+})();
 export const ALL_MOVES = moveData as unknown as MoveEntry[];
 
 const LEARNSETS = learnsetData as unknown as Record<string, [number, string][]>;

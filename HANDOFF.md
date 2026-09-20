@@ -873,3 +873,89 @@ Two tabs: **Yours** (pin a party member up with an asking price and a line about
 The swap itself is the `postDeal` input (pack 86): `{ give, receive, paid, who }`, any part omittable, applied by each side to its own save. `postDealRefusal` checks what it can - you have the creature, it is not locked, you can cover the money, you keep something that can fight - and the arrival is rebuilt through `vaultArrival` keeping its level. A held item on the one you hand over goes to lost property. What it cannot check is whether the other side really applied theirs, the same limit the duel and trade rooms have.
 
 Verified live between two browser tabs: listing crossed, bid crossed, dialog read "you give Treecko, you receive Chespin, you take 1,500", and both saves applied their half. That run exposed one bug (the bidder never recorded its own outgoing bid, so its creature stayed) - fixed with `sentBids`, which is NOT re-verified in the browser. ENGINE_VERSION 38. tests/post.test.ts.
+
+## Difficulty
+
+Five presets, chosen on the start screen (and in the vault screen, which has no start screen of its own) and never again: `setDifficulty` is an input, pack 87, legal only while the phase is still `starter`. It lives in the log like the trainer name, so a save replays at the difficulty it was played at and cannot be turned down halfway. `state.difficulty` is always a real id; anything unknown reads as Normal, which is why every log written before this replays untouched.
+
+Everything a preset does is a number in `src/engine/difficulty.ts` that some other part of the engine already read - no new systems, and nothing that changes what a move does. Gym leaders: base level, levels per badge, extra bodies, IVs, **effort**, a held item and the odds they were born with abilities (the wild odds on Normal, nothing without one by Fever Dream). Route trainers: levels, extra bodies, IVs, **effort** and a held item. The world: wild levels, what a purse is worth, what a ball is worth and what a whiteout costs. A Centre is free on every preset and always will be - a fee at the counter is a run a broke player with a fainted party cannot continue, which is a softlock rather than a hard mode. A share of your money when you go down cannot strand you the same way, because it cannot take what you do not have.
+
+The effort is `effortFor(base, budget)` - the Cup's spread with a budget dial on it: 252 into the species' best stat, 252 into its second, the remainder into its third, derived from base stats rather than authored. Brutal spends 252 on a gym's creatures, Fever Dream the full 510. A trained team is a wall you climb by building one of your own, which is a better question than the one levels ask.
+
+Two knobs reach outside the engine. Wild levels go through `wildAt`/`fishAt` as a trailing `harder` argument added *after* the roll, so the grass holds the same creatures on every preset and only their levels move. Catch odds ride on `BattleState.catchMille`, set by `startBattle` at the wild-encounter call sites, and applied inside `ballMultiplier` - after the Master Ball has already returned null, because "always" is not a number worth scaling.
+
+Not built, and deliberately: the optional rules from the original proposal (level cap by badges, Set mode, one catch a route, faint is final) and any change to the experience curve. The rival, the arena and the Cup field what they always did. tests/difficulty.test.ts.
+
+## Loadouts
+
+A tab at the end of the box's tab row - **⚔ Loadouts** - holding arrangements rather than creatures. `Save party` writes down who is in the party, in what order, with their moves in which order and what each one is holding; `Load` puts that arrangement back; the `✕` forgets it. Eight at most, named or numbered (`Team 3`).
+
+A loadout stores **references and nothing else**: uids, move ids, item ids. `Loadout` in engine.ts says why - a stored creature would be a second source of truth about that creature, and every bug in this engine worth remembering has been two copies of one fact. So what comes back is whatever those uids name *now*: one that has levelled or evolved comes back as it is, and one released, traded or shipped off is skipped and counted (`missing` on the notice), never conjured.
+
+Loading is deliberately forgiving, because a button that silently stops working is worse than one that does four of six things: anything gone is skipped, anything that will not fit (eggs hold party slots) is left where it is, and whoever was in the party but is not in the loadout goes to the box - `shelved` finds them a tab as usual. It refuses only when nothing in the loadout is still with you.
+
+Two details worth knowing. **Moves** are restored as a permutation of what the creature knows *now* - saved order first, anything learned since on the end - so nothing is taught or forgotten here, which is why this is clear of the rule that moves are rearranged in town. The uses travel with the move through `alignPp`. **Items** go back to the bag before the wanted one comes out (the order `setHeld` uses, so asking for the Leftovers it is already holding cannot mint a second pair), and an item that has since been sold or handed to somebody else leaves the creature carrying whatever it has: a loadout is a note, not a claim on the bag.
+
+`saveLoadout` / `loadLoadout` / `dropLoadout`, pack 88-90, refusals `saveLoadoutRefusal` and `loadLoadoutRefusal`. tests/loadouts.test.ts.
+
+## The vault's party
+
+`VAULT_TAKE` is `PARTY_LIMIT` - a Vault Adventure sets out with as many as a party holds, and the engine no longer has a limit of its own. It was three, on the argument that a run opening with six has nothing left to fill; that is the player's argument to make about their own run. Everything else about a vault arrival is unchanged: level five, no effort, moves for level five, the vault mark.
+
+## The feed and the grass
+
+Every wild win used to write a feed post, and write it under `trainer` - so crossing one route filed thirty posts, each saying "a trainer has been beaten", and each one shouted at your friends through the feed room. Meanwhile an actual route trainer wrote nothing, because beating a person emits `beatTrainer` (they pay a purse) and only the grass ever reached the plain `won` branch.
+
+Now `reported` looks at the tag. `WILD_TAG`/`TREE_TAG` bump `state.wildsFought` and say something every `NEWS_WILD_EVERY` (30) - a new `wild` kind with its own lines, which quote the running count via the `{count}` blank. `beatTrainer` gets the `trainer` line, which is what those lines were always about: a route trainer, the rival, one of the Cup. Anything else wearing a plain `won` - a roamer, a gym beaten a second time, a round of the fight club - says nothing at all, because it has no line of its own and silence beats filing it under somebody else's.
+
+`wildsFought` is a tally on the save, not an event. tests/news.test.ts NW5.
+
+## Subscribing, from the start
+
+The room code was only reachable through the Doomscroller's Friends tab, which is an item you find hours in - a poor gate for the one feature that is about playing alongside somebody. The row now lives in `src/components/FriendsRoom.tsx` (`FriendsRoom` + `roomStatus` + the `FriendsFeed` type, re-exported from Doomscroller.tsx for its old importers) and is used in two places: that tab, and a **Subscribe to a friend** button under the node map in `MiniMap`. Subscribed, the button reads `Friends - CODE` with the number of others on it.
+
+The page builds the room object once (`friendsRoom`, memoised) and hands the same one to both, so they cannot drift and typing in one does not re-render the other's list.
+
+**Several rooms at once**, up to `FRIENDS_ROOMS_MAX` (5): friends are not one group. Each code is its own feed swarm *and* its own board swarm, with its own status and head count, tracked in `Map<code, Room>` refs that the effects **diff** rather than tear down - adding a fourth room must not drop the three that took ten seconds to form. A join in flight holds a `PENDING_FEED`/`PENDING_POST` placeholder in the map so a second render cannot open the same code twice, and a room that lands after its code was dropped leaves immediately.
+
+Posts and listings carry the `code` they arrived on. That is what makes an answer go back the way it came: `onBid` sends through `postRooms.get(listing.code)`, `strike`/`decline` through `postRooms.get(bid.code)`. Boards are keyed `code:peer`, so leaving a room drops exactly its listings. What you pin up is shouted to every room you are in, and a room joined later is caught up on join.
+
+The codes persist comma-separated under the same `pkm-fever.friendsCode` key, so a browser that remembered one room before this reads back as a list of one (`readFriendsCodes`/`writeFriendsCodes`/`cleanCodes` in lib/friends.ts).
+
+## Milestones that reach your friends
+
+Three bugs, one symptom - a party member crossing level 50 never showed up on anybody else's feed.
+
+1. **`reported` returned on the first thing it found.** One input can be two pieces of news: you beat something in the grass and the experience for it takes somebody past fifty on the same input. The win returned, and the fifty - the rarer and by far the more interesting of the two - was never written at all, on your own feed or on your friends'. It now builds a list of lines and appends all of them, with the level check first because that is the one that was being lost. The wild tally is kept whether or not the line is written.
+
+2. **The page sent "the latest line, once per step count."** A battle does not move your step count, so a second line in the same fight looked like one already said. It now remembers the line itself and sends everything after it. A `said` pointer that does not match the feed (first pass, a loaded save, a room joined just now) sets the mark and sends nothing, so a reload no longer re-announces the last line to everybody listening.
+
+3. **Arriving posts were invisible unless you owned a Doomscroller.** A friend's line now pops up in the same toast strip as your own, stacked above it, under the same mute. The "is this the first pass" test is its own flag rather than "was there a post before this one" - the same thing only when there *was* one, so a browser subscribing for the first time swallowed the first line a friend ever sent.
+
+Verified across two tabs on one code: level 60 for Bulbasaur toasted locally and arrived as a toast on the other tab, and a reload of both sent nothing. tests/news.test.ts NW6.
+
+## The trade that never completed
+
+Both screens stuck on "Waiting for them...", and the transport was innocent - the offers crossed fine, which is why each side could see the other's creature.
+
+`pairKey` in trade.ts identifies the pair being agreed to, so an acceptance cannot be reused for a different one. Both sides have to compute the same string, and each holds the two creatures the other way round, so it ordered them **by uid**. A uid is a save's own counter: two players who each picked a starter are both holding uid 1. On that tie each side put its own creature first, the two keys never matched, neither acceptance settled, and the trade sat there until somebody gave up.
+
+The two stamps are sorted now, which is side-independent whatever the uids are. Every trade test had passed because the first one written gave the two sides uids 1 and 2, and every test since inherited it - tests/pvp.test.ts P3b is the one that holds a uid 1 on both sides (and a pair of identical creatures, where the two stamps are equal).
+
+## Event forms can finish
+
+A handful of species in the manifest are one species wearing something: a spiky-eared Pichu, ten Pikachus in hats, the partner Eevee, AZ's Floette. The games make these one-offs that cannot evolve at all, and `evolvesTo: []` recorded that faithfully - which in a game about raising things is a creature you can catch and then never finish.
+
+`FORM_BASE` in dex.ts fills each one in from its ordinary form, derived rather than listed: same dex number, id is the base's id with something on the end, longest such base that evolves. Thirteen of them today, no species named, so a rebuilt roster brings its own. The entries are filled **in place** - the one mutation of the loaded manifest in the engine, because `evolvesTo` is read from a dozen places through `speciesById` and a second corrected copy would be a second truth. `EVOLUTION_RULES` appends the same rules again keyed on the form, so a spiky-eared Pichu wants the same Soothe Bell an ordinary one does.
+
+The other direction is left alone on purpose: Kantonian Farfetch'd, Mr. Mime, Qwilfish, Corsola, Linoone and Basculin have no evolution while their regional cousins do. That is the games being interesting rather than an omission, and the rule never fires on them because there the *base* is the one with nothing.
+
+`evolvesTo` is read by the auction's exotics and legends, the starter pool and the prize bench, so filling one in is a change to what a seed deals. Measured before and after: none of those pools moves, because every form here is either in the Undiscovered egg group or grows into something the pools already weighed. **EV10 is the test that says so out loud** - the day a new form does move a pool is the day a save stops replaying, and it should fail loudly rather than quietly reshuffle somebody's auction. No version bump.
+
+## Who a line is from
+
+Every line arriving at a friend's feed said "Somebody", whatever the sender was called.
+
+`joinFeed`/`joinPost` took the trainer name as a string and closed over it. A code remembered in this browser is rejoined **as the page loads** - before a save has been continued and before a trainer has a name - so the name read at that moment was null, the fallback stuck, and it was "Somebody" for the rest of the sitting. Both now take `who: () => string` and call it when a message is sent; the page passes a callback over `stateRef`, which is the one thing in the page that is always current.
+
+The board had it too, on `board`, `bid` and `struck` - the same join-time name, which is why a listing could show up under "Somebody" while the bid on it showed the right name (the page fills that one in at click time from live state).

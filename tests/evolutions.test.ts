@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_SPECIES, canLearnMachine, learnset, move as moveById } from "@/engine/dex";
+import { ALL_SPECIES, canLearnMachine, FORM_BASE, learnset, move as moveById, species as speciesById } from "@/engine/dex";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
 import {
   EVOLUTION_RULES,
@@ -55,7 +55,78 @@ describe("the table", () => {
       }
     }
   });
+
+  it("EV9: an event form evolves the way the form it is a costume of does", () => {
+    /*
+     * A spiky-eared Pichu, ten Pikachus in hats, the partner Eevee and AZ's
+     * Floette are one species wearing something. The games make them one-offs
+     * that cannot evolve at all, which in a game about raising things is a
+     * creature you can catch and never finish.
+     */
+    expect(FORM_BASE.get("pichuspikyeared")).toBe("pichu");
+    expect(FORM_BASE.get("pikachualola")).toBe("pikachu");
+    expect(FORM_BASE.get("eeveestarter")).toBe("eevee");
+    expect(FORM_BASE.get("floetteeternal")).toBe("floette");
+
+    for (const [form, base] of FORM_BASE) {
+      expect(speciesById(form).evolvesTo, form).toEqual(speciesById(base).evolvesTo);
+      expect(speciesById(form).evolvesTo.length, form).toBeGreaterThan(0);
+    }
+
+    // The rules travel with them: a spiky-eared Pichu wants the same Soothe
+    // Bell an ordinary one does, and nothing else.
+    const bare = creature("pichuspikyeared", { uid: 1, level: 20 });
+    expect(specialEvolutionAt(bare)).toBeNull();
+    expect(specialEvolutionAt({ ...bare, heldItem: "hold-soothebell" })).toBe("pikachu");
+
+    // A cap Pikachu takes a Thunder Stone like any other, through the plain
+    // manifest path rather than the table.
+    expect(evolutionByItem(creature("pikachuoriginal", { uid: 2, level: 20 }), "Thunder Stone")).toBe("raichu");
+
+    // And the other direction is left alone: a Kantonian Farfetch'd has no
+    // evolution while its Galarian cousin does, and that is the games being
+    // interesting rather than an omission.
+    for (const id of ["farfetchd", "mrmime", "qwilfish", "corsola", "linoone", "basculin"]) {
+      expect(speciesById(id).evolvesTo, id).toEqual([]);
+      expect(FORM_BASE.has(id), id).toBe(false);
+    }
+  });
+
+  it("EV10: none of the world's pools move because of it", () => {
+    /*
+     * `evolvesTo` is read by the auction's pools, the starter pool and the
+     * prize bench, so filling one in is a change to what a *seed* deals. Every
+     * form here is either in the Undiscovered egg group or grows into
+     * something those pools already weighed, so none of them moves — and this
+     * is the test that says so out loud, because the day one does is the day a
+     * save stops replaying.
+     */
+    const forms = new Set(FORM_BASE.keys());
+    for (const id of forms) {
+      const entry = speciesById(id);
+      const peak = Math.max(
+        ...[entry, ...entry.evolvesTo.map((step) => speciesById(step.id))].map((one) =>
+          Object.values(one.base).reduce((sum, stat) => sum + stat, 0),
+        ),
+      );
+      const undiscovered = entry.eggGroups.includes("Undiscovered");
+      // Out of the auction's exotics: either it is not for sale at all, or the
+      // line it grows into is under the bar.
+      expect(undiscovered || peak < 530, id).toBe(true);
+      // And out of the starter pool, which wants a three-stage line at 280-330.
+      const own = Object.values(entry.base).reduce((sum, stat) => sum + stat, 0);
+      expect(entry.evolvesTo.length !== 1 || own < 280 || own > 330, id).toBe(true);
+    }
+
+    // Nothing became somebody's only way in: every form's targets were already
+    // reachable from the ordinary form.
+    for (const [form, base] of FORM_BASE) {
+      const theirs = new Set(speciesById(base).evolvesTo.map((step) => step.id));
+      for (const step of speciesById(form).evolvesTo) expect(theirs.has(step.id), `${form}>${step.id}`).toBe(true);
+    }
+  });
 });
+
 
 describe("evolving", () => {
   it("EV3: a Feebas levelling up holding a Prism Scale is offered Milotic, and the scale is used up", () => {

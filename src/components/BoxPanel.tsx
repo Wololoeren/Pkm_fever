@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { species as speciesById } from "@/engine/dex";
+import { move, species as speciesById } from "@/engine/dex";
 import {
   BOX_NAME_MAX,
   BOX_SIZE,
@@ -9,12 +9,16 @@ import {
   boxCount,
   boxRefusal,
   EGGOMETER,
+  loadLoadoutRefusal,
+  LOADOUT_NAME_MAX,
+  LOADOUTS_MAX,
+  saveLoadoutRefusal,
   takeHeldRefusal,
   type GameState,
   type Input,
 } from "@/engine/engine";
 import { abilitiesOf } from "@/engine/abilities";
-import { hasItem } from "@/engine/items";
+import { hasItem, item } from "@/engine/items";
 import { ivTotal } from "@/engine/stats";
 import { TYPE_NAMES } from "@/engine/dex";
 import type { Individual } from "@/engine/types";
@@ -129,6 +133,134 @@ function matches(creature: Individual, query: string): boolean {
     .every((word) => haystack.includes(word));
 }
 
+
+/**
+ * The loadouts tab: teams you have written down.
+ *
+ * A loadout is an arrangement rather than a copy — see `Loadout` in the
+ * engine — so what is drawn here is looked up fresh every render: a creature
+ * that has evolved shows as what it is now, and one that has been released or
+ * traded away shows as gone rather than quietly vanishing from the row.
+ */
+function LoadoutList({
+  state,
+  onInput,
+}: {
+  state: GameState;
+  onInput: (input: Input) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const cannotSave = saveLoadoutRefusal(state);
+  const everyone = useMemo(
+    () => new Map([...state.party, ...state.box].map((one) => [one.uid, one] as const)),
+    [state.party, state.box],
+  );
+
+  return (
+    <div className="loadouts">
+      <div className="row">
+        <input
+          value={draft}
+          placeholder="Name it (optional)"
+          aria-label="Loadout name"
+          maxLength={LOADOUT_NAME_MAX}
+          spellCheck={false}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button
+          type="button"
+          className="primary"
+          disabled={Boolean(cannotSave)}
+          title={cannotSave ?? "Write down the party as it stands: who is in it, in what order, with their moves and what they are holding"}
+          onClick={() => {
+            onInput({ t: "saveLoadout", name: draft.trim() || undefined });
+            setDraft("");
+          }}
+        >
+          Save party
+        </button>
+        <span className="muted small">
+          {state.loadouts.length}/{LOADOUTS_MAX}
+        </span>
+      </div>
+
+      {state.loadouts.length ? (
+        <ol className="loadoutList">
+          {state.loadouts.map((loadout, at) => {
+            const why = loadLoadoutRefusal(state, at);
+            const gone = loadout.members.filter((who) => !everyone.has(who.uid)).length;
+            return (
+              <li key={`${loadout.name}:${at}`} className="loadoutItem">
+                <div className="row">
+                  <strong>{loadout.name}</strong>
+                  <span className="muted small">
+                    {loadout.members.length} · {gone ? `${gone} no longer with you` : "all still here"}
+                  </span>
+                  <button
+                    type="button"
+                    className="primary small"
+                    disabled={Boolean(why)}
+                    title={why ?? "Put this arrangement back: the party, the order, the moves and the items"}
+                    onClick={() => onInput({ t: "loadLoadout", index: at })}
+                  >
+                    Load
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    title="Forget this loadout"
+                    aria-label={`Remove ${loadout.name}`}
+                    onClick={() => onInput({ t: "dropLoadout", index: at })}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="loadoutTeam">
+                  {loadout.members.map((who, slot) => {
+                    const one = everyone.get(who.uid);
+                    return (
+                      <span key={`${who.uid}:${slot}`} className={`loadoutMember${one ? "" : " gone"}`}>
+                        {one ? (
+                          <Sprite
+                            speciesId={one.speciesId}
+                            variantId={one.variantId}
+                            abilities={one.abilities}
+                            heldItem={who.heldItem}
+                            size={48}
+                          />
+                        ) : (
+                          <span className="loadoutGone" aria-hidden="true">
+                            ?
+                          </span>
+                        )}
+                        <span>
+                          <strong>{one ? displayName(one) : "Gone"}</strong>
+                          {one ? <span className="muted"> Lv{one.level}</span> : null}
+                          <br />
+                          <span className="muted small">
+                            {who.moves.map((moveId) => move(moveId).name).join(", ")}
+                            {who.heldItem ? ` · ${item(who.heldItem).name}` : ""}
+                          </span>
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="hint">
+          Nothing written down yet. <strong>Save party</strong> remembers who is in it, in what order,
+          with their moves in which order and what each one is holding — and <strong>Load</strong> puts
+          that back. Nobody is copied: anything you have since let go is skipped.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function BoxPanel({
   state,
   onInput,
@@ -152,6 +284,8 @@ export function BoxPanel({
   const setTab = (next: number) => {
     setOwnTab(next);
     onTab?.(next);
+    // Picking a box is also how you leave the loadouts.
+    setOnLoadouts(false);
   };
   const [query, setQuery] = useState("");
   const [naming, setNaming] = useState<{ tab: number; draft: string } | null>(null);
@@ -161,6 +295,8 @@ export function BoxPanel({
   const [filter, setFilter] = useState("all");
   /** Cells picked with shift- or ctrl-click, by uid, to drag onto a tab together. */
   const [picked, setPicked] = useState<number[]>([]);
+  /** The loadouts tab, which shows arrangements rather than creatures. */
+  const [onLoadouts, setOnLoadouts] = useState(false);
 
   const tabs = state.boxNames;
   const shown = Math.min(tab, tabs.length - 1);
@@ -241,6 +377,7 @@ export function BoxPanel({
         <input
           type="search"
           className="boxSearch"
+          hidden={onLoadouts}
           placeholder="Search name, type or ability…"
           value={query}
           aria-label="Search the box"
@@ -249,7 +386,7 @@ export function BoxPanel({
         />
       </div>
 
-      <div className="boxTools">
+      <div className="boxTools" hidden={onLoadouts}>
         <label>
           Sort{" "}
           <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}>
@@ -367,8 +504,24 @@ export function BoxPanel({
         >
           +
         </button>
+        {/* Not a box: a tab of arrangements rather than of creatures, which is
+            why it sits apart and takes no drops. */}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={onLoadouts}
+          className={`tab loadoutTab${onLoadouts ? " on" : ""}`}
+          title="Teams you have written down, ready to put back"
+          onClick={() => setOnLoadouts(true)}
+        >
+          ⚔ Loadouts
+          <span className="tabCount">{state.loadouts.length}</span>
+        </button>
       </div>
 
+      {onLoadouts ? (
+        <LoadoutList state={state} onInput={onInput} />
+      ) : (
       <div className="boxGrid" onContextMenu={(event) => event.preventDefault()}>
         {cells.map(({ creature, index }) => {
           const hit = searching && matches(creature, query);
@@ -430,13 +583,16 @@ export function BoxPanel({
           <span key={`empty-${at}`} className="boxCell empty" aria-hidden="true" />
         ))}
       </div>
+      )}
 
-      <p className={why ? "error" : "hint"}>
-        {why ??
-          `Click for its sheet · shift-click to pick several · right-click to take it out · drag onto a tab to move it · double-click a tab to name it${
-            hiddenByFilter ? ` · ${hiddenByFilter} hidden by the filter` : ""
-          }`}
-      </p>
+      {onLoadouts ? null : (
+        <p className={why ? "error" : "hint"}>
+          {why ??
+            `Click for its sheet · shift-click to pick several · right-click to take it out · drag onto a tab to move it · double-click a tab to name it${
+              hiddenByFilter ? ` · ${hiddenByFilter} hidden by the filter` : ""
+            }`}
+        </p>
+      )}
     </div>
   );
 }

@@ -115,6 +115,49 @@ describe("trading", () => {
     });
   });
 
+
+  it("P3b: two saves each holding a uid 1 still complete", () => {
+    /*
+     * The uids in P3 are 1 and 2 because one test wrote them that way, and
+     * every trade test since has inherited it. A uid is a save's own counter:
+     * two players who each picked a starter are both holding uid 1, which is
+     * the commonest trade there is and the one nobody had tested.
+     *
+     * The pair key used to be ordered by uid, which on a tie put each side's
+     * own creature first - two different strings for one pair, so neither
+     * acceptance ever matched and both screens sat on "Waiting for them..."
+     * until somebody gave up.
+     */
+    const { a, b, pump } = connectTrade();
+    a.offer(creature("machop", { uid: 1 }));
+    b.offer(creature("squirtle", { uid: 1 }));
+    pump();
+
+    a.accept();
+    pump();
+    b.accept();
+    pump();
+
+    expect(a.view().phase).toBe("done");
+    expect(b.view().phase).toBe("done");
+    expect(a.view().completed?.given.speciesId).toBe("machop");
+    expect(a.view().completed?.received.speciesId).toBe("squirtle");
+    expect(b.view().completed?.given.speciesId).toBe("squirtle");
+    expect(b.view().completed?.received.speciesId).toBe("machop");
+
+    // And the same two creatures on both sides, whichever way round they came.
+    const twins = connectTrade();
+    twins.a.offer(creature("eevee", { uid: 1, level: 5 }));
+    twins.b.offer(creature("eevee", { uid: 1, level: 5 }));
+    twins.pump();
+    twins.a.accept();
+    twins.pump();
+    twins.b.accept();
+    twins.pump();
+    expect(twins.a.view().phase).toBe("done");
+    expect(twins.b.view().phase).toBe("done");
+  });
+
   it("P4: switching your offer after they agree voids their agreement", () => {
     // Otherwise you could take somebody's yes and complete against something
     // they never saw.

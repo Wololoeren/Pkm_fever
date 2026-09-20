@@ -13,6 +13,8 @@
  * the first, whichever one it happens to be.
  */
 
+import { difficulty, type Difficulty } from "./difficulty";
+
 export interface GymSpec {
   id: string;
   name: string;
@@ -159,6 +161,13 @@ export function isGym(id: string): boolean {
   return BY_ID.has(id);
 }
 
+/**
+ * How the preset moves a gym: what it adds to the base level, and what a
+ * badge is worth. Both live on the difficulty rather than here, because a
+ * Brutal gym growing at seven a badge is the same rule with a different
+ * number in it.
+ */
+
 /** One level per 2,500 moves, and never more than this many. */
 export const MOVE_LEVELS_CAP = 30;
 export const MOVES_PER_LEVEL = 2500;
@@ -172,9 +181,15 @@ export const LEVELS_PER_BADGE = 3;
  * progress is: a number written down when the world was made would be a second
  * copy of the truth, free to drift from the one that matters.
  */
-export function gymLevel(spec: GymSpec, moves: number, badges: number): number {
+export function gymLevel(
+  spec: GymSpec,
+  moves: number,
+  badges: number,
+  /** Left off, the world as it shipped — which is what Normal is. */
+  hard: Difficulty = difficulty(null),
+): number {
   const drift = Math.min(MOVE_LEVELS_CAP, Math.floor(moves / MOVES_PER_LEVEL));
-  return Math.min(100, spec.baseLevel + drift + badges * LEVELS_PER_BADGE);
+  return Math.min(100, spec.baseLevel + hard.gymBase + drift + badges * hard.gymPerBadge);
 }
 
 /** How the level was arrived at, for the panel to show before you commit. */
@@ -182,12 +197,15 @@ export function gymBreakdown(
   spec: GymSpec,
   moves: number,
   badges: number,
+  hard: Difficulty = difficulty(null),
 ): { base: number; fromMoves: number; fromBadges: number; total: number } {
   const fromMoves = Math.min(MOVE_LEVELS_CAP, Math.floor(moves / MOVES_PER_LEVEL));
   return {
-    base: spec.baseLevel,
+    // The preset's head start reads as part of the base, because that is what
+    // it is: the level this gym opens at on this difficulty.
+    base: spec.baseLevel + hard.gymBase,
     fromMoves,
-    fromBadges: badges * LEVELS_PER_BADGE,
-    total: gymLevel(spec, moves, badges),
+    fromBadges: badges * hard.gymPerBadge,
+    total: gymLevel(spec, moves, badges, hard),
   };
 }

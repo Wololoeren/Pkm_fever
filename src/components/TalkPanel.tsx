@@ -76,6 +76,7 @@ import {
   type Input,
 } from "@/engine/engine";
 import { contender as cupSpec, CUP_SIZE } from "@/engine/cup";
+import { difficulty } from "@/engine/difficulty";
 import { gym as gymSpec, gymBreakdown } from "@/engine/gyms";
 import { arena, arenaBreakdown, ARENA_ROUNDS, ARENA_SIZE } from "@/engine/arenas";
 import { huntLine } from "@/engine/hunt";
@@ -1046,14 +1047,22 @@ function ArenaTerms({ state, arenaId }: { state: GameState; arenaId: string }) {
 
 function GymTerms({ state, gymId }: { state: GameState; gymId: string }) {
   const spec = gymSpec(gymId);
-  const sums = gymBreakdown(spec, state.tick, state.badges.length);
+  const hard = difficulty(state.difficulty);
+  const sums = gymBreakdown(spec, state.tick, state.badges.length, hard);
 
   return (
     <p className="muted">
-      <strong>{spec.name}</strong> — {spec.team} {spec.type} types at level{" "}
+      <strong>{spec.name}</strong> — {spec.team + hard.gymTeam} {spec.type} types at level{" "}
       <strong>{sums.total}</strong>. That is {sums.base} to start with, {sums.fromMoves} for the{" "}
       {state.tick.toLocaleString()} moves you have taken, and {sums.fromBadges} for the{" "}
       {state.badges.length} badges you already hold. Winning hands over {item(spec.tool).name}.
+      {hard.gymEv ? (
+        <>
+          {" "}
+          Everything they field has {hard.gymEv} effort spent and {hard.gymIv} in every stat
+          {hard.gymHeld ? ", and is carrying something" : ""}.
+        </>
+      ) : null}
     </p>
   );
 }

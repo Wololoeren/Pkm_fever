@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyInput, initialState, reduce, VAULT_LEVEL, vaultArrival, type Input } from "@/engine/engine";
+import { applyInput, initialState, reduce, VAULT_LEVEL, VAULT_TAKE, vaultArrival, type Input } from "@/engine/engine";
 import { ENGINE_VERSION } from "@/engine/types";
 import { encodeSave, makeSave, parseAnySave } from "@/lib/save";
 import { verifySave } from "@/lib/verify";
@@ -52,7 +52,7 @@ describe("the vault", () => {
     expect(report.party[0].vault).toBe(true);
   });
 
-  it("VT2b: a team of them sets out together, and three is the most it can be", () => {
+  it("VT2b: a team of them sets out together, and a full party is the most it can be", () => {
     const three = [
       creature("dratini", { uid: 7, level: 40 }),
       creature("larvitar", { uid: 8, level: 55 }),
@@ -73,11 +73,25 @@ describe("the vault", () => {
     // And their uids do not collide.
     expect(new Set(team.party.map((one) => one.uid)).size).toBe(3);
 
-    // A fourth is refused, and the old shape still means what it meant.
+    // Six is allowed — the only ceiling left is the one every party has.
+    const six = [
+      ...three,
+      creature("bagon", { uid: 10 }),
+      creature("beldum", { uid: 11 }),
+      creature("axew", { uid: 12 }),
+    ];
+    const full = reduce(world, [
+      { t: "trainer", name: "Ash" },
+      { t: "vaultStart", creature: six[0], creatures: six },
+    ]);
+    expect(full.party).toHaveLength(VAULT_TAKE);
+    expect(VAULT_TAKE).toBe(6);
+
+    // A seventh is refused, and the old shape still means what it meant.
     expect(() =>
       reduce(world, [
         { t: "trainer", name: "Ash" },
-        { t: "vaultStart", creature: three[0], creatures: [...three, creature("bagon", { uid: 10 })] },
+        { t: "vaultStart", creature: six[0], creatures: [...six, creature("deino", { uid: 13 })] },
       ]),
     ).toThrow();
     expect(reduce(world, [{ t: "trainer", name: "Ash" }, { t: "vaultStart", creature: three[0] }]).party).toHaveLength(1);

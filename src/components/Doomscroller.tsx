@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { FriendPost } from "@/lib/friends";
-import type { PartyStatus } from "@/lib/party";
-import { normaliseRoomCode, randomRoomCode } from "@/lib/room";
+import { FriendsRoom, type FriendsFeed } from "./FriendsRoom";
 import { ability } from "@/engine/abilities";
 import { lot as auctionLot } from "@/engine/auction";
 import { eggSteps } from "@/engine/breeding";
@@ -155,16 +153,8 @@ export function feedPosts(world: World, state: GameState): Post[] {
   return [...posts.filter((one) => one.ready), ...posts.filter((one) => !one.ready)];
 }
 
-/** Everything the page knows about the room of friends, handed down. */
-export interface FriendsFeed {
-  /** The code we are in, or "" for nowhere. */
-  code: string;
-  status: PartyStatus | null;
-  /** How many other people are in the room. */
-  here: number;
-  posts: readonly FriendPost[];
-  onCode: (code: string) => void;
-}
+/** Where it lives now, re-exported for everything that imported it from here. */
+export type { FriendsFeed };
 
 export function Doomscroller({
   world,
@@ -179,7 +169,6 @@ export function Doomscroller({
   friends?: FriendsFeed;
   onClose: () => void;
 }) {
-  const [typed, setTyped] = useState("");
   const posts = feedPosts(world, state);
   // What each of the three is called. Nobody sits down meaning to lose a
   // thousand steps, which is the joke and also what the buttons say.
@@ -278,56 +267,7 @@ export function Doomscroller({
             {/* A room code and nothing else: everybody who types the same one
                 hears everybody else's feed. Nothing received here touches the
                 game — it is somebody's word about their own save. */}
-            <div className="row">
-              {friends.code ? (
-                <>
-                  <span className="tag rise">{friends.code}</span>
-                  <span className="muted small">
-                    {friends.status === "live" || friends.here > 0
-                      ? `${friends.here} other${friends.here === 1 ? "" : "s"} here`
-                      : friends.status === "connecting"
-                        ? "finding the room…"
-                        : friends.status === "failed"
-                          ? "no relay would have us"
-                          : "waiting for somebody"}
-                  </span>
-                  <button type="button" className="ghost small" onClick={() => friends.onCode("")}>
-                    Leave
-                  </button>
-                </>
-              ) : (
-                <>
-                  <input
-                    value={typed}
-                    onChange={(event) => setTyped(normaliseRoomCode(event.target.value))}
-                    placeholder="ROOM CODE"
-                    aria-label="Room code"
-                    spellCheck={false}
-                  />
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={typed.length < 4}
-                    title={typed.length < 4 ? "A code is at least four characters" : "Listen to this room"}
-                    onClick={() => friends.onCode(typed)}
-                  >
-                    Subscribe
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    title="Make one up and tell your friends"
-                    onClick={() => {
-                      const code = randomRoomCode();
-                      setTyped(code);
-                      friends.onCode(code);
-                    }}
-                  >
-                    Start a room
-                  </button>
-                </>
-              )}
-            </div>
+            <FriendsRoom friends={friends} />
             {friends.posts.length ? (
               <ol className="newsList">
                 {[...friends.posts].reverse().map((post) => (

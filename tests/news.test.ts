@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
-import { newsItem, NEWS_KEPT, NEWS_LEVELS, NEWS_QUIET } from "@/engine/news";
+import { startBattle } from "@/engine/battle";
+import { expForLevel } from "@/engine/progression";
+import { newsItem, NEWS_KEPT, NEWS_LEVELS, NEWS_QUIET, NEWS_WILD_EVERY } from "@/engine/news";
 import { creature, testWorld } from "./helpers";
 
 /**
@@ -92,6 +94,91 @@ describe("the feed", () => {
     const again = applyInput(world, { ...raised, bag: { ...raised.bag, rarecandy: 1 } }, { t: "useItem", item: "rarecandy", index: 0 });
     expect(again.party[0].level).toBe(51);
     expect(again.news).toHaveLength(raised.news.length);
+  });
+
+
+  it("NW5: the grass is a tally, not an event — one line every thirty", () => {
+    const world = testWorld(SEED);
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    /*
+     * One wild fight, won. A level 60 Machamp against a level 2 Magikarp is
+     * the shortest road to a `won` notice through the real path — which is
+     * the path that decides whether anything is said about it.
+     */
+    const fight = (state: GameState, tag: string): GameState => {
+      const party = [creature("machamp", { uid: 1, level: 60, moves: ["karatechop"] })];
+      const ready: GameState = {
+        ...state,
+        party,
+        phase: "battle",
+        battle: startBattle(world.seed, tag, party, [creature("magikarp", { uid: 2, level: 2, moves: ["splash"] })], 0),
+      };
+      const done = applyInput(world, ready, { t: "fight", moveIndex: 0 });
+      // A wild win says `won`; a person says `beatTrainer`, because a person
+      // pays a purse. That difference is what this test is about.
+      expect(["won", "beatTrainer"], "the fixture did not actually win").toContain(done.notice?.t);
+      return done;
+    };
+
+    let live: GameState = { ...base, news: [] };
+    for (let at = 1; at < NEWS_WILD_EVERY; at++) {
+      live = fight(live, `wild:meadow-1:${at}`);
+      expect(live.wildsFought, `after ${at}`).toBe(at);
+      expect(live.news, `after ${at}`).toHaveLength(0);
+    }
+
+    // The thirtieth is the one that gets a line, and it counts them.
+    live = fight(live, "wild:meadow-1:30");
+    expect(live.wildsFought).toBe(NEWS_WILD_EVERY);
+    expect(live.news).toHaveLength(1);
+    expect(live.news[0].kind).toBe("wild");
+    expect(live.news[0].text).toContain(String(NEWS_WILD_EVERY));
+    expect(live.news[0].text).not.toMatch(/\{\w+\}/);
+    // Never a trainer: the grass is not a person, and used to be reported as one.
+    expect(live.news[0].text).not.toContain("trainer");
+
+    // And then quiet again for another thirty.
+    live = fight(live, "wild:meadow-1:31");
+    expect(live.news).toHaveLength(1);
+
+    // Somebody standing on a route is still an event, every time.
+    const met = fight({ ...live, news: [] }, "trainer:meadow-1:0");
+    expect(met.news).toHaveLength(1);
+    expect(met.news[0].kind).toBe("trainer");
+    // And beating one does not touch the grass's tally.
+    expect(met.wildsFought).toBe(live.wildsFought);
+  });
+
+
+  it("NW6: two pieces of news from one input are both written down", () => {
+    const world = testWorld(SEED);
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    /*
+     * The case that was being lost: the experience for a win takes somebody
+     * past fifty on the same input as the win. The old `reported` returned on
+     * the first thing it found, so the fifty - the rarer and by far the more
+     * interesting of the two - was never written at all, on your own feed or
+     * on your friends'.
+     */
+    const nearly = creature("machamp", { uid: 1, level: 49, moves: ["karatechop"] });
+    const party = [{ ...nearly, exp: expForLevel(50) - 1 }];
+    const ready: GameState = {
+      ...base,
+      news: [],
+      party,
+      phase: "battle",
+      battle: startBattle(world.seed, "wild:meadow-1:7", party, [creature("blissey", { uid: 2, level: 40, moves: ["splash"] })], 0),
+    };
+
+    const done = applyInput(world, ready, { t: "fight", moveIndex: 0 });
+    expect(done.party[0].level, "the fixture did not actually level").toBeGreaterThanOrEqual(50);
+    expect(done.news.map((one) => one.kind)).toContain("level");
+    expect(done.news.at(-1)?.text).toContain("50");
+
+    // And the win it came with still counts towards the grass's tally.
+    expect(done.wildsFought).toBe(1);
   });
 
   it("NW4: it keeps the last forty and no more", () => {
