@@ -269,6 +269,11 @@ export function species(id: string): SpeciesEntry {
   return found;
 }
 
+/** Whether this roster has such a species — for ids that arrived from outside. */
+export function isSpecies(id: string): boolean {
+  return SPECIES_BY_ID.has(id);
+}
+
 export function move(id: string): MoveEntry {
   const found = MOVES_BY_ID.get(id);
   if (!found) throw new Error(`unknown move: ${id}`);

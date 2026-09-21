@@ -3347,11 +3347,27 @@ function reported(world: World, before: GameState, state: GameState): GameState 
   const notice = state.notice;
   if (notice && notice !== before.notice) {
     const all = [...state.party, ...state.box];
+    /*
+     * Whatever is here now and was not before, newest last.
+     *
+     * Every one of these lines is about a creature that has just arrived, and
+     * the arrival used to be found as "the last of the party and the box laid
+     * end to end" — which is the caught one only when the box is empty or the
+     * party was full. Catch something with anything at all in the box and the
+     * feed announced the last creature *in the box*, which is to say one of
+     * yours, caught weeks ago.
+     *
+     * A uid is unique within a save and an arrival always gets a fresh one, so
+     * this is exact rather than nearly right.
+     */
+    const had = new Set([...before.party, ...before.box].map((one) => one.uid));
+    const arrived = all.filter((one) => !had.has(one.uid));
+
     if (notice.t === "caught") {
-      const caught = all.at(-1);
+      const caught = arrived.at(-1);
       if (caught) lines.push(newsItem(world.seed, at, "caught", { creature: caught }));
     } else if (notice.t === "hatched") {
-      const hatched = all.find((one) => one.speciesId === notice.speciesId) ?? all.at(-1);
+      const hatched = arrived.find((one) => one.speciesId === notice.speciesId) ?? arrived.at(-1);
       if (hatched) lines.push(newsItem(world.seed, at, "hatched", { creature: hatched }));
     } else if (notice.t === "evolved") {
       const grown = all.find((one) => one.uid === notice.uid);
@@ -3393,11 +3409,11 @@ function reported(world: World, before: GameState, state: GameState): GameState 
       // a purse and say so, which is what tells them apart from the grass.
       lines.push(newsItem(world.seed, at, "trainer", {}));
     } else if (notice.t === "traded" || notice.t === "swindled") {
-      const got = all.at(-1);
+      const got = arrived.at(-1);
       lines.push(newsItem(world.seed, at, "traded", { creature: got }));
     } else if (notice.t === "prize" || notice.t === "bidsSettled") {
       // Won rather than caught: a bracket's prize, a lot settled, a gift.
-      const got = all.at(-1);
+      const got = arrived.at(-1);
       if (got) lines.push(newsItem(world.seed, at, "prize", { creature: got }));
     }
   }

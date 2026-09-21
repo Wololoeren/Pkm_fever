@@ -8,6 +8,7 @@ import { Inspect } from "@/components/Inspect";
 import { DexPanel } from "@/components/DexPanel";
 import { JournalPanel } from "@/components/JournalPanel";
 import { isMuted, setMuted } from "@/lib/sound";
+import { NewsFace } from "@/components/Doomscroller";
 import { BigMaps, MiniMap, type BigMapsOpen } from "@/components/MiniMap";
 import { PvpScreen } from "@/components/PvpScreen";
 import { GameCanvas } from "@/components/GameCanvas";
@@ -211,6 +212,18 @@ function PoisonFlash({ at }: { at: number | null }) {
  * every message twice. It is never called: the moment the real room lands it
  * takes this one's place, and if the code was dropped meanwhile the arriving
  * room leaves immediately.
+ *
+ * The map is the only thing that decides whether a room lives, and the two
+ * effects below have no cleanup at all. That is deliberate and it is a bug
+ * fix. They used to carry a `live` flag that every re-run flipped, and a join
+ * still in flight when that happened resolved into `room.leave()` — which,
+ * because the transport hands back the same underlying room for the same
+ * code, tore down the *working* room the second pass had just made. React's
+ * development mode runs every effect twice, so this fired most times a tab
+ * loaded with a code already remembered: the connection said "1 other", and
+ * nothing that other person said ever arrived. A room is left in exactly one
+ * place now — the loop above, when its code is gone from the list — and a
+ * tab closing takes the rest with it, which is what closing a tab does.
  */
 const PENDING_FEED: FeedRoom = { say: () => {}, leave: () => {} };
 const PENDING_POST: PostRoom = {
@@ -483,7 +496,6 @@ export default function Page() {
       setFriendsHere((before) => ({ ...before, [code]: 0 }));
     }
 
-    let live = true;
     for (const code of wanted) {
       if (open.has(code)) continue;
       // Held before the promise settles, so two renders in a row cannot open
@@ -496,35 +508,20 @@ export default function Page() {
             writeFriendPosts(next);
             return next;
           }),
-        onStatus: (status) => live && setFriendsStatus((before) => ({ ...before, [code]: status })),
-        onCount: (count) => live && setFriendsHere((before) => ({ ...before, [code]: count })),
+        onStatus: (status) => setFriendsStatus((before) => ({ ...before, [code]: status })),
+        onCount: (count) => setFriendsHere((before) => ({ ...before, [code]: count })),
       }).then((room) => {
-        if (!live || open.get(code) !== PENDING_FEED) {
+        // Still wanted, and still the join this placeholder was left for.
+        if (open.get(code) !== PENDING_FEED) {
           room.leave();
           return;
         }
         open.set(code, room);
       });
     }
-
-    return () => {
-      live = false;
-    };
-    // The trainer name is read through a ref on joining: renaming mid-room
-    // is not a thing, and re-joining on every keystroke of a name would be.
-  }, [joinedFeeds]);
-
-  // Everything left behind when the tab goes.
-  useEffect(() => {
-    const feeds = feedRooms.current;
-    const boards = postRooms.current;
-    return () => {
-      for (const room of feeds.values()) room.leave();
-      for (const room of boards.values()) room.leave();
-      feeds.clear();
-      boards.clear();
-    };
-  }, []);
+    // `trainerName` is stable — it reads the name through a ref when a line
+    // is sent, so it never re-joins a room.
+  }, [joinedFeeds, trainerName]);
 
   /*
    * Tim's board, on the same room code the feed uses.
@@ -566,20 +563,17 @@ export default function Page() {
       setBids((before) => before.filter((one) => one.code !== code));
     }
 
-    let live = true;
     for (const code of wanted) {
       if (open.has(code)) continue;
       open.set(code, PENDING_POST);
       void joinPost(code, trainerName, {
         onBoard: (from, who, listings) =>
-          live &&
           setBoards((before) => ({
             ...before,
             [code + ":" + from]: listings.map((one) => ({ ...one, who, code })),
           })),
-        onBid: (bid) =>
-          live && setBids((before) => [...before.filter((one) => one.id !== bid.id), { ...bid, code }]),
-        onPull: (id) => live && setBids((before) => before.filter((one) => one.id !== id)),
+        onBid: (bid) => setBids((before) => [...before.filter((one) => one.id !== bid.id), { ...bid, code }]),
+        onPull: (id) => setBids((before) => before.filter((one) => one.id !== id)),
         onDeclined: () => {
           // Their no is only ours to hear: the listing stays up and the bid we
           // made is simply gone from their board.
@@ -606,14 +600,13 @@ export default function Page() {
           /* The feed's own status line is the one worth showing. */
         },
         onGone: (from) =>
-          live &&
           setBoards((before) => {
             const next = { ...before };
             delete next[code + ":" + from];
             return next;
           }),
       }).then((room) => {
-        if (!live || open.get(code) !== PENDING_POST) {
+        if (open.get(code) !== PENDING_POST) {
           room.leave();
           return;
         }
@@ -625,11 +618,8 @@ export default function Page() {
       });
     }
 
-    return () => {
-      live = false;
-    };
-    // The name is read through the ref on joining, like the feed's.
-  }, [joinedFeeds, dispatch]);
+    // `trainerName` is stable, like the feed's.
+  }, [joinedFeeds, dispatch, trainerName]);
 
   // What the handlers above need to read without re-joining the room.
   listingsRef.current = myListings;
@@ -1212,6 +1202,7 @@ export default function Page() {
 
       {heard && !newsMuted ? (
         <aside className="newsToast friendToast" role="status" aria-live="polite">
+          <NewsFace face={heard.face} />
           <span className="newsWho">{heard.who}</span>
           <span>{heard.text}</span>
         </aside>
@@ -1219,6 +1210,7 @@ export default function Page() {
 
       {shown && !newsMuted ? (
         <aside className="newsToast" role="status" aria-live="polite">
+          <NewsFace face={shown.face} />
           <span className="newsMark">FEED</span>
           <span>{shown.text}</span>
           <button

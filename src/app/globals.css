@@ -113,7 +113,7 @@ kbd {
 .newsMark { font-size: 0.62rem; letter-spacing: 0.08em; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; flex: none; }
 @keyframes newsIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .newsList { display: flex; flex-direction: column; gap: 6px; }
-.newsLine { display: flex; gap: 8px; align-items: baseline; }
+.newsLine { display: flex; gap: 8px; align-items: center; }
 .newsWhen { color: var(--muted); font-size: 0.72rem; flex: none; min-width: 5.5em; text-align: right; }
 /* The vault with a save's creatures waiting beside it: wider, two columns. */
 .vaultSplit { display: flex; flex-direction: column; gap: 18px; }
@@ -2088,3 +2088,8 @@ button.auctionLot:hover { border-color: var(--accent); }
    can be on screen at once, and marked as somebody else's. */
 .friendToast { bottom: 76px; border-left-color: var(--good); }
 .friendToast .newsWho { font-weight: 600; color: var(--good); margin-right: 6px; white-space: nowrap; }
+
+/* Who a feed line is about, drawn beside it. */
+.newsFace { display: inline-flex; align-items: center; flex: 0 0 auto; margin: -6px 0; }
+.newsFace canvas, .newsFace img { image-rendering: pixelated; }
+.newsLine .newsFace { margin-right: 2px; }

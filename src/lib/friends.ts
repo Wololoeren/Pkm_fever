@@ -1,4 +1,7 @@
+import { isSpecies } from "@/engine/dex";
+import { isItem } from "@/engine/items";
 import type { NewsKind } from "@/engine/news";
+import { variant } from "@/engine/variants";
 import { joinParty, type PartyRoom, type PartyStatus } from "./party";
 
 /**
@@ -23,6 +26,8 @@ import { joinParty, type PartyRoom, type PartyStatus } from "./party";
 export interface FriendPost {
   /** Who says so. Their trainer name, which they chose and which proves nothing. */
   who: string;
+  /** What the line is about, to draw. Somebody else's claim, like the text. */
+  face?: { speciesId: string; variantId: string; heldItem: string | null };
   /** Which room it came in on. Filled in by the page rather than by the wire. */
   code?: string;
   /** Their step count when it happened, for their own sense of time. */
@@ -35,7 +40,14 @@ export interface FriendPost {
 
 /** What goes over the wire. */
 type Wire =
-  | { t: "news"; who: string; at: number; kind: NewsKind; text: string }
+  | {
+      t: "news";
+      who: string;
+      at: number;
+      kind: NewsKind;
+      text: string;
+      face?: { speciesId: string; variantId: string; heldItem: string | null };
+    }
   /** Sent on arrival so a quiet room still shows who is in it. */
   | { t: "hello"; who: string };
 
@@ -48,7 +60,7 @@ export interface FeedHandlers {
 
 export interface FeedRoom {
   /** Shouts one of our own lines into the room. */
-  say: (item: { at: number; kind: NewsKind; text: string }) => void;
+  say: (item: { at: number; kind: NewsKind; text: string; face?: FriendPost["face"] }) => void;
   leave: () => void;
 }
 
@@ -137,6 +149,10 @@ export async function joinFeed(code: string, who: () => string, handlers: FeedHa
         at: Number(message.at) || 0,
         kind: message.kind,
         text: String(message.text ?? "").slice(0, 200),
+        // Checked against the dex before it is kept: a face is a species id
+        // out of somebody else's browser, and `Sprite` would ask the network
+        // for whatever it was told. Anything unknown simply draws nothing.
+        face: knownFace(message.face),
         heard: Date.now(),
       });
     },
@@ -151,8 +167,28 @@ export async function joinFeed(code: string, who: () => string, handlers: FeedHa
   room.send({ t: "hello", who: who() });
 
   return {
-    say: (item) => room?.send({ t: "news", who: who(), at: item.at, kind: item.kind, text: item.text }),
+    say: (item) =>
+      room?.send({ t: "news", who: who(), at: item.at, kind: item.kind, text: item.text, face: item.face }),
     leave: () => room?.leave(),
+  };
+}
+
+/**
+ * A face we are willing to draw, or nothing.
+ *
+ * Everything in a post is somebody else's word, and this is the part of it
+ * that would otherwise become a URL. A species and an appearance this build
+ * does not have are dropped rather than passed on to the sprite loader.
+ */
+function knownFace(face: unknown): FriendPost["face"] {
+  if (!face || typeof face !== "object") return undefined;
+  const { speciesId, variantId, heldItem } = face as Record<string, unknown>;
+  if (typeof speciesId !== "string" || !isSpecies(speciesId)) return undefined;
+  if (typeof variantId !== "string") return undefined;
+  return {
+    speciesId,
+    variantId: variant(variantId).id,
+    heldItem: typeof heldItem === "string" && isItem(heldItem) ? heldItem : null,
   };
 }
 

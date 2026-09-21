@@ -181,6 +181,78 @@ describe("the feed", () => {
     expect(done.wildsFought).toBe(1);
   });
 
+
+  it("NW7: a catch names what was caught, not the last thing in your box", () => {
+    const world = testWorld(SEED);
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+
+    /*
+     * The arrival used to be found as "the last of the party and the box laid
+     * end to end", which is the caught one only when the box is empty or the
+     * party was full. With anything at all in the box, the feed announced the
+     * last creature in the box - one of yours, caught weeks ago.
+     */
+    const party = [creature("machamp", { uid: 1, level: 60, moves: ["karatechop"] })];
+    const wild = creature("dratini", { uid: 9, level: 5, moves: ["wrap"] });
+    const ready: GameState = {
+      ...base,
+      news: [],
+      party,
+      box: [creature("rattata", { uid: 2, level: 3 }), creature("zubat", { uid: 3, level: 4 })],
+      bag: { masterball: 1 },
+      phase: "battle",
+      battle: startBattle(world.seed, "wild:meadow-1:3", party, [wild], 0),
+    };
+
+    const done = applyInput(world, ready, { t: "ball", item: "masterball" });
+    expect(done.notice, "the fixture did not actually catch it").toMatchObject({ t: "caught" });
+    expect(done.news.at(-1)?.kind).toBe("caught");
+    expect(done.news.at(-1)?.text).toContain("Dratini");
+    expect(done.news.at(-1)?.text).not.toContain("Zubat");
+
+    // And with a full party, where it goes to the box instead.
+    const full: GameState = {
+      ...ready,
+      party: [...party, ...Array.from({ length: 5 }, (_, at) => creature("rattata", { uid: 20 + at, level: 3 }))],
+    };
+    const boxed = applyInput(world, { ...full, battle: startBattle(world.seed, "wild:meadow-1:4", full.party, [wild], 0) }, { t: "ball", item: "masterball" });
+    expect(boxed.notice).toMatchObject({ t: "caught" });
+    expect(boxed.news.at(-1)?.text).toContain("Dratini");
+  });
+
+
+  it("NW8: a line about somebody carries a face to draw, and a line about nobody does not", () => {
+    const zubat = creature("zubat", { uid: 1, level: 7, heldItem: "hold-leftovers" });
+    const caught = newsItem(SEED, 400, "caught", { creature: zubat });
+    expect(caught.face).toEqual({ speciesId: "zubat", variantId: zubat.variantId, heldItem: "hold-leftovers" });
+
+    // Enough to draw and no more: a copy of the creature would go stale while
+    // the creature itself carried on levelling.
+    expect(Object.keys(caught.face!).sort()).toEqual(["heldItem", "speciesId", "variantId"]);
+
+    // A badge and a beating are about nobody, and draw nothing.
+    expect(newsItem(SEED, 400, "badge", { badges: 3 }).face).toBeUndefined();
+    expect(newsItem(SEED, 400, "beaten", {}).face).toBeUndefined();
+
+    // And it travels: the feed's own line about a catch is the one that arrives.
+    const world = testWorld(SEED);
+    const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });
+    const party = [creature("machamp", { uid: 1, level: 60, moves: ["karatechop"] })];
+    const done = applyInput(
+      world,
+      {
+        ...base,
+        news: [],
+        party,
+        bag: { masterball: 1 },
+        phase: "battle",
+        battle: startBattle(world.seed, "wild:meadow-1:5", party, [creature("dratini", { uid: 9, level: 5, moves: ["wrap"] })], 0),
+      } as GameState,
+      { t: "ball", item: "masterball" },
+    );
+    expect(done.news.at(-1)?.face?.speciesId).toBe("dratini");
+  });
+
   it("NW4: it keeps the last forty and no more", () => {
     const world = testWorld(SEED);
     const base = applyInput(world, initialState(world), { t: "pickStarter", index: 0 });

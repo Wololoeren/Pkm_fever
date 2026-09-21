@@ -959,3 +959,29 @@ Every line arriving at a friend's feed said "Somebody", whatever the sender was 
 `joinFeed`/`joinPost` took the trainer name as a string and closed over it. A code remembered in this browser is rejoined **as the page loads** - before a save has been continued and before a trainer has a name - so the name read at that moment was null, the fallback stuck, and it was "Somebody" for the rest of the sitting. Both now take `who: () => string` and call it when a message is sent; the page passes a callback over `stateRef`, which is the one thing in the page that is always current.
 
 The board had it too, on `board`, `bid` and `struck` - the same join-time name, which is why a listing could show up under "Somebody" while the bid on it showed the right name (the page fills that one in at click time from live state).
+
+## A catch that names the right creature
+
+The feed announced one of your own whenever you caught something with anything in the box.
+
+Every arrival line in `reported` found its subject as "the last of the party and the box laid end to end" - which is the caught one only when the box is empty, or when the party was full so it went to the end of the box. Catch something with room in your party and a box that is not empty, and the line named the last creature *in the box*: one of yours, caught weeks ago.
+
+It now takes the uids that were there before the input and names what is there now and was not. A uid is unique within a save and an arrival always gets a fresh one, so it is exact rather than nearly right. The same fix covers hatching, trades (and swindles) and prizes, which all had it. tests/news.test.ts NW7.
+
+## A face on the feed
+
+A feed line about a creature now carries enough to draw it: `NewsItem.face` is `{ speciesId, variantId, heldItem }` and nothing else. Not a copy of the creature - the feed is a record of a moment, and a copy would go stale while the creature itself carried on levelling. Optional in both senses: half the lines are about nobody (a badge, a beating, the grass in general) and draw without one, and a line written before this existed simply has none.
+
+`NewsFace` in Doomscroller.tsx draws it at 48px with no marks, and is used in four places: the feed toast, the friend toast, the Doomscroller's News tab and its Friends tab.
+
+It crosses the wire too, so a friend sees what your line is about. Incoming faces go through `knownFace` first: a species id out of somebody else's browser is exactly the sort of thing that becomes a sprite URL, so an id this build does not have is dropped rather than handed to the loader, and the appearance goes through `variant()` like every other arrival. tests/news.test.ts NW8.
+
+## Rooms that leave themselves
+
+The feed and board effects carried a `live` flag that every re-run flipped, and a join still in flight when that happened resolved straight into `room.leave()`. React's development mode runs every effect twice on mount, so a tab that loaded with a code already remembered did this most times: join, flip, and tear down. Whether it cost you the working room or only a duplicate depends on what the transport hands back for a second join of one code, which is not a thing to be depending on.
+
+The map of rooms is the only thing that decides whether a room lives now, and neither effect has a cleanup at all. A join in flight holds `PENDING_FEED`/`PENDING_POST`; when it lands it is stored only if that placeholder is still there, and otherwise leaves. A room is left in exactly one place - the loop at the top, when its code is gone from the list - and a tab closing takes the rest with it, which is what closing a tab does.
+
+The `live &&` guards are gone from the handlers too, which fixes a smaller thing: after any re-run of the effect - adding a second room, for instance - every room joined before it had its head count and status frozen, because those closures were reading a flag that was now false.
+
+Verified both ways between two tabs after a reload, which is the case that used to break: each side saw the other's line.

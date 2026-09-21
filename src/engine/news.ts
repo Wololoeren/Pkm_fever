@@ -23,6 +23,20 @@ export interface NewsItem {
   /** What sort of thing happened. The feed tab groups by nothing, but a kind is useful to test against. */
   kind: NewsKind;
   text: string;
+  /**
+   * Who the line is about, when it is about anybody, as a picture can be drawn
+   * from: the species, how it looks, and what it was carrying.
+   *
+   * Enough to draw and no more. A copy of the creature would be a second copy
+   * of a creature that is still in the party changing underneath it — the
+   * feed is a record of a moment, and what it holds has to be the moment
+   * rather than a stale view of something live.
+   *
+   * Optional because half the lines are about nobody: a badge, a beating, the
+   * grass in general. And optional in the other sense too — a line written
+   * before this existed simply has none, and draws without a face.
+   */
+  face?: { speciesId: string; variantId: string; heldItem: string | null };
 }
 
 export type NewsKind =
@@ -214,5 +228,16 @@ export function newsItem(
   // A shiny catch is a catch the feed cares about; the caller decides which.
   const shiny = kind === "caught" && about.creature && variant(about.creature.variantId).tier >= 5;
   const which = shiny ? "shiny" : kind;
-  return { at, kind: which, text: fill(pick(seed, at, which, LINES[which]), about) };
+  const text = fill(pick(seed, at, which, LINES[which]), about);
+  if (!about.creature) return { at, kind: which, text };
+  return {
+    at,
+    kind: which,
+    text,
+    face: {
+      speciesId: about.creature.speciesId,
+      variantId: about.creature.variantId,
+      heldItem: about.creature.heldItem ?? null,
+    },
+  };
 }

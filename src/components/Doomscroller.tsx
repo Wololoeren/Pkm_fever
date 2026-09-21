@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { FriendsRoom, type FriendsFeed } from "./FriendsRoom";
+import { Sprite } from "./Sprite";
 import { ability } from "@/engine/abilities";
 import { lot as auctionLot } from "@/engine/auction";
 import { eggSteps } from "@/engine/breeding";
@@ -156,6 +157,24 @@ export function feedPosts(world: World, state: GameState): Post[] {
 /** Where it lives now, re-exported for everything that imported it from here. */
 export type { FriendsFeed };
 
+
+/**
+ * Who a line is about, drawn beside it.
+ *
+ * Half the lines are about nobody — a badge, a beating, the grass in general —
+ * and those simply have no face, so this renders nothing rather than a gap
+ * where a picture would be. Small: a feed is read in a glance, and the words
+ * are still the thing.
+ */
+export function NewsFace({ face }: { face?: { speciesId: string; variantId: string; heldItem: string | null } }) {
+  if (!face) return null;
+  return (
+    <span className="newsFace" aria-hidden="true">
+      <Sprite speciesId={face.speciesId} variantId={face.variantId} heldItem={face.heldItem} size={48} marks={false} />
+    </span>
+  );
+}
+
 export function Doomscroller({
   world,
   state,
@@ -248,6 +267,7 @@ export function Doomscroller({
               <ol className="newsList">
                 {[...state.news].reverse().map((item) => (
                   <li key={`${item.at}:${item.kind}`} className="newsLine">
+                    <NewsFace face={item.face} />
                     <span className="newsWhen">{item.at.toLocaleString()}</span>
                     <span>{item.text}</span>
                   </li>
@@ -272,6 +292,7 @@ export function Doomscroller({
               <ol className="newsList">
                 {[...friends.posts].reverse().map((post) => (
                   <li key={`${post.who}:${post.heard}`} className="newsLine">
+                    <NewsFace face={post.face} />
                     <span className="newsWhen">{post.who}</span>
                     <span>{post.text}</span>
                   </li>
@@ -283,8 +304,9 @@ export function Doomscroller({
               </p>
             )}
             <p className="muted small">
-              Everybody on this code hears everybody. What crosses is a line of text and the name you
-              chose — never a creature, never a save. Nothing here can change your game.
+              Everybody on this code hears everybody. What crosses is a line of text, the name you chose
+              and what the line is about, to draw — never a creature, never a save. Nothing here can
+              change your game.
             </p>
           </>
         ) : null}
