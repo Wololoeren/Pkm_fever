@@ -1085,6 +1085,9 @@ button.boxRow:disabled { opacity: 0.45; cursor: not-allowed; }
 /* The Pokémon Handbook: the cheat panel's frame, with a header that stays put while the page scrolls. */
 .handbook { max-height: 90vh; overflow-y: auto; }
 .handbookHead { position: sticky; top: -18px; background: var(--panel); padding-block: 4px; display: flex; flex-direction: column; gap: 8px; z-index: 1; }
+/* The search box is `flex: 1 1 160px`, which in a column makes 160px its
+   *height*: a search box four lines tall, on every searchable tab. */
+.handbookHead .boxSearch { flex: none; align-self: flex-start; }
 .handbookTable { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 .handbookTable th, .handbookTable td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .handbookTable .num { text-align: right; font-variant-numeric: tabular-nums; }

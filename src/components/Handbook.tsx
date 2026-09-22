@@ -6,7 +6,8 @@ import { ITEMS, type ItemKind } from "@/engine/items";
 import { STAT_IDS, type StatId } from "@/engine/types";
 import { appearanceId, CHROMAS, TIER_MULT, TIER_NAMES, variant } from "@/engine/variants";
 import { swatchFor, typeColor } from "@/render/palette";
-import { effectiveness, TYPE_NAMES } from "@/engine/dex";
+import { ALL_SPECIES, effectiveness, species as speciesById, TYPE_NAMES } from "@/engine/dex";
+import { describeSpecialEvolution, LINKING_CORD, SOOTHE_BELL } from "@/engine/evolutions";
 
 /**
  * The Pokémon Handbook, open.
@@ -16,7 +17,7 @@ import { effectiveness, TYPE_NAMES } from "@/engine/dex";
  * every item's — so it cannot say one thing while the game does another.
  */
 
-type Section = "shine" | "colour" | "types" | "abilities" | "items";
+type Section = "shine" | "colour" | "types" | "abilities" | "items" | "evolving";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "shine", label: "Shine" },
@@ -24,7 +25,43 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "types", label: "Types" },
   { id: "abilities", label: "Abilities" },
   { id: "items", label: "Items" },
+  { id: "evolving", label: "Evolving" },
 ];
+
+/**
+ * Every evolution in the game, in one list, said in the terms this game uses.
+ *
+ * Built from the same two places the engine evolves things out of — the
+ * manifest's `evolvesTo` for the plain ones, `describeSpecialEvolution` for
+ * everything with a rule — so the handbook cannot promise a door the game
+ * does not open. Sorted by what you are holding rather than what you want,
+ * because that is the question somebody actually has: *this* thing, now what?
+ */
+interface EvolutionLine {
+  from: string;
+  fromName: string;
+  toName: string;
+  how: string;
+}
+
+function evolutionLines(): EvolutionLine[] {
+  const out: EvolutionLine[] = [];
+  for (const entry of ALL_SPECIES) {
+    for (const step of entry.evolvesTo) {
+      const into = speciesById(step.id);
+      const special = describeSpecialEvolution(entry.id, step.id);
+      const how =
+        special ??
+        (step.method === "useItem" && step.item
+          ? `use a ${step.item}`
+          : step.level > 0
+            ? `reach level ${step.level}`
+            : "level up");
+      out.push({ from: entry.id, fromName: entry.name, toName: into.name, how });
+    }
+  }
+  return out.sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName));
+}
 
 const STAT_LABEL: Record<StatId, string> = { hp: "HP", atk: "Atk", def: "Def", spa: "SpA", spd: "SpD", spe: "Spe" };
 
@@ -102,7 +139,15 @@ export function Handbook({
     return [...groups.entries()].map(([label, list]) => [label, [...list].sort((a, b) => a.name.localeCompare(b.name))] as const);
   }, [query]);
 
-  const searchable = section === "abilities" || section === "items";
+  // Built once: it is a walk over the whole dex, and it cannot change while
+  // the handbook is open.
+  const allEvolutions = useMemo(evolutionLines, []);
+  const evolutions = useMemo(
+    () => allEvolutions.filter((one) => matches(`${one.fromName} ${one.toName} ${one.how}`, query)),
+    [allEvolutions, query],
+  );
+
+  const searchable = section === "abilities" || section === "items" || section === "evolving";
 
   return (
     <div className="cheatBackdrop" role="dialog" aria-label="Pokémon Handbook">
@@ -132,7 +177,13 @@ export function Handbook({
             <input
               type="search"
               className="boxSearch"
-              placeholder={section === "abilities" ? "Search abilities…" : "Search items…"}
+              placeholder={
+                section === "abilities"
+                  ? "Search abilities…"
+                  : section === "items"
+                    ? "Search items…"
+                    : "Search a name, an item, a move…"
+              }
               value={query}
               aria-label="Search the handbook"
               spellCheck={false}
@@ -286,6 +337,68 @@ export function Handbook({
                 </div>
               ))}
             </dl>
+          </>
+        ) : null}
+
+        {section === "evolving" ? (
+          <>
+            <p className="muted">
+              Everything that grows into something else, and what it takes. Four of the ways the games
+              ask for are things this game has no way to do — there is nobody to trade a creature back
+              to you, nothing measures friendship, and there is no clock — so each is answered with
+              something you can carry:
+            </p>
+            <dl className="handbookList">
+              <div>
+                <dt>A trade</dt>
+                <dd>
+                  A <strong>{LINKING_CORD}</strong>, used from the bag like a stone. Where the trade
+                  wanted an item held as well, hold that item and level up — or use the cord while
+                  holding it — and the item is used up.
+                </dd>
+              </div>
+              <div>
+                <dt>Friendship</dt>
+                <dd>
+                  A <strong>{SOOTHE_BELL}</strong> carried at a level-up. It is not used up, so one
+                  bell raises a whole party, one creature at a time.
+                </dd>
+              </div>
+              <div>
+                <dt>Knowing a move</dt>
+                <dd>Exactly that: know the move, then level up. The move stays.</dd>
+              </div>
+              <div>
+                <dt>A place, a time of day, a spin of the console</dt>
+                <dd>
+                  Each gets the nearest honest thing this world has — an item, a move it learns, or a
+                  level. What it is says so in the list below.
+                </dd>
+              </div>
+            </dl>
+            <p className="muted">
+              {evolutions.length} of {allEvolutions.length}.
+            </p>
+            <div className="tableScroll">
+              <table className="handbookTable">
+                <thead>
+                  <tr>
+                    <th>From</th>
+                    <th>Into</th>
+                    <th>What it takes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evolutions.map((one) => (
+                    <tr key={`${one.from}>${one.toName}`}>
+                      <td>{one.fromName}</td>
+                      <td>{one.toName}</td>
+                      <td className="muted">{one.how}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         ) : null}
 

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { ALL_SPECIES, canLearnMachine, FORM_BASE, learnset, move as moveById, species as speciesById } from "@/engine/dex";
 import { applyInput, initialState, type GameState } from "@/engine/engine";
 import {
+  describeSpecialEvolution,
   EVOLUTION_RULES,
+  LINKING_CORD,
+  SOOTHE_BELL,
   evolutionHoldItems,
   evolutionUseItems,
   ruleSpeciesExist,
@@ -24,7 +27,10 @@ describe("the table", () => {
     const wanted = new Set<string>();
     for (const entry of ALL_SPECIES) {
       for (const step of entry.evolvesTo) {
-        if (step.method === "useItem" || (step.method === "level" && step.level > 0)) continue;
+        // A step is plain when it names a real stone or a real level. One
+        // that says "useItem" and then names no item is neither, and it is
+        // not something the engine can do — Kleavor sat behind one of those.
+        if ((step.method === "useItem" && step.item) || (step.method === "level" && step.level > 0)) continue;
         wanted.add(`${entry.id}>${step.id}`);
       }
     }
@@ -90,6 +96,35 @@ describe("the table", () => {
       expect(speciesById(id).evolvesTo, id).toEqual([]);
       expect(FORM_BASE.has(id), id).toBe(false);
     }
+  });
+
+
+  it("EV11: every evolution can be said in a sentence, which is what the handbook prints", () => {
+    /*
+     * The Evolving section of the handbook is built from these two sources and
+     * nothing else: `describeSpecialEvolution` for anything with a rule, and
+     * the manifest's own stone or level for the rest. A step that is neither
+     * would print as a blank instruction beside a real creature - a promise of
+     * a door with nothing said about how to open it.
+     */
+    const dumb: string[] = [];
+    for (const entry of ALL_SPECIES) {
+      for (const step of entry.evolvesTo) {
+        const said =
+          describeSpecialEvolution(entry.id, step.id) ??
+          (step.method === "useItem" && step.item ? `use a ${step.item}` : step.level > 0 ? `level ${step.level}` : null);
+        if (!said) dumb.push(`${entry.id}>${step.id}`);
+      }
+    }
+    expect(dumb).toEqual([]);
+
+    // And the sentences say the thing this game asks for, not the thing the
+    // games it comes from ask for.
+    expect(describeSpecialEvolution("kadabra", "alakazam")).toBe(`use a ${LINKING_CORD}`);
+    expect(describeSpecialEvolution("onix", "steelix")).toContain("holding Metal Coat");
+    expect(describeSpecialEvolution("pichu", "pikachu")).toBe(`level up holding ${SOOTHE_BELL}`);
+    // An event form says exactly what its ordinary form says.
+    expect(describeSpecialEvolution("pichuspikyeared", "pikachu")).toBe(describeSpecialEvolution("pichu", "pikachu"));
   });
 
   it("EV10: none of the world's pools move because of it", () => {

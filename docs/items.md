@@ -1,6 +1,6 @@
 # Items
 
-**641 of them**, of which 308 are machines. The other 333 are below.
+**642 of them**, of which 308 are machines. The other 334 are below.
 
 Seven of those are the printer's inks — one per colour but ivory, which is the
 one it never ran out of. They are not on any shelf at any price: an ink is
@@ -24,7 +24,7 @@ something you give to a creature to keep, something you use on the world.
 | Held | 126 | Given to a creature; does something while carried |
 | Berries | 41 | The same, but eaten and gone the moment it does it |
 | Tonics | 37 | Moves a number on a stat screen |
-| Stones | 28 | Turns one creature into another |
+| Stones | 29 | Turns one creature into another |
 | Breeding | 31 | Applied to a pairing at the daycare. Nine are the daycare's kit — Pairing Bell and Courting Song (50/100 steps off the wait for an egg), Rose Incense and Moonlit Charm (20/40% off, after the flat cuts), Warm Blanket and Ember Cradle (15/30% off hatching), Incubator, Brood Lamp and Hatchery Stone (1/1/2 incubators, up to 4); the first of each kind is sold. Three more — Spore of Change, Living Amber, Primordial Seed — give each IV outside the mutating slots a 10/20/35% chance to mutate anyway |
 | Machines | 288 | Teaches a move, and keeps |
 | Lures | 9 | Draws one kind of thing out of the grass |
@@ -270,7 +270,7 @@ hit that then missed.
 
 ## Stones
 
-**Twenty-eight of them.** Twenty-two, with sixty-seven doors, are read from the bestiary rather than
+**Twenty-nine of them.** Twenty-two, with sixty-seven doors, are read from the bestiary rather than
 listed: every item evolution the manifest carries names its item as a display
 string, so the set of stones that exists is exactly the set of names those
 evolutions mention. Point the build script at a different bestiary and the
@@ -287,11 +287,12 @@ and then Auspicious Armor, Malicious Armor, Cracked Pot, Chipped Pot,
 Unremarkable Teacup, Masterpiece Teacup, Sweet Apple, Tart Apple, Syrupy
 Apple, Galarica Cuff, Galarica Wreath, Metal Alloy.
 
-The other six stand in for evolutions that were never a stone (see
+The other seven stand in for evolutions that were never a stone, or that the
+manifest records as an item evolution and then names no item (see
 `src/engine/evolutions.ts`): the **Linking Cord** is a trade — Kadabra,
 Machoke, Graveler, Haunter and the rest, and the trades that wanted an item
-held, if it is holding it — and Peat Block, Strawberry Sweet, Scroll of
-Darkness, Scroll of Waters and Gimmighoul Coin each open one door.
+held, if it is holding it — and Black Augurite, Peat Block, Strawberry Sweet,
+Scroll of Darkness, Scroll of Waters and Gimmighoul Coin each open one door.
 
 A stone keeps the **proportion** of health, not the number: a Magikarp on its
 last legs comes out of it a Gyarados on its last legs.

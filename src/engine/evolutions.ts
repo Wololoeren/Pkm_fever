@@ -163,6 +163,17 @@ const BASE_RULES: readonly EvolutionRule[] = [
   { from: "farfetchdgalar", to: "sirfetchd", via: levelUp, needs: [hold("Leek")] },
   { from: "qwilfishhisui", to: "overqwil", via: levelUp, needs: [knows("barbbarrage")] },
   { from: "ursaring", to: "ursaluna", via: usedItem("Peat Block"), needs: [] },
+  /*
+   * Scyther's second door, which was nailed shut.
+   *
+   * The manifest records it as an item evolution and then names no item —
+   * the Black Augurite is not in the games this roster was built from — so
+   * nothing could ever match it and Kleavor was a species in the dex with no
+   * way to reach it. It gets an item of its own, like Ursaluna and the two
+   * scrolls above. The guard that should have caught this was skipping every
+   * `useItem` step without checking that the item existed; it checks now.
+   */
+  { from: "scyther", to: "kleavor", via: usedItem("Black Augurite"), needs: [] },
   { from: "stantler", to: "wyrdeer", via: levelUp, needs: [knows("zenheadbutt")] },
   { from: "basculinwhitestriped", to: "basculegionf", via: levelUp, needs: [atLevel(36), { t: "gender", gender: "female" }] },
   { from: "basculinwhitestriped", to: "basculegion", via: levelUp, needs: [atLevel(36)] },

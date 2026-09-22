@@ -942,6 +942,16 @@ const EVOLUTION_USE_ITEMS: ItemSpec[] = [
     evolves: true,
   },
   {
+    id: "stone-blackaugurite",
+    name: "Black Augurite",
+    kind: "stone",
+    price: SPECIALIST_STONE_PRICE,
+    sell: Math.floor(SPECIALIST_STONE_PRICE / 2),
+    blurb: "Evolves Scyther into Kleavor. Used up when it works.",
+    stacks: true,
+    evolves: true,
+  },
+  {
     id: "stone-strawberrysweet",
     name: "Strawberry Sweet",
     kind: "stone",

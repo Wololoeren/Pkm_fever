@@ -991,3 +991,15 @@ Verified both ways between two tabs after a reload, which is the case that used 
 The button that muted the feed lived on the toast, which is the thing being muted - so pressing it removed the only way to press it again. The way back was editing `pkm-fever.newsMuted` out of localStorage, which is not a way back.
 
 One `muteNews` in page.tsx now owns the state and the key, and three buttons call it: **Mute** on the toast, **Feed: on / muted** in the run's footer beside Sound, and a toggle on the Doomscroller's News tab beside the line that explains muting. Note that muting covers friends' lines as well as your own - one switch for "nothing pops up in the corner" - and nothing stops being written either way.
+
+## Evolving, in the handbook
+
+A sixth tab, **Evolving**: the four translations this game makes (a trade is a Linking Cord, friendship is a Soothe Bell carried at a level-up, a move known is exactly that, and everything else gets the nearest honest thing), then every evolution in the game in one searchable table - from, into, and what it takes.
+
+Derived from the same two places the engine evolves things out of: `describeSpecialEvolution` for anything with a rule, the manifest's own stone or level for the rest. The handbook cannot promise a door the game does not open, and EV11 is the test that keeps it that way - every step in the manifest has to be sayable in a sentence.
+
+Writing that test turned up **Kleavor**, which was unreachable. The manifest records `scyther -> kleavor` as an item evolution and then names no item (the Black Augurite is not in the roster the dex was built from), so nothing could ever match it. EV1 had been skipping every `useItem` step without checking the item existed; it checks now, and Scyther has a **Black Augurite** to evolve with, alongside the Peat Block and the two scrolls that stand in for the same kind of gap.
+
+No save impact: the new stone is not in `FOUND_STONES` (that wants a manifest door naming it, which is exactly what this one lacks), it is not a machine, and nothing else draws from the item list with a seed.
+
+One thing fixed in passing, because the tab is searchable and it is the box you type in: `.boxSearch` carries `flex: 1 1 160px`, which inside the handbook's *column* header made 160px its **height** - a search box four lines tall, on the Abilities and Items tabs too.
