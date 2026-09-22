@@ -180,12 +180,17 @@ export function Doomscroller({
   state,
   onInput,
   friends,
+  muted,
+  onMuted,
   onClose,
 }: {
   world: World;
   state: GameState;
   onInput: (input: Input) => void;
   friends?: FriendsFeed;
+  /** Whether lines pop up in the corner. They are written either way. */
+  muted?: boolean;
+  onMuted?: (quiet: boolean) => void;
   onClose: () => void;
 }) {
   const posts = feedPosts(world, state);
@@ -277,9 +282,17 @@ export function Doomscroller({
               <p className="hint">Nothing yet. Walk about, catch something, and it will find an opinion.</p>
             )}
             <p className="muted small">
-              The newest line pops up in the corner as it is written, unless you have muted it — muting
-              only stops the corner, and every line is kept here either way.
+              The newest line pops up in the corner as it is written — muting only stops the corner, and
+              every line is kept here either way.
             </p>
+            {onMuted ? (
+              <div className="row">
+                <button type="button" className="ghost small" onClick={() => onMuted(!muted)}>
+                  {muted ? "Let them pop up again" : "Stop them popping up"}
+                </button>
+                <span className="muted small">{muted ? "Muted." : "Popping up."}</span>
+              </div>
+            ) : null}
           </>
         ) : null}
         {tab === "friends" && friends ? (

@@ -71,6 +71,8 @@ export function BagPanel({
   onInput,
   opened,
   friends,
+  newsMuted,
+  onNewsMuted,
 }: {
   world: World;
   state: GameState;
@@ -79,6 +81,9 @@ export function BagPanel({
   opened?: { item: string; at: number } | null;
   /** The friends' feed, which the page holds and the Doomscroller shows. */
   friends?: FriendsFeed;
+  /** Whether feed lines pop up in the corner, and the switch for it. */
+  newsMuted?: boolean;
+  onNewsMuted?: (quiet: boolean) => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
 
@@ -404,6 +409,8 @@ export function BagPanel({
           state={state}
           onInput={onInput}
           friends={friends}
+          muted={newsMuted}
+          onMuted={onNewsMuted}
           onClose={() => setReading(null)}
         />
       ) : null}

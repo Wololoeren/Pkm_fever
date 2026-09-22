@@ -446,6 +446,26 @@ export default function Page() {
    * muted is still a feed, which is the joke and also what you would want.
    */
   const [newsMuted, setNewsMuted] = useState(false);
+  /**
+   * Muting, and the way back from it.
+   *
+   * The button that mutes lives on the thing being muted, which meant that
+   * once it was pressed there was nothing left on screen to press again — a
+   * door that only opened one way, and a save file you had to edit to undo a
+   * click. It is a toggle in two places now: beside the sound, where it can
+   * always be reached, and on the feed's own panel, next to the line that
+   * mentions muting in the first place.
+   */
+  const muteNews = useCallback((quiet: boolean) => {
+    setNewsMuted(quiet);
+    if (quiet) setShown(null);
+    try {
+      if (quiet) localStorage.setItem(NEWS_MUTED_KEY, "1");
+      else localStorage.removeItem(NEWS_MUTED_KEY);
+    } catch {
+      // No storage: it holds for this sitting, which is what was asked.
+    }
+  }, []);
   useEffect(() => {
     try {
       setNewsMuted(localStorage.getItem(NEWS_MUTED_KEY) === "1");
@@ -1216,16 +1236,8 @@ export default function Page() {
           <button
             type="button"
             className="ghost small"
-            title="Stop it popping up. It keeps writing, and the Doomscroller keeps every line."
-            onClick={() => {
-              setNewsMuted(true);
-              setShown(null);
-              try {
-                localStorage.setItem(NEWS_MUTED_KEY, "1");
-              } catch {
-                // No storage: muted for this sitting, which is what was asked.
-              }
-            }}
+            title="Stop it popping up. It keeps writing, the Doomscroller keeps every line, and the switch beside the sound brings it back."
+            onClick={() => muteNews(true)}
           >
             Mute
           </button>
@@ -1818,6 +1830,8 @@ export default function Page() {
               onInput={dispatch}
               opened={openBagItem}
               friends={friendsRoom}
+              newsMuted={newsMuted}
+              onNewsMuted={muteNews}
             />
 
             {/* And what your party can do out here, under the bag because it
@@ -1897,6 +1911,18 @@ export default function Page() {
             title="A handful of synthesised cues: a hit, a critical, a miss, a faint, a heal, a catch, a level"
           >
             Sound: {muted ? "off" : "on"}
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => muteNews(!newsMuted)}
+            title={
+              newsMuted
+                ? "The feed is still writing every line — this starts them popping up in the corner again"
+                : "Stop feed lines popping up in the corner. Nothing stops being written."
+            }
+          >
+            Feed: {newsMuted ? "muted" : "on"}
           </button>
           <button
             type="button"

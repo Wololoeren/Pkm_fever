@@ -985,3 +985,9 @@ The map of rooms is the only thing that decides whether a room lives now, and ne
 The `live &&` guards are gone from the handlers too, which fixes a smaller thing: after any re-run of the effect - adding a second room, for instance - every room joined before it had its head count and status frozen, because those closures were reading a flag that was now false.
 
 Verified both ways between two tabs after a reload, which is the case that used to break: each side saw the other's line.
+
+## Unmuting
+
+The button that muted the feed lived on the toast, which is the thing being muted - so pressing it removed the only way to press it again. The way back was editing `pkm-fever.newsMuted` out of localStorage, which is not a way back.
+
+One `muteNews` in page.tsx now owns the state and the key, and three buttons call it: **Mute** on the toast, **Feed: on / muted** in the run's footer beside Sound, and a toggle on the Doomscroller's News tab beside the line that explains muting. Note that muting covers friends' lines as well as your own - one switch for "nothing pops up in the corner" - and nothing stops being written either way.
