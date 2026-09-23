@@ -8,6 +8,7 @@ import { appearanceId, CHROMAS, TIER_MULT, TIER_NAMES, variant } from "@/engine/
 import { swatchFor, typeColor } from "@/render/palette";
 import { ALL_SPECIES, effectiveness, species as speciesById, TYPE_NAMES } from "@/engine/dex";
 import { describeSpecialEvolution, LINKING_CORD, SOOTHE_BELL } from "@/engine/evolutions";
+import { FIELD_TURNS, ROOMS, SPORTS, TERRAINS, WEATHERS, WEATHER_TYPE, type FieldFact } from "@/engine/field";
 
 /**
  * The Pokémon Handbook, open.
@@ -17,7 +18,7 @@ import { describeSpecialEvolution, LINKING_CORD, SOOTHE_BELL } from "@/engine/ev
  * every item's — so it cannot say one thing while the game does another.
  */
 
-type Section = "shine" | "colour" | "types" | "abilities" | "items" | "evolving";
+type Section = "shine" | "colour" | "types" | "abilities" | "items" | "evolving" | "field";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "shine", label: "Shine" },
@@ -26,7 +27,48 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "abilities", label: "Abilities" },
   { id: "items", label: "Items" },
   { id: "evolving", label: "Evolving" },
+  { id: "field", label: "Weather" },
 ];
+
+/** A multiplier as the handbook says it: 1500 → "×1.5". */
+function times(mille: number): string {
+  return `×${(mille / 1000).toFixed(mille % 100 === 0 ? 1 : 3).replace(/0+$/, "").replace(/\.$/, ".0")}`;
+}
+
+/** One weather, terrain or sport: what it moves, and what else it does. */
+function FieldRow({ fact, ball }: { fact: FieldFact; ball?: string }) {
+  return (
+    <div>
+      <dt>
+        {fact.name}
+        {/* Only when the move is called something else: "Hail · Hail" is not
+            a fact, it is a stutter. */}
+        {fact.from === fact.name ? null : <span className="muted"> · {fact.from}</span>}
+      </dt>
+      <dd>
+        {fact.power.length ? (
+          <>
+            {fact.power.map((one, at) => (
+              <span key={one.type}>
+                {at ? ", " : ""}
+                <strong>{times(one.mille)}</strong> on {one.type[0].toUpperCase()}
+                {one.type.slice(1)}
+                {one.grounded === "attacker"
+                  ? " for an attacker on the ground"
+                  : one.grounded === "target"
+                    ? " into a target on the ground"
+                    : ""}
+              </span>
+            ))}
+            .{" "}
+          </>
+        ) : null}
+        {fact.notes.join(" ")}
+        {ball ? ` Weather Ball becomes ${ball[0].toUpperCase()}${ball.slice(1)}.` : ""}
+      </dd>
+    </div>
+  );
+}
 
 /**
  * Every evolution in the game, in one list, said in the terms this game uses.
@@ -334,6 +376,55 @@ export function Handbook({
                     {one.name}
                   </dt>
                   <dd>{one.blurb}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        ) : null}
+
+        {section === "field" ? (
+          <>
+            <p className="muted">
+              What is true of the battle rather than of either side. A weather, a terrain and a sport
+              each hold for <strong>{FIELD_TURNS} turns</strong>, and one of each can be up at once —
+              a second weather replaces the first. The numbers below are the ones the damage formula
+              actually applies; a test measures a real swing against each of them.
+            </p>
+
+            <h3>Weather</h3>
+            <dl className="handbookList">
+              {WEATHERS.map((fact) => (
+                <FieldRow key={fact.id} fact={fact} ball={WEATHER_TYPE[fact.id as keyof typeof WEATHER_TYPE]} />
+              ))}
+            </dl>
+
+            <h3>Terrain</h3>
+            <p className="muted small">
+              A terrain is the ground, so it only reaches what is standing on it: anything Flying, or
+              held up by Levitate or a balloon, is above all of this.
+            </p>
+            <dl className="handbookList">
+              {TERRAINS.map((fact) => (
+                <FieldRow key={fact.id} fact={fact} />
+              ))}
+            </dl>
+
+            <h3>Sports</h3>
+            <dl className="handbookList">
+              {SPORTS.map((fact) => (
+                <FieldRow key={fact.id} fact={fact} />
+              ))}
+            </dl>
+
+            <h3>Rooms</h3>
+            <p className="muted small">
+              Not weather and not ground, and several can be up together.
+            </p>
+            <dl className="handbookList">
+              {ROOMS.map((one) => (
+                <div key={one.id}>
+                  <dt>{one.name}</dt>
+                  <dd>{one.note}</dd>
                 </div>
               ))}
             </dl>

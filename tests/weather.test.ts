@@ -11,7 +11,7 @@ import {
   type SideIndex,
 } from "@/engine/battle";
 import { ABILITIES } from "@/engine/abilities";
-import { FIELD_TURNS } from "@/engine/field";
+import { FIELD_TURNS, SPORTS, TERRAINS, WEATHERS, type Field, type FieldFact } from "@/engine/field";
 import { creature } from "./helpers";
 
 /**
@@ -251,5 +251,96 @@ describe("the abilities that read it", () => {
 
     const played = turn(plain, 0, 0).battle;
     expect(played.field).toBeUndefined();
+  });
+});
+
+describe("what the handbook prints", () => {
+  /**
+   * A move of each type, on a creature that can hold all of them, chosen so
+   * the swing is the field's doing and nothing else: no same-type bonus, and
+   * a defender that is neutral to every one of them.
+   */
+  const PROBE: Record<string, string> = {
+    fire: "flamethrower",
+    water: "surf",
+    electric: "thunderbolt",
+    grass: "energyball",
+    psychic: "psychic",
+    dragon: "dragonpulse",
+  };
+
+  /** What one move does to one defender, under this field and under none. */
+  function ratio(
+    moveId: string,
+    field: Field,
+    // Porygon-Z: a big special attack and Normal, so no probe gets the
+    // same-type bonus and every swing is large enough that flooring a few
+    // points cannot be mistaken for the field.
+    attackerId = "porygonz",
+    // Chansey: enormous health, so nothing measured here is clipped by a
+    // faint, and Normal, so none of the probes is resisted.
+    defenderId = "chansey",
+  ): number {
+    const measure = (up: Field | null) => {
+      const ours = creature(attackerId, { level: 50, moves: [moveId] });
+      const theirs = creature(defenderId, { level: 50, moves: ["splash"], uid: 2 });
+      const battle = fought(ours, theirs);
+      if (up) battle.field = up;
+      return damagedOn(turn(battle, 0, 0).events, 1);
+    };
+    const plain = measure(null);
+    expect(plain, `${moveId} did nothing to measure`).toBeGreaterThan(0);
+    return measure(field) / plain;
+  }
+
+  it("W14: every multiplier the handbook prints is one the damage formula applies", () => {
+    /*
+     * The Weather tab draws `WEATHERS`, `TERRAINS` and `SPORTS` out of
+     * field.ts. Those tables are prose until something checks them against
+     * the battle, and a handbook that promises half again while the formula
+     * quietly gives a quarter is worse than no handbook at all. So every
+     * `power` row is measured here: the same move, the same two creatures,
+     * once under the field and once under nothing.
+     */
+    const rows: [FieldFact, "weather" | "terrain" | "sport"][] = [
+      ...WEATHERS.map((fact) => [fact, "weather"] as [FieldFact, "weather"]),
+      ...TERRAINS.map((fact) => [fact, "terrain"] as [FieldFact, "terrain"]),
+      ...SPORTS.map((fact) => [fact, "sport"] as [FieldFact, "sport"]),
+    ];
+
+    let measured = 0;
+    for (const [fact, kind] of rows) {
+      for (const power of fact.power) {
+        const moveId = PROBE[power.type];
+        expect(moveId, `no probe move for ${power.type}`).toBeDefined();
+        const field: Field =
+          kind === "weather"
+            ? { weather: { id: fact.id as never, turns: FIELD_TURNS } }
+            : kind === "terrain"
+              ? { terrain: { id: fact.id as never, turns: FIELD_TURNS } }
+              : { sport: { id: fact.id as never, turns: FIELD_TURNS } };
+
+        const got = ratio(moveId, field);
+        // Integer arithmetic all the way down, so the measured swing lands
+        // within a point or two of the table rather than exactly on it.
+        expect(got, `${fact.name} on ${power.type}`).toBeGreaterThan((power.mille / 1000) * 0.9);
+        expect(got, `${fact.name} on ${power.type}`).toBeLessThan((power.mille / 1000) * 1.1);
+        measured += 1;
+      }
+    }
+    // A table that quietly emptied itself would pass every check above.
+    expect(measured).toBe(10);
+  });
+
+  it("W15: a terrain named as the ground's is the ground's, and the sky is spared it", () => {
+    // The handbook says a terrain only reaches what stands on it. Pidgey is
+    // Flying, so it is the honest way to ask.
+    for (const fact of TERRAINS) {
+      for (const power of fact.power) {
+        if (power.grounded !== "attacker") continue;
+        const field: Field = { terrain: { id: fact.id as never, turns: FIELD_TURNS } };
+        expect(ratio(PROBE[power.type], field, "pidgey", "chansey"), fact.name).toBe(1);
+      }
+    }
   });
 });

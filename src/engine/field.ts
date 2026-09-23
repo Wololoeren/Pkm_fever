@@ -87,3 +87,133 @@ export function fieldKey(field: Field | undefined): string {
     .filter(Boolean)
     .join("+");
 }
+
+/* ------------------------------------------------------------ the handbook
+ *
+ * What each of these is called and what it does, as data rather than as
+ * prose in a component. The handbook draws this; `tests/weather.test.ts`
+ * measures a real swing for every `power` row below and checks the number
+ * against the battle itself, so the page cannot promise a multiplier the
+ * damage formula does not apply.
+ */
+
+/** A type as it is written down rather than as it is keyed. */
+const capital = (type: string): string => `${type[0].toUpperCase()}${type.slice(1)}`;
+
+/** One thing the field does to damage: a move type, and what a hit becomes. */
+export interface FieldPower {
+  /** The move type it moves. */
+  type: string;
+  /** What a hit becomes, per mille: 1500 is half again, 500 is half. */
+  mille: number;
+  /**
+   * Whose feet decide it.
+   *
+   * The terrains only reach what is standing on them — "attacker" for the
+   * three that help their own type, "target" for Misty holding Dragon off.
+   * Absent for the weathers and the sports, which reach everybody.
+   */
+  grounded?: "attacker" | "target";
+}
+
+export interface FieldFact {
+  id: string;
+  name: string;
+  /** What raises it, by name, so the list is also a list of moves to look for. */
+  from: string;
+  power: readonly FieldPower[];
+  /** Everything else it does, in words. */
+  notes: readonly string[];
+}
+
+export const WEATHERS: readonly FieldFact[] = [
+  {
+    id: "sun",
+    name: "Harsh sunlight",
+    from: "Sunny Day",
+    power: [
+      { type: "fire", mille: 1500 },
+      { type: "water", mille: 500 },
+    ],
+    notes: ["Hydro Steam is the one Water move the sun helps rather than hinders."],
+  },
+  {
+    id: "rain",
+    name: "Rain",
+    from: "Rain Dance",
+    power: [
+      { type: "water", mille: 1500 },
+      { type: "fire", mille: 500 },
+    ],
+    notes: ["Solar Beam and Solar Blade lose half their power in any weather but sun."],
+  },
+  {
+    id: "sand",
+    name: "Sandstorm",
+    from: "Sandstorm",
+    power: [],
+    notes: [
+      `A sixteenth of full health off everything each turn, except ${SAND_PROOF.map(capital).join(", ")}.`,
+      "A Rock type keeps half again its Sp. Def while it blows.",
+    ],
+  },
+  {
+    id: "hail",
+    name: "Hail",
+    from: "Hail",
+    power: [],
+    notes: [`A sixteenth of full health off everything each turn, except ${HAIL_PROOF.map(capital).join(", ")}.`],
+  },
+  {
+    id: "snow",
+    name: "Snow",
+    from: "Snowscape",
+    power: [],
+    notes: ["An Ice type keeps half again its Defence while it falls.", "Nothing is hurt by it."],
+  },
+];
+
+export const TERRAINS: readonly FieldFact[] = [
+  {
+    id: "electric",
+    name: "Electric Terrain",
+    from: "Electric Terrain",
+    power: [{ type: "electric", mille: 1300, grounded: "attacker" }],
+    notes: ["Nothing on the ground can be put to sleep."],
+  },
+  {
+    id: "grassy",
+    name: "Grassy Terrain",
+    from: "Grassy Terrain",
+    power: [{ type: "grass", mille: 1300, grounded: "attacker" }],
+    notes: ["Everything on the ground takes back a sixteenth of full health each turn."],
+  },
+  {
+    id: "misty",
+    name: "Misty Terrain",
+    from: "Misty Terrain",
+    power: [{ type: "dragon", mille: 500, grounded: "target" }],
+    notes: ["Nothing on the ground can be given a condition at all."],
+  },
+  {
+    id: "psychic",
+    name: "Psychic Terrain",
+    from: "Psychic Terrain",
+    power: [{ type: "psychic", mille: 1300, grounded: "attacker" }],
+    notes: [],
+  },
+];
+
+export const SPORTS: readonly FieldFact[] = [
+  { id: "water", name: "Water Sport", from: "Water Sport", power: [{ type: "fire", mille: 333 }], notes: [] },
+  { id: "mud", name: "Mud Sport", from: "Mud Sport", power: [{ type: "electric", mille: 333 }], notes: [] },
+];
+
+/** The rest of the field: several can be up at once. */
+export const ROOMS: readonly { id: RoomId; name: string; note: string }[] = [
+  { id: "gravity", name: "Gravity", note: "Everything is on the ground, and nothing can fly out of the way." },
+  { id: "trickroom", name: "Trick Room", note: "Within a priority bracket, the slower one moves first." },
+  { id: "wonderroom", name: "Wonder Room", note: "Defence and Sp. Def change places." },
+  { id: "magicroom", name: "Magic Room", note: "Held items do nothing." },
+  { id: "fairylock", name: "Fairy Lock", note: "Nobody can leave the field on the turn after it is used." },
+];

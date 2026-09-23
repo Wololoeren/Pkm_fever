@@ -1021,3 +1021,11 @@ The board's head count was the number of peers whose *board* we had received, no
 `joinPost` reports `onCount` now, off the transport's own peer list, in the same three places `joinFeed` does: on join, on leave, and on the `hello` a new arrival sends. The page keeps it per code and the panel sums it.
 
 Worth remembering when this is reported again: the feed, the board and the duel/trade rooms are the same transport, the same relays, the same TURN config and the same `kind-CODE` naming, so there is no mechanism by which the internet can treat one differently from another. What *can* differ is the build each side is running - an older page never joins `post-CODE` at all, and a page older than the `pairKey` fix can never complete a trade between two players who each hold a uid 1. One stale tab on the other end explains both, and explains why the feed still works.
+
+## Weather and terrain, in the handbook
+
+A seventh tab. Weather, terrain, the two sports and the rooms, each with what it multiplies, what else it does, and what Weather Ball becomes under it.
+
+The facts live in `field.ts` as `WEATHERS`, `TERRAINS`, `SPORTS` and `ROOMS` rather than as prose in the component - but a table beside a formula is a second copy of a truth, and the multipliers themselves are still literals inside `damage()`. So **W14 measures rather than compares**: for every `power` row it runs a real turn twice, once under the field and once under nothing, and checks the ratio. Porygon-Z into Chansey, because the swing has to be big enough that flooring a few points cannot be mistaken for the field, and Normal into Normal so nothing gets a same-type bonus or a resistance. W15 does the same for the terrains from the air, where a terrain should do nothing at all.
+
+That is the guard worth keeping: the day somebody retunes sun from 1.5 to 1.4 in battle.ts, the handbook does not quietly keep promising 1.5.
