@@ -53,7 +53,7 @@ import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec, LEVELS_PER_BADGE } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, FISH_STEPS, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, ownedAbilities, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, postDealRefusal, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, FISH_STEPS, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, ownedAbilities, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
@@ -561,6 +561,8 @@ export default function Page() {
    * over and the creature we bid stayed in the party.
    */
   const sentBids = useRef<Record<string, number>>({});
+  /** How many other people are at the board, per room code. */
+  const [postHere, setPostHere] = useState<Record<string, number>>({});
   const postRooms = useRef<Map<string, PostRoom>>(new Map());
   const listingsRef = useRef<Listing[]>([]);
 
@@ -572,6 +574,7 @@ export default function Page() {
       if (wanted.includes(code)) continue;
       room.leave();
       open.delete(code);
+      setPostHere((before) => ({ ...before, [code]: 0 }));
       // A board only exists while its room does.
       setBoards((before) => {
         const next: Record<string, Listing[]> = {};
@@ -619,6 +622,7 @@ export default function Page() {
         onStatus: () => {
           /* The feed's own status line is the one worth showing. */
         },
+        onCount: (count) => setPostHere((before) => ({ ...before, [code]: count })),
         onGone: (from) =>
           setBoards((before) => {
             const next = { ...before };
@@ -1157,7 +1161,7 @@ export default function Page() {
         <TradePost
           state={state}
           codes={friendsCodes}
-          here={Object.keys(boards).length}
+          here={friendsCodes.reduce((sum, code) => sum + (postHere[code] ?? 0), 0)}
           listings={Object.values(boards).flat()}
           mine={myListings}
           bids={bids}
@@ -1194,15 +1198,20 @@ export default function Page() {
             const listing = myListings.find((one) => one.id === bid.listing);
             if (!listing) return;
             const give = state.party.findIndex((one) => one.uid === listing.creature.uid);
-            // Ours first, then the word to them: a deal we could not apply is
-            // not a deal we should be telling anybody about.
-            dispatch({
-              t: "postDeal",
-              give: give >= 0 ? give : null,
-              receive: bid.creature,
-              paid: bid.cash,
-              who: bid.who,
-            });
+            const deal = { give: give >= 0 ? give : null, receive: bid.creature, paid: bid.cash };
+            /*
+             * Ours first, and only then the word to them: a deal we could not
+             * apply is not a deal we should be telling anybody about.
+             *
+             * Asked rather than attempted, because `dispatch` swallows a
+             * refusal — which is right for walking into a tree and wrong here,
+             * where the next line is irreversible. Selling the only creature
+             * you have is the refusal that matters: the engine kept it, the
+             * message went out regardless, and the other side helped
+             * themselves to a copy.
+             */
+            if (postDealRefusal(state, deal)) return;
+            dispatch({ t: "postDeal", ...deal, who: bid.who });
             postRooms.current.get(bid.code ?? "")?.strike({
               bid: bid.id,
               listing: listing.id,

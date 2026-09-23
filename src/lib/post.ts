@@ -81,6 +81,16 @@ export interface PostHandlers {
   onStruck: (deal: { bid: string; listing: string; who: string; creature: Individual | null; cash: number }) => void;
   onDeclined: (bidId: string) => void;
   onStatus: (status: PartyStatus) => void;
+  /**
+   * How many other people are standing at the board.
+   *
+   * Peers, counted off the transport — not boards received, which is what the
+   * panel used to show. Somebody with nothing up sends no board, so a room
+   * that had paired perfectly well read "0 others at the board" until one of
+   * you listed something, which is indistinguishable from a room that never
+   * connected.
+   */
+  onCount: (count: number) => void;
   /** Somebody left: their board goes with them. */
   onGone: (from: string) => void;
 }
@@ -117,6 +127,7 @@ export async function joinPost(code: string, who: () => string, handlers: PostHa
         case "hello":
           // Somebody arrived at the board; tell them what is on it.
           if (mine.length) room?.send({ t: "board", who: who(), listings: mine });
+          handlers.onCount(Math.max(0, (room?.peers().length ?? 1) - 1));
           return;
         case "board":
           handlers.onBoard(
@@ -142,8 +153,12 @@ export async function joinPost(code: string, who: () => string, handlers: PostHa
     onStatus: handlers.onStatus,
     onJoin: () => {
       if (mine.length) room?.send({ t: "board", who: who(), listings: mine });
+      handlers.onCount(Math.max(0, (room?.peers().length ?? 1) - 1));
     },
-    onLeave: (id) => handlers.onGone(id),
+    onLeave: (id) => {
+      handlers.onGone(id);
+      handlers.onCount(Math.max(0, (room?.peers().length ?? 1) - 1));
+    },
   });
 
   room.send({ t: "hello" });

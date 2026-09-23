@@ -1003,3 +1003,21 @@ Writing that test turned up **Kleavor**, which was unreachable. The manifest rec
 No save impact: the new stone is not in `FOUND_STONES` (that wants a manifest door naming it, which is exactly what this one lacks), it is not a machine, and nothing else draws from the item list with a seed.
 
 One thing fixed in passing, because the tab is searchable and it is the box you type in: `.boxSearch` carries `flex: 1 1 160px`, which inside the handbook's *column* header made 160px its **height** - a search box four lines tall, on the Abilities and Items tabs too.
+
+## The only one you have
+
+Offering a cash-only bid for somebody's last creature duplicated it. Accepting is two things - the swap, which the engine applies, and the `struck` message, which cannot be taken back - and the page did them in that order but never checked the first had worked. `dispatch` swallows an `IllegalInput`, which is right for walking into a tree and wrong here: the engine refused to take the last thing that could fight, kept it, and the message went out regardless, so the other side applied its half and helped itself to a copy.
+
+`postDealRefusal` is now asked *before* striking, in two places. The page bails rather than sending the word, and `TradePost` asks it per bid so "Look at it" and "Deal" are greyed with the reason - the house rule that a dead control explains itself. It also closes a smaller hole: a second bid on a listing that has already been sold now says "that listing is gone" instead of striking again.
+
+The refusal lost its unused `world` parameter so the panel can call it without one. tests/post.test.ts PT5 holds both halves: the engine still refuses, and the refusal is something a caller can ask for rather than something it finds out by being thrown at.
+
+What this does **not** fix is the mirror case - a bidder whose money has gone by the time their offer is accepted - because by then the lister has already applied their half. That is the same limit the duel and trade rooms have and it is documented where `postDeal` lives.
+
+## How many are at the board
+
+The board's head count was the number of peers whose *board* we had received, not the number of peers present - and somebody with nothing up sends no board. So two browsers that had paired perfectly well both read "0 others at the board" until one of them listed something, which looks exactly like a room that never connected.
+
+`joinPost` reports `onCount` now, off the transport's own peer list, in the same three places `joinFeed` does: on join, on leave, and on the `hello` a new arrival sends. The page keeps it per code and the panel sums it.
+
+Worth remembering when this is reported again: the feed, the board and the duel/trade rooms are the same transport, the same relays, the same TURN config and the same `kind-CODE` naming, so there is no mechanism by which the internet can treat one differently from another. What *can* differ is the build each side is running - an older page never joins `post-CODE` at all, and a page older than the `pairKey` fix can never complete a trade between two players who each hold a uid 1. One stale tab on the other end explains both, and explains why the feed still works.

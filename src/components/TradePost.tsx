@@ -4,7 +4,7 @@ import { useState } from "react";
 import { species as speciesById } from "@/engine/dex";
 import { ivTotal } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
-import type { GameState } from "@/engine/engine";
+import { postDealRefusal, type GameState } from "@/engine/engine";
 import { displayName } from "@/lib/narrate";
 import type { Bid, Listing } from "@/lib/post";
 import { Sprite } from "./Sprite";
@@ -98,6 +98,23 @@ export function TradePost({
 
   const listed = new Set(mine.map((one) => one.creature.uid));
 
+  /**
+   * Why this bid cannot be taken, in the engine's own words, or null.
+   *
+   * Asked here as well as in the engine because saying yes is two things: the
+   * swap, which the engine applies, and the word to the other side, which it
+   * cannot take back. A cash offer for the only creature you have is refused
+   * — you have to keep something that can fight — and the button used to send
+   * the word anyway, so they walked away with a copy of a creature you still
+   * had.
+   */
+  const whyNot = (bid: Bid): string | null => {
+    const listing = mine.find((one) => one.id === bid.listing);
+    if (!listing) return "that listing is gone";
+    const give = state.party.findIndex((one) => one.uid === listing.creature.uid);
+    return postDealRefusal(state, { give: give >= 0 ? give : null, receive: bid.creature, paid: bid.cash });
+  };
+
   return (
     <div className="cheatBackdrop" role="dialog" aria-label="The trading post">
       <section className="cheatPanel handbook tradePost">
@@ -110,7 +127,7 @@ export function TradePost({
           </div>
           <p className="muted small">
             {codes.length
-              ? `${codes.join(", ")} · ${here} other${here === 1 ? "" : "s"} at the board. What you pin up shows on every room you are in. Nothing is held for you: a deal happens when you both press the button.`
+              ? `${codes.join(", ")} · ${here} other${here === 1 ? "" : "s"} at the board. What you pin up shows on every room you are in, and somebody with nothing up shows nothing. Nothing is held for you either: a deal happens when you both press the button.`
               : "You have subscribed to nobody. Subscribe to a friend under the node map, and the board fills with what they are offering."}
           </p>
           <div className="tabs" role="tablist">
@@ -162,7 +179,13 @@ export function TradePost({
                           {bid.cash ? `¤${bid.cash.toLocaleString()}` : ""}
                           {bid.creature ? <Line creature={bid.creature} /> : null}
                           <div className="row">
-                            <button type="button" className="primary small" onClick={() => setConfirming(bid)}>
+                            <button
+                              type="button"
+                              className="primary small"
+                              disabled={Boolean(whyNot(bid))}
+                              title={whyNot(bid) ?? "See the whole deal before anything happens"}
+                              onClick={() => setConfirming(bid)}
+                            >
                               Look at it
                             </button>
                             <button type="button" className="ghost small" onClick={() => onDecline(bid)}>
@@ -345,6 +368,8 @@ export function TradePost({
               <button
                 type="button"
                 className="primary"
+                disabled={Boolean(whyNot(confirming))}
+                title={whyNot(confirming) ?? "Your half happens now, and they are told"}
                 onClick={() => {
                   onAccept(confirming);
                   setConfirming(null);

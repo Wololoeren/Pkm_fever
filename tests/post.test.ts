@@ -65,18 +65,45 @@ describe("the trading post", () => {
   it("PT3: it refuses what it can check", () => {
     const { world, state } = playing();
     const deal = { give: null, receive: null, paid: 0 };
-    expect(postDealRefusal(world, state, deal)).toBe("there is nothing in that deal");
-    expect(postDealRefusal(world, state, { ...deal, give: 9 })).toBe("you do not have that one any more");
-    expect(postDealRefusal(world, state, { ...deal, receive: theirs(), paid: -50_000 })).toBe("you cannot cover that");
+    expect(postDealRefusal(state, deal)).toBe("there is nothing in that deal");
+    expect(postDealRefusal(state, { ...deal, give: 9 })).toBe("you do not have that one any more");
+    expect(postDealRefusal(state, { ...deal, receive: theirs(), paid: -50_000 })).toBe("you cannot cover that");
     // A locked creature is locked here as well.
     expect(
-      postDealRefusal(world, { ...state, locked: [2] }, { give: 1, receive: theirs(), paid: 0 }),
+      postDealRefusal({ ...state, locked: [2] }, { give: 1, receive: theirs(), paid: 0 }),
     ).toBe("that one is locked");
     // And the last thing that can fight does not leave for money.
     expect(
-      postDealRefusal(world, { ...state, party: [state.party[0]] }, { give: 0, receive: null, paid: 100 }),
+      postDealRefusal({ ...state, party: [state.party[0]] }, { give: 0, receive: null, paid: 100 }),
     ).toBe("keep something that can fight");
     expect(() => applyInput(world, state, { t: "postDeal", give: 9, receive: null, paid: 0, who: "Kim" })).toThrow();
+  });
+
+
+  it("PT5: the one creature you have cannot be sold, and the panel says so before it is sent", () => {
+    /*
+     * Saying yes is two things: the swap, which the engine applies, and the
+     * word to the other side, which cannot be taken back. A cash offer for
+     * your only creature is refused - you have to keep something that can
+     * fight - and the button used to send the word regardless, so the other
+     * side helped themselves to a copy of a creature you still had.
+     *
+     * Both halves are checked here: the engine still refuses it, and the
+     * refusal is one the panel can ask for *before* it strikes, rather than
+     * something it only finds out by being thrown at.
+     */
+    const { world, state } = playing({ party: [creature("bulbasaur", { uid: 1, level: 20 })] });
+    const alone = { give: 0, receive: null, paid: 4_000 };
+
+    expect(postDealRefusal(state, alone)).toBe("keep something that can fight");
+    expect(() => applyInput(world, state, { t: "postDeal", ...alone, who: "Kim" })).toThrow();
+
+    // A swap is fine: what leaves is replaced by what arrives.
+    const swap = { give: 0, receive: theirs(), paid: 4_000 };
+    expect(postDealRefusal(state, swap)).toBeNull();
+    const done = applyInput(world, state, { t: "postDeal", ...swap, who: "Kim" });
+    expect(done.party.map((one) => one.speciesId)).toEqual(["dratini"]);
+    expect(done.money).toBe(14_000);
   });
 
   it("PT4: a full party sends the arrival to the box", () => {

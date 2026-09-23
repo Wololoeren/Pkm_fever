@@ -2385,7 +2385,6 @@ function trade(world: World, state: GameState, give: number, receive: Individual
 
 /** Why the deal cannot be applied, or null. */
 export function postDealRefusal(
-  world: World,
   state: GameState,
   deal: { give: number | null; receive: Individual | null; paid: number },
 ): string | null {
@@ -2405,7 +2404,7 @@ function postDeal(
   state: GameState,
   deal: { give: number | null; receive: Individual | null; paid: number; who: string },
 ): GameState {
-  const refusal = postDealRefusal(world, state, deal);
+  const refusal = postDealRefusal(state, deal);
   if (refusal) throw new IllegalInput(refusal);
 
   const given = deal.give !== null ? state.party[deal.give] : null;
