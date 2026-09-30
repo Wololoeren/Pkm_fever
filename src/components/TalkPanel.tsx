@@ -146,6 +146,25 @@ interface Option {
   arms?: number;
 }
 
+/**
+ * What tells one row from another, for React.
+ *
+ * The label used to be the key, and a label is not unique: the Appraiser pays
+ * by shine alone, so two ordinary creatures of the same species and level are
+ * *word for word* the same row — and a daycare turns out level-one babies by
+ * the dozen. Two rows with one key is a list React is free to shuffle, reuse
+ * and drop nodes from, which is exactly how arming one row lights up another
+ * and a press lands somewhere nobody pointed at.
+ *
+ * `arms` is the uid wherever a row is about a creature, so it is the honest
+ * identity; the position is the tie-breaker for everything else, since two
+ * rows with the same words and no creature behind them are genuinely the same
+ * offer twice.
+ */
+function optionKey(option: Option, at: number): string {
+  return option.arms === undefined ? `${at}:${option.label}` : `arms:${option.arms}`;
+}
+
 export function TalkPanel({
   world,
   state,
@@ -170,6 +189,18 @@ export function TalkPanel({
     const timer = setTimeout(() => setArmed(null), ARMED_MS);
     return () => clearTimeout(timer);
   }, [armed]);
+
+  /*
+   * And it does not travel between people.
+   *
+   * A uid armed at the Appraiser and left unpressed was still armed at the
+   * Colour Collector, whose rows are keyed by uid too — so the first press on
+   * a creature you had merely *considered* selling traded it away, with no
+   * second look. Four seconds is not long, but it is long enough to walk a
+   * few steps, and "long enough to be rare" is the worst kind of trap.
+   */
+  const personId = person?.id;
+  useEffect(() => setArmed(null), [personId]);
 
   /**
    * Where the Grey Line will actually take you from here, and how much of it
@@ -980,7 +1011,7 @@ export function TalkPanel({
             const live = option.arms !== undefined && armed === option.arms;
             return (
               <button
-                key={option.label}
+                key={optionKey(option, index)}
                 type="button"
                 className={`talkOption${live ? " armed" : ""}`}
                 disabled={Boolean(option.why)}

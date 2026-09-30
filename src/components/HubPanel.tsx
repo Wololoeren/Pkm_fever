@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { dropTarget, isOurs, startDrag, type Dragged } from "./dnd";
 import { abilitiesOf, abilityOdds } from "@/engine/abilities";
 import {
   BREEDING_ITEMS,
   breedingRefusal,
   eggSteps,
+  eggMovesFrom,
   expectedIvs,
   hatchReduction,
   incubatorSlots,
@@ -21,13 +23,15 @@ import {
   type BreedingItem,
 } from "@/engine/breeding";
 import { species as speciesById } from "@/engine/dex";
-import { collectRefusal, depositRefusal, EGGOMETER, incubateRefusal, uncubateRefusal, storeRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
+import { collectRefusal, depositRefusal, EGGOMETER, holdRefusal, incubateRefusal, itemRefusal, uncubateRefusal, storeRefusal, partyOrderRefusal, type GameState, type Input } from "@/engine/engine";
 import { ivTotal, IV_MAX } from "@/engine/stats";
 import { STAT_IDS, type Individual } from "@/engine/types";
 import type { World } from "@/engine/world";
 import { chroma, variant } from "@/engine/variants";
 import { swatchFor } from "@/render/palette";
-import { hasItem, item as itemSpec } from "@/engine/items";
+import { bagUse, hasItem, item as itemSpec } from "@/engine/items";
+import { holdOf } from "@/engine/carry";
+import { baseFormOf, isEggMove, move as moveById } from "@/engine/dex";
 import { displayName } from "@/lib/narrate";
 import { BoxPanel } from "./BoxPanel";
 import { ReleaseButton } from "./ReleaseButton";
@@ -242,6 +246,8 @@ function Row({
   onAct,
   extra,
   onInspect,
+  drag,
+  drop,
 }: {
   creature: Individual;
   action: string;
@@ -250,9 +256,30 @@ function Row({
   onAct: () => void;
   extra?: React.ReactNode;
   onInspect?: (uid: number) => void;
+  /** What this row is, when it can be picked up. */
+  drag?: Dragged;
+  /** What to do with something dropped on it, when it takes drops. */
+  drop?: (what: Dragged) => void;
 }) {
+  const [over, setOver] = useState(false);
   return (
-    <div className="boxRow">
+    <div
+      className={`boxRow${drag ? " draggable" : ""}${over ? " dropOver" : ""}`}
+      draggable={Boolean(drag)}
+      onDragStart={drag ? (event) => startDrag(event, drag) : undefined}
+      onDragEnd={() => setOver(false)}
+      onDragEnter={drop ? (event) => isOurs(event) && setOver(true) : undefined}
+      onDragLeave={drop ? () => setOver(false) : undefined}
+      {...(drop
+        ? dropTarget(
+            () => true,
+            (what) => {
+              setOver(false);
+              drop(what);
+            },
+          )
+        : {})}
+    >
       <Sprite speciesId={creature.speciesId} variantId={creature.variantId} abilities={creature.abilities} heldItem={creature.heldItem} size={48} />
       <div className="cardBody">
         <div className="cardTop">
@@ -469,7 +496,16 @@ export function HubPanel({
         ) : null}
 
         <h3>Party</h3>
-        <div className="boxList">
+        {/* The column takes a drop as well as each row in it: dragging out of
+            the box is "bring this one along", and which slot it lands in is
+            not a thing anybody is aiming at. */}
+        <div
+          className="boxList"
+          {...dropTarget(
+            (what) => what.t === "box",
+            (what) => what.t === "box" && onInput({ t: "retrieve", index: what.index }),
+          )}
+        >
           {state.eggs.map((egg, index) => (
             <EggRow
               exact={hasItem(state.bag, EGGOMETER)}
@@ -495,6 +531,38 @@ export function HubPanel({
               key={creature.uid}
               creature={creature}
               onInspect={onInspect}
+              drag={{ t: "party", index, uid: creature.uid }}
+              /*
+               * What a party row takes, and what it does with it. Every one of
+               * these is a button somewhere on the same screen; dragging is
+               * the hand's way of saying the same thing, and an illegal drop
+               * is simply ignored — the button it duplicates is greyed out
+               * with the reason, which is where an explanation belongs.
+               */
+              drop={(what) => {
+                if (what.t === "party") {
+                  if (!partyOrderRefusal(state, what.index, index)) {
+                    onInput({ t: "reorderParty", from: what.index, to: index });
+                  }
+                  return;
+                }
+                if (what.t === "box") {
+                  onInput({ t: "retrieve", index: what.index });
+                  return;
+                }
+                // An item: held if it is a held item, used if it is used on
+                // somebody, and nothing at all if it is neither — a Repel
+                // dropped on a Pikachu has no sensible reading.
+                if (holdOf(what.id)) {
+                  if (!holdRefusal(world, state, index, what.id)) {
+                    onInput({ t: "holdItem", index, item: what.id });
+                  }
+                  return;
+                }
+                if (bagUse(itemSpec(what.id)) === "creature" && !itemRefusal(world, state, what.id, index)) {
+                  onInput({ t: "useItem", item: what.id, index });
+                }
+              }}
               action="Deposit"
               label={depositRefusal(world, state, "party", index) ?? "Leave at the daycare"}
               disabled={Boolean(depositRefusal(world, state, "party", index))}
@@ -581,9 +649,33 @@ function ExpectedIvs({
   );
   const signed = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
 
+  /*
+   * What the egg will be born knowing, before it exists.
+   *
+   * The same function the egg itself is made with, asked here — a daycare
+   * that guessed would eventually guess wrong, and the whole promise of this
+   * panel is that it says what is going to happen rather than what usually
+   * does.
+   */
+  const hatching = eggMovesFrom(baseFormOf(first.speciesId), first, second);
+  const inherited = hatching.filter((moveId) => isEggMove(baseFormOf(first.speciesId), moveId));
+
   return (
     <>
       <h3>Expected IVs per egg</h3>
+      {inherited.length ? (
+        <p className="good">
+          The egg will be born knowing {inherited.map((moveId) => moveById(moveId).name).join(", ")} —
+          {inherited.length === 1 ? " an egg move " : " egg moves "}
+          it could not learn any other way. Keep the move on the parent: an egg move has to be in
+          those four slots when the egg is laid.
+        </p>
+      ) : (
+        <p className="muted small">
+          No egg moves are passing. An egg inherits any of its own egg moves that a parent still has
+          in its four slots — the handbook lists which moves those are.
+        </p>
+      )}
       <p className="muted">
         Each IV comes from one parent or the other, then has a <strong>{chance}%</strong> chance
         to mutate upward. On average an egg gains <strong>{signed(total)}</strong> IV points

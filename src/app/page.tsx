@@ -47,13 +47,14 @@ import { joinPost, postId, type Bid, type Listing, type PostRoom } from "@/lib/p
 import { TradePost } from "@/components/TradePost";
 import { stepToward } from "@/lib/pathing";
 import { beatLength, beatsFor, catchFor } from "@/lib/beats";
-import { BALLS, countOf, hasItem, item } from "@/engine/items";
+import { BALLS, bagUse, countOf, hasItem, item } from "@/engine/items";
+import { holdOf } from "@/engine/carry";
 import { ability } from "@/engine/abilities";
 import { quest as questSpec, rewardText } from "@/engine/quests";
 import { gym as gymSpec, LEVELS_PER_BADGE } from "@/engine/gyms";
 import { ALL_SPECIES, move as moveById, species as speciesById } from "@/engine/dex";
 import type { BattleAction } from "@/engine/battle";
-import { applyInput, bestRod, postDealRefusal, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, FISH_STEPS, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, ownedAbilities, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
+import { applyInput, bestRod, holdRefusal, itemRefusal, postDealRefusal, EGGOMETER, cleanTrainerName, TRAINER_NAME_MAX, critterDoing, fishRefusal, FISH_STEPS, IllegalInput, initialState, pendingChanges, readyEgg, rivalCountdown, isWildBattle, opponentHint, opponentLabel, ownedAbilities, reduce, stateHash, type Notice, type Direction, type GameState, type Input } from "@/engine/engine";
 import { DEFAULT_WORLD } from "@/engine/types";
 import { generateWorld, type InteriorRole, type World } from "@/engine/world";
 import {
@@ -1120,6 +1121,29 @@ export default function Page() {
         onSelect={choosing ?? undefined}
         onInspect={choosing ? undefined : setInspecting}
         onReorder={choosing ? undefined : (from, to) => dispatch({ t: "reorderParty", from, to })}
+        /*
+         * An item dropped on somebody: given if it is a held item, used on
+         * them if it is used on somebody, and ignored if it is neither — a
+         * Repel dropped on a Pikachu has no sensible reading. The refusals
+         * are asked first, so an illegal drop does nothing rather than
+         * reaching the engine to be thrown out.
+         */
+        onDropped={
+          choosing
+            ? undefined
+            : (index, what) => {
+                if (what.t !== "item") return;
+                if (holdOf(what.id)) {
+                  if (!holdRefusal(session.world, state, index, what.id)) {
+                    dispatch({ t: "holdItem", index, item: what.id });
+                  }
+                  return;
+                }
+                if (bagUse(item(what.id)) === "creature" && !itemRefusal(session.world, state, what.id, index)) {
+                  dispatch({ t: "useItem", item: what.id, index });
+                }
+              }
+        }
       />
       <EggSlots eggs={state.eggs} exact={hasItem(state.bag, EGGOMETER)} />
     </section>

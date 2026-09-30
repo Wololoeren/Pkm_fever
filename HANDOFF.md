@@ -804,7 +804,7 @@ Arena hosts on the node map read "Odds (1v1)" — the format, not just the name,
 
 ## Doomscroll
 
-Three buttons on the feed — "A bit" 100, "A little more" 500, "Just one more" 1000 (`DOOMSCROLL_STEPS`) — run `walked()` that many times without moving: eggs walk, the daycare pairs, poison bites, lures burn, cooldowns run, the stream pool drains. No encounters, since nothing is walked into. Input `doomscroll` (pack 78), `doomscrollRefusal` needs the item, the field and nobody talking. ENGINE_VERSION 38. tests/doomscroll.test.ts.
+Three buttons on the feed — "A bit" 100, "A little more" 500, "Just one more" 1000 (`DOOMSCROLL_STEPS`) — run `walked()` that many times without moving: eggs walk, the daycare pairs, poison bites, the stream pool drains. No encounters, since nothing is walked into. **Both clocks move**: `walked()` carries `stepsTaken` (eggs, farm, hunt, pawnbroker, tutor, therapy, auction), and the sitting adds `steps` to `tick` as well, which is the clock the people are on - Ivo's printer, Hessa's wheel, Marv's drum, `ARENA_COOLDOWN`, `REMATCH_AFTER`, `LURE_MOVES`. The price is the one walking has always had: gyms and arenas grow a level per 2,500 moves. Before this, a thousand steps scrolled moved `tick` by one, so the machine you were waiting on cooled down by one - which is what the doc comment had always claimed it did not do. The one clock it will not skip is the rival's: `RIVAL_STALK` is 20 moves and a sitting outruns it, so `doomscrollRefusal` now also refuses while `rivalSince !== null` ("somebody is behind you") rather than ambushing you. Input `doomscroll` (pack 78), `doomscrollRefusal` needs the item, the field, nobody talking and nobody behind you. ENGINE_VERSION 38, tick change rides 40. tests/doomscroll.test.ts.
 The Pokédex card always draws the selected creature at 96px — as yours (shine, colour, marks) where you hold one, plain where you have only met it; it used to draw nothing at all for a species you had seen and not caught.
 
 ## The feed (news, part one)
@@ -1029,3 +1029,88 @@ A seventh tab. Weather, terrain, the two sports and the rooms, each with what it
 The facts live in `field.ts` as `WEATHERS`, `TERRAINS`, `SPORTS` and `ROOMS` rather than as prose in the component - but a table beside a formula is a second copy of a truth, and the multipliers themselves are still literals inside `damage()`. So **W14 measures rather than compares**: for every `power` row it runs a real turn twice, once under the field and once under nothing, and checks the ratio. Porygon-Z into Chansey, because the swing has to be big enough that flooring a few points cannot be mistaken for the field, and Normal into Normal so nothing gets a same-type bonus or a resistance. W15 does the same for the terrains from the air, where a terrain should do nothing at all.
 
 That is the guard worth keeping: the day somebody retunes sun from 1.5 to 1.4 in battle.ts, the handbook does not quietly keep promising 1.5.
+
+## Everything can be bred
+
+The manifest puts 179 species in **Undiscovered** - the legends, the mythicals, the Ultra Beasts and the babies - which is faithful to the games it came from and reads, in a game about raising things, as "your favourite is the one creature you can never improve".
+
+`eggGroupsOf` in dex.ts derives the groups instead of reading them. Anything with real groups keeps them exactly. A baby takes the groups of whatever it grows into, walking as far as it has to (Pichu one step, Cosmog three) - 19 of the 179 resolve that way. The 160 left over are **Fabled**, one new group, so the legends pair with each other and with a Ditto, which ignored groups anyway.
+
+One new group rather than a taxonomy: a second would only forbid pairings without buying anything, because an egg is always the *first* parent's own base form. The partner is there to pass IVs, a nature and an appearance, and it makes no difference to the child whether it was a Mew or a Kyogre. `breedingRefusal` has no "cannot breed at all" branch left; gender still applies, so two females still do not pair.
+
+**The manifest itself is untouched, on purpose.** Two places read `eggGroups` to mean "is this a legend" rather than "can this breed" - the auction's exotic and legend pools, and the eggs left lying in the world - and both are drawn per seed, so following the derived groups would have dealt a different world to every save in existence. They call `isFabled` now, which reads the manifest and says what they mean. BR51 pins it: 179 still, and none of them in the grass.
+
+Balance, flagged rather than decided: a legend can now be bred without limit, so "one Mew per world" holds only until somebody puts one in a daycare. That is what was asked for. tests/breeding.test.ts BR49-BR51.
+
+## Dragging things about
+
+The game was clickable but not *draggable*: arranging a party and a box of two hundred through the boxing buttons and a pair of arrows is a hundred clicks where a hand wants one gesture.
+
+`src/components/dnd.ts` holds the whole vocabulary - `Dragged` is a party slot, a box slot or an item id - because the alternative is four components each inventing a payload format and three of them agreeing. The payload rides on a private media type rather than `text/plain`, which buys two things: text dragged in from outside the page cannot be mistaken for a creature, and `dragover` can ask *what* is in hand before agreeing to take it (`getData` is deliberately unreadable during a drag; `types` is not). `dropTarget()` writes the `preventDefault` ceremony once, since that is the piece everybody forgets.
+
+What takes what:
+
+- **A party row or card** takes another party member (reorder), somebody from the box (retrieve) and an item (held if it is a held item, used if it is used on somebody, ignored otherwise).
+- **The party column** takes a box creature anywhere in it - which slot it lands in is not something anybody aims at.
+- **The box grid** takes a party member into the open box; **a box tab** takes one into *that* box.
+- **Bag cards** are draggable only when they have a target to be dropped on: `use === "hold"` or `"creature"`.
+
+Every drag duplicates a button that is still there, so nothing became mouse-only, and an illegal drop does nothing at all - the refusals are asked before dispatching, and the button it duplicates is the one greyed out with the reason. Battle is the exception: the strip is a row of switch buttons there, and a card that could be picked up is a card you cannot reliably press, so dragging is offered exactly where `onReorder` is.
+
+Verified by dispatching real `DragEvent`s with a live `DataTransfer` in the browser: reorder, party to grid, party to a named tab, box to party, an item onto a hub row, an item onto a field card (with the previous item swapping back to the bag), and a full-health creature refusing a potion.
+
+## Egg moves
+
+Moves a creature can only be **born** with. An egg hatches knowing any of its own egg moves that a parent has in its four slots at the moment it is laid - either parent, a Ditto included, which is the shortest road to a move on something you have only one of. Knowing it once is not enough: it has to still be there, which is what makes a move on a parent worth keeping rather than writing over.
+
+`scripts/build-eggmoves.mjs` writes `src/data/eggmoves.json` and nothing else - its own script rather than another output of build-dex.mjs, because running that one to add a file would quietly restate the species, the moves, the learnsets and the type chart against whatever `@pkmn/dex` ships today, and a roster that moves underneath a save is the one thing this project will not do by accident. It reads Showdown's `E` sources down the prevo chain, drops moves this engine does not have, and drops anything the species already levels into - an egg move you could get by waiting is not worth breeding for. 918 species, 8,545 moves, about nine each.
+
+`eggMovesFrom` in breeding.ts is the whole rule, and nothing in it is rolled: the egg moves lead the four, what is left is filled with the level-one moves, and over four the level ones go (those can be learned again). The daycare asks the same function to say what the egg will know before it exists - a panel that guessed would eventually guess wrong.
+
+A **Handbook tab** lists all of it, searchable by species or move.
+
+**ENGINE_VERSION 39.** Every egg a recorded save hatched from a parent that happened to know one of these now comes out with a different moveset, and a moveset is what `{ t: "fight", moveIndex }` points into - so a battle later in that log would be throwing a different move. v38 saves will not load.
+
+## Rows that were the same row
+
+Two bugs in TalkPanel, both about *which* row a press lands on, and both loudest at the Appraiser and the Colour Collector because those two are the arming lists.
+
+**The key was the label.** The Appraiser pays by shine alone, so two ordinary creatures of the same species and level are word for word the same row - "Sell Rattata - Lv20 for 0" - and a daycare turns out level-one babies by the dozen. Two rows under one React key is a list React may shuffle, reuse nodes from or drop from: arming one lights up another, and a press can land where nobody pointed. `optionKey` uses `arms` - the uid - wherever a row is about a creature, and the position otherwise. tests/shine.test.ts S2b pins the fact underneath it: identical creatures really do produce identical labels, so the label can never be the identity.
+
+**The arming crossed the room.** `armed` is a uid and nothing cleared it when the person changed, so a creature armed at the Appraiser and left unpressed was still armed at the Colour Collector - whose rows are keyed by uid too - and the first press traded away something you had merely considered selling. It lapses after four seconds, which is long enough to walk a few steps, and "long enough to be rare" is the worst kind of trap. It clears on `person.id` now.
+
+Both were found by reading. I could not get a live panel open on either NPC to watch the original symptom - the Appraiser is behind a cabin door in a fellgarden and the Collector wanders the first two rings - so what is verified is the suite, the types and the reasoning, not the pixels.
+
+## Gender in the box search
+
+The box searched names, species, types and abilities; it searches gender too now - "which of these can I breed with this one" is the same question one step down from "which has Adaptability", and the mark on a cell is eight pixels wide.
+
+A gender word is its own step rather than another entry in the haystack, for one stupid and unavoidable reason: **"female" contains "male"**. A substring search over a haystack with "male" in it answers "male" with every female in the box - a filter that quietly includes what you asked it to exclude. So `genderAsked` matches a word whole, against the gender itself, and accepts the symbols too, since ♂ is what the cell actually shows and the shortest way to ask.
+
+Checked in a box of four: "male" gives the two males and not the two females, "female" gives the two females, "♂" gives the males, "rattata female" gives both Rattatas, "rattata male" gives nothing, and "grass male" gives the Chikorita and the Poltchageist.
+
+## The shapes
+
+Ten creatures change form in the middle of a fight, and every one is the same idea: **the form is a function of the battle, not a decision anybody makes.** Castform is whatever the sky is doing, Aegislash is whichever way it last swung, Mimikyu is whether the rag has been torn yet. Nobody presses a button, and nobody leaves the field still wearing one.
+
+The rules are a table in `src/engine/forms.ts` - five triggers, asked at five moments in battle.ts:
+
+| trigger | who | where it is asked |
+| --- | --- | --- |
+| weather | Castform | the sky turning, the sky clearing, and arriving |
+| health | Darmanitan, Darmanitan-Galar, Minior, Wishiwashi | `applyDamage` and `applyHeal`, either way across the line |
+| struck | Mimikyu, Eiscue | inside `landDamage`, beside the substitute |
+| turn | Morpeko | the end of every turn |
+| swung / song | Aegislash, Meloetta | `afterMove`, before the "did it land" half |
+
+Mimikyu's disguise **refuses** the blow, the way a substitute does; Eiscue's face melts to a physical hit and the hit goes through.
+
+**The forms are not in the roster.** `scripts/build-forms.mjs` writes `src/data/forms.json` - twelve shapes with their own stats, types and PokeAPI sprites - and dex.ts registers them in `SPECIES_BY_ID` only. `species()` resolves one so its stats, types and picture work while it is out; `ALL_SPECIES` never mentions it, so the dex, the encounter tables, the auction, the prize bench, the starter pool, the found eggs and breeding all draw from exactly what they drew from before. A form is a state, not a species, and that line is what keeps it one. Nothing is remembered on the battle either: a form knows what it is a form *of*, so putting one back is a lookup rather than a copy that could be forgotten.
+
+**Cherrim is deliberately absent.** Its sunshine shape has the same types, the same stats and - in the sprite sheet this game draws from - the same picture, and what changes in the games is an ability this game does not have. FM1 enforces that: a shape must differ in stats, types or picture, or it is a lie dressed as a feature.
+
+**ENGINE_VERSION 40**, and v39 was never pushed. Stats, types and what a blow does all move, so a recorded battle replays into a different fight.
+
+Seen working: a level 60 Castform used Rain Dance in the Bay of Wrecks and turned into a blue Castform-Rainy, with "Castform took the weather's shape — Castform-Rainy!" in the log. tests/forms.test.ts, FM1-FM8.
+
+Not built, and worth knowing: the **item** forms - Rotom's appliances, Zacian and Zamazenta crowned, Giratina Origin, Shaymin Sky, the Necrozma fusions. Those are permanent swaps closer to an evolution than to a battle effect, and each needs its own item and refusal.

@@ -1,5 +1,5 @@
 import { pickAbilities } from "./abilities";
-import { ALL_SPECIES, baseFormOf, species as speciesById } from "./dex";
+import { ALL_SPECIES, baseFormOf, isFabled, species as speciesById } from "./dex";
 import { rollGender } from "./gender";
 import { NATURE_IDS } from "./natures";
 import { intBelow, intBetween, rngFor } from "./rng";
@@ -80,12 +80,14 @@ const peak = (id: string, depth = 0): number =>
   depth > 6 ? 0 : Math.max(total(id), ...speciesById(id).evolvesTo.map((step) => peak(step.id, depth + 1)));
 const FIRST_FORMS = ALL_SPECIES.filter((entry) => baseFormOf(entry.id) === entry.id);
 const EXOTIC: readonly string[] = FIRST_FORMS.filter(
-  (entry) => !entry.eggGroups.includes("Undiscovered") && entry.evolvesTo.length > 0 && peak(entry.id) >= 530,
+  // `isFabled`, not "cannot breed": everything can breed now — see
+  // `eggGroupsOf` — and what this pool wants is "not a legend".
+  (entry) => !isFabled(entry.id) && entry.evolvesTo.length > 0 && peak(entry.id) >= 530,
 )
   .map((entry) => entry.id)
   .sort();
 const LEGENDARY: readonly string[] = FIRST_FORMS.filter(
-  (entry) => entry.eggGroups.includes("Undiscovered") && total(entry.id) >= 570,
+  (entry) => isFabled(entry.id) && total(entry.id) >= 570,
 )
   .map((entry) => entry.id)
   .sort();

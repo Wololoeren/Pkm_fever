@@ -6,7 +6,14 @@ import { ITEMS, type ItemKind } from "@/engine/items";
 import { STAT_IDS, type StatId } from "@/engine/types";
 import { appearanceId, CHROMAS, TIER_MULT, TIER_NAMES, variant } from "@/engine/variants";
 import { swatchFor, typeColor } from "@/render/palette";
-import { ALL_SPECIES, effectiveness, species as speciesById, TYPE_NAMES } from "@/engine/dex";
+import {
+  ALL_SPECIES,
+  effectiveness,
+  move as moveById,
+  species as speciesById,
+  speciesWithEggMoves,
+  TYPE_NAMES,
+} from "@/engine/dex";
 import { describeSpecialEvolution, LINKING_CORD, SOOTHE_BELL } from "@/engine/evolutions";
 import { FIELD_TURNS, ROOMS, SPORTS, TERRAINS, WEATHERS, WEATHER_TYPE, type FieldFact } from "@/engine/field";
 
@@ -18,7 +25,7 @@ import { FIELD_TURNS, ROOMS, SPORTS, TERRAINS, WEATHERS, WEATHER_TYPE, type Fiel
  * every item's — so it cannot say one thing while the game does another.
  */
 
-type Section = "shine" | "colour" | "types" | "abilities" | "items" | "evolving" | "field";
+type Section = "shine" | "colour" | "types" | "abilities" | "items" | "evolving" | "field" | "eggmoves";
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "shine", label: "Shine" },
@@ -28,6 +35,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: "items", label: "Items" },
   { id: "evolving", label: "Evolving" },
   { id: "field", label: "Weather" },
+  { id: "eggmoves", label: "Egg moves" },
 ];
 
 /** A multiplier as the handbook says it: 1500 → "×1.5". */
@@ -189,7 +197,19 @@ export function Handbook({
     [allEvolutions, query],
   );
 
-  const searchable = section === "abilities" || section === "items" || section === "evolving";
+  // Built once: a walk over nine hundred species, and it cannot change while
+  // the handbook is open.
+  const allEggMoves = useMemo(speciesWithEggMoves, []);
+  const eggMoves = useMemo(
+    () =>
+      allEggMoves
+        .map((one) => ({ ...one, named: one.moves.map((moveId) => moveById(moveId).name) }))
+        .filter((one) => matches(`${one.name} ${one.named.join(" ")}`, query)),
+    [allEggMoves, query],
+  );
+
+  const searchable =
+    section === "abilities" || section === "items" || section === "evolving" || section === "eggmoves";
 
   return (
     <div className="cheatBackdrop" role="dialog" aria-label="Pokémon Handbook">
@@ -224,7 +244,9 @@ export function Handbook({
                   ? "Search abilities…"
                   : section === "items"
                     ? "Search items…"
-                    : "Search a name, an item, a move…"
+                    : section === "eggmoves"
+                      ? "Search a name or a move…"
+                      : "Search a name, an item, a move…"
               }
               value={query}
               aria-label="Search the handbook"
@@ -376,6 +398,36 @@ export function Handbook({
                     {one.name}
                   </dt>
                   <dd>{one.blurb}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        ) : null}
+
+        {section === "eggmoves" ? (
+          <>
+            <p className="muted">
+              Moves a creature can only be <strong>born</strong> with. An egg hatches knowing any of
+              these that a parent has in its four slots at the moment the egg is laid — either parent,
+              including a Ditto, which is the shortest road to a move on something you have only one
+              of. Knowing it once is not enough: the move has to still be there, which is what makes
+              one worth keeping rather than writing over.
+            </p>
+            <p className="muted">
+              They lead the four. If the egg moves and its own level-one moves come to more than four,
+              the level ones go — those can be learned again by levelling, and an egg move cannot.
+            </p>
+            <p className="muted">
+              {eggMoves.length} of {allEggMoves.length} species have any. Nothing here can be learned
+              by levelling: a move you could get by waiting is not one worth breeding for.
+            </p>
+            <dl className="handbookList">
+              {eggMoves.map((one) => (
+                <div key={one.id}>
+                  <dt>
+                    {one.name} <span className="muted">· {one.moves.length}</span>
+                  </dt>
+                  <dd>{one.named.join(", ")}</dd>
                 </div>
               ))}
             </dl>

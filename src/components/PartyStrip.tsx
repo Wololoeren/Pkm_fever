@@ -1,6 +1,7 @@
 "use client";
 
 import { maxHp } from "@/engine/battle";
+import { dropTarget, startDrag, type Dragged } from "./dnd";
 import { abilitiesOf } from "@/engine/abilities";
 import { item } from "@/engine/items";
 import { maxPp, ppLeft } from "@/engine/pp";
@@ -257,12 +258,23 @@ export function PartyStrip({
   onSelect,
   onInspect,
   onReorder,
+  onDropped,
 }: {
   party: Individual[];
   activeIndex?: number;
   onSelect?: (index: number) => void;
   /** Opens the full sheet. Separate from onSelect, which switches in battle. */
   onInspect?: (uid: number) => void;
+  /**
+   * Something dropped on the creature in this slot.
+   *
+   * The page decides what that means — an item is given or used, somebody
+   * from the box is brought along — because the panel has no business
+   * knowing what a Rare Candy does. Reordering is the one drop it answers
+   * itself, through `onReorder`, because that is what it already has a
+   * button for.
+   */
+  onDropped?: (index: number, what: Dragged) => void;
   /**
    * Moves a member to another slot. Given wherever the party is shown and
    * reordering is legal, so the order can be set from any of them — slot zero
@@ -272,6 +284,11 @@ export function PartyStrip({
   onReorder?: (from: number, to: number) => void;
 }) {
   if (!party.length) return <p className="muted">Nothing in your party yet.</p>;
+
+  // Dragging is offered exactly where rearranging already is: in a battle the
+  // strip is a row of switch buttons, and a card that could be picked up and
+  // moved would be a card you cannot reliably press.
+  const movable = Boolean(onReorder);
 
   return (
     <div className="party">
@@ -284,11 +301,22 @@ export function PartyStrip({
         const card = (
           <Tag
             key={creature.uid}
-            className={`card${index === activeIndex ? " active" : ""}${fainted ? " fainted" : ""}`}
+            className={`card${index === activeIndex ? " active" : ""}${fainted ? " fainted" : ""}${movable ? " draggable" : ""}`}
             onClick={activate}
             disabled={onSelect ? fainted || index === activeIndex : undefined}
             type={activate ? "button" : undefined}
             title={onInspect && !onSelect ? "Look at it" : undefined}
+            draggable={movable}
+            onDragStart={movable ? (event) => startDrag(event, { t: "party", index, uid: creature.uid }) : undefined}
+            {...(movable
+              ? dropTarget(
+                  () => true,
+                  (what) => {
+                    if (what.t === "party") onReorder?.(what.index, index);
+                    else onDropped?.(index, what);
+                  },
+                )
+              : {})}
           >
             {/* The number that sends it out, while a switch is being chosen. */}
             {onSelect ? <kbd className="cardKey">{index + 1}</kbd> : null}

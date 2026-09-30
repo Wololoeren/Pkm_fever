@@ -3441,6 +3441,30 @@ function reported(world: World, before: GameState, state: GameState): GameState 
  * "skipping" a step that only ever counted down would be a button that
  * fabricates time rather than passing it.
  *
+ * ## Both clocks, not one
+ *
+ * There are two of them, and a sitting has to move both. `stepsTaken` is what
+ * the eggs, the farm, the hunt and the pawnbroker are counted in, and `walked`
+ * moves it once per step. `tick` is what the game calls *moves*, and it is the
+ * clock the people are on: Ivo's printer, Hessa's wheel, Marv's drum, an
+ * arena's cooldown, a gym's willingness to go again, and how long a lure
+ * lasts. A sitting that only counted the first was a feed you could stare at
+ * for a thousand steps while the machine in front of you cooled down by one,
+ * so a sitting is worth its length in moves too.
+ *
+ * The price of that is the same price walking has always had: gyms and arenas
+ * grow a level every 2,500 moves, and scrolling is 2,500 moves as surely as
+ * walking is. That is the joke working as intended — the afternoon is gone and
+ * the opposition got on with its life.
+ *
+ * The one clock this deliberately will not skip is the rival's. `RIVAL_STALK`
+ * is twenty moves, and those twenty are a *decision* — see him, work out what
+ * it means, run for a Center — not a cooldown. A sitting is longer than the
+ * whole window, so scrolling with him behind you would be an ambush you could
+ * not have avoided and could not have seen coming. So it is refused while he
+ * is following, rather than fudged: the feed goes dead until you have dealt
+ * with him, which is also the more honest thing for the feed to do.
+ *
  * What does *not* happen is an encounter: nothing is walked into, because
  * nothing is walked.
  */
@@ -3454,6 +3478,9 @@ export function doomscrollRefusal(state: GameState, steps: number): string | nul
   if (state.talking) return "somebody is talking to you";
   if (!hasItem(state.bag, DOOMSCROLLER)) return "you have no feed to scroll";
   if (!DOOMSCROLL_STEPS.includes(steps)) return "not one of the three";
+  // Not while he is behind you. A sitting outruns his twenty moves several
+  // times over, so this would be an ambush rather than a chase.
+  if (state.rivalSince !== null) return "somebody is behind you";
   return null;
 }
 
@@ -3463,7 +3490,9 @@ function doomscroll(world: World, state: GameState, steps: number): GameState {
 
   let next = state;
   for (let step = 0; step < steps; step++) next = walked(world, next);
-  return { ...next, tick: next.tick + 1, notice: { t: "scrolled", steps } };
+  // A step scrolled is a move taken, which is what puts the cooldowns and the
+  // lures on the same clock as walking. One input, `steps` moves.
+  return { ...next, tick: next.tick + steps, notice: { t: "scrolled", steps } };
 }
 
 /* ------------------------------------------------------------- fight club

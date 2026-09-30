@@ -2096,3 +2096,9 @@ button.auctionLot:hover { border-color: var(--accent); }
 .newsFace { display: inline-flex; align-items: center; flex: 0 0 auto; margin: -6px 0; }
 .newsFace canvas, .newsFace img { image-rendering: pixelated; }
 .newsLine .newsFace { margin-right: 2px; }
+
+/* Dragging things about: what can be picked up, and what is about to take it. */
+.draggable { cursor: grab; }
+.draggable:active { cursor: grabbing; }
+.boxRow.dropOver, .party .card.dropOver { border-color: var(--good); box-shadow: 0 0 0 2px var(--good); }
+.boxGrid.dropOver { outline: 2px dashed var(--good); outline-offset: 2px; }

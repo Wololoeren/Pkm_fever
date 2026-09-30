@@ -76,9 +76,12 @@ describe("the hunter", () => {
     expect(scrolled.hunt).not.toBeNull();
     expect(huntLeft(scrolled.hunt, scrolled.stepsTaken)).toBe(HUNT_STEPS - 500);
 
+    // Five hundred moves is also when the rival first turns up, and the feed
+    // will not be scrolled on with him behind you. He is not what this is
+    // about, so he is sent away and the hunt's clock is left to run.
     const gone = applyInput(
       world,
-      { ...scrolled, bag: { ...scrolled.bag, doomscroller: 1 } },
+      { ...scrolled, rivalSince: null, bag: { ...scrolled.bag, doomscroller: 1 } },
       { t: "doomscroll", steps: 500 },
     );
     expect(gone.hunt).toBeNull();

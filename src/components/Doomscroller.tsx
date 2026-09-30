@@ -217,8 +217,9 @@ export function Doomscroller({
             {posts.filter((one) => one.ready).length} ready · {posts.length} posts · you have been scrolling for {state.stepsTaken.toLocaleString()} steps
           </p>
           {/* And the thing a feed is actually for: passing time you meant to
-              spend on something else. Every step counts as a step — eggs walk,
-              poison bites, the stream's pool drains — you simply do not move. */}
+              spend on something else. Every step counts as a step and as a
+              move — eggs walk, poison bites, the machines cool down, the gyms
+              grow — you simply do not go anywhere. */}
           <div className="row scrollOn">
             {sittings.map(([steps, label]) => (
               <button
@@ -226,7 +227,10 @@ export function Doomscroller({
                 type="button"
                 className="ghost small"
                 disabled={Boolean(doomscrollRefusal(state, steps))}
-                title={doomscrollRefusal(state, steps) ?? `${steps.toLocaleString()} steps go by where you stand`}
+                title={
+                  doomscrollRefusal(state, steps) ??
+                  `${steps.toLocaleString()} steps and ${steps.toLocaleString()} moves go by where you stand`
+                }
                 onClick={() => onInput({ t: "doomscroll", steps })}
               >
                 {label} · {steps.toLocaleString()}

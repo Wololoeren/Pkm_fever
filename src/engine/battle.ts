@@ -1,6 +1,7 @@
 import {
   ALL_MOVES,
   effectiveness,
+  formOf,
   move as moveById,
   species as speciesById,
   TYPE_NAMES,
@@ -42,6 +43,7 @@ import {
   type TerrainId,
   type WeatherId,
 } from "./field";
+import { formNow, formRule } from "./forms";
 import { computeStats } from "./stats";
 import { STAT_IDS, type Individual, type StatId, type StatusId } from "./types";
 
@@ -510,6 +512,14 @@ export type BattleEvent =
   | { t: "perish"; side: SideIndex; turns: number }
   /** Ditto, mid-battle. */
   | { t: "transformed"; side: SideIndex; into: string }
+  /**
+   * Somebody changed shape: see forms.ts. `says` is what the log reads.
+   *
+   * `from` as well as `into`, because by the time anything reads this the
+   * creature is already the new shape — and "Castform-Rainy took the
+   * weather's shape" is a sentence about nobody.
+   */
+  | { t: "reshaped"; side: SideIndex; from: string; into: string; says: string }
   /** Smeargle, for good. */
   | { t: "sketched"; side: SideIndex; moveId: string }
   /** Revival Blessing: somebody in reserve is back on their feet. */
@@ -1051,6 +1061,8 @@ function raiseField(turn: Turn, kind: "weather" | "terrain" | "sport", id: strin
   if (field[kind]?.id === id) return false;
   setField(turn, { ...field, [kind]: { id, turns: FIELD_TURNS } });
   turn.events.push({ t: "field", kind, id, over: false });
+  // Castform is whatever the sky is doing, and the sky just changed.
+  if (kind === "weather") reshapeBoth(turn);
   return true;
 }
 
@@ -1070,6 +1082,8 @@ function ageField(turn: Turn): void {
     }
   }
   setField(turn, next);
+  // And the sky clearing is a change like any other.
+  if (field.weather && !next.weather) reshapeBoth(turn);
 
   for (const [id, left] of Object.entries(field.rooms ?? {}) as [RoomId, number][]) {
     if (left > 1) {
@@ -1481,6 +1495,120 @@ function active(turn: Turn, side: SideIndex): Individual {
   return activeOf(turn.battle, side);
 }
 
+/* ------------------------------------------------------------ the shapes
+ *
+ * Creatures that change form in the middle of a fight — see `forms.ts` for
+ * which and why. Every one of them is the same three lines: work out what it
+ * should be, put it in that shape, and say so.
+ *
+ * Nothing here is remembered on the battle. A form knows what it is a form of
+ * (`formOf`), so putting one back is a lookup rather than a copy kept beside
+ * it — which means a form cannot survive a save, a switch, or the end of a
+ * battle by being forgotten about somewhere.
+ */
+
+/** Puts this one into that shape, and says so. Health carries across. */
+function reshape(turn: Turn, side: SideIndex, into: string, says: string): boolean {
+  const creature = active(turn, side);
+  if (creature.speciesId === into || isFainted(creature)) return false;
+
+  const changed = { ...creature, speciesId: into };
+  setActive(turn, side, { ...changed, hp: Math.min(changed.hp, maxHp(changed)) });
+  turn.events.push({ t: "reshaped", side, from: creature.speciesId, into, says });
+  return true;
+}
+
+/**
+ * The shape the *state* asks for: the sky, and what is left of its health.
+ *
+ * Called wherever either of those can have moved — after damage, after
+ * healing, when the weather turns, and when somebody is sent out — rather
+ * than once a turn, because "Castform is what the sky is doing" is a promise
+ * about right now and a turn is a long time in a fight.
+ */
+function reshapeForState(turn: Turn, side: SideIndex): void {
+  const creature = active(turn, side);
+  const rule = formRule(creature.speciesId);
+  if (!rule) return;
+
+  const into = formNow(creature.speciesId, creature.level, {
+    weather: weatherNow(turn),
+    hp: creature.hp,
+    maxHp: maxHp(creature),
+  });
+  if (into) reshape(turn, side, into, rule.says);
+}
+
+/** Both sides at once, for the things that change the field rather than one of them. */
+function reshapeBoth(turn: Turn): void {
+  reshapeForState(turn, 0);
+  reshapeForState(turn, 1);
+}
+
+/**
+ * Struck: the two that break when they are hit.
+ *
+ * Mimikyu's rag takes the whole blow — the damage is refused and the disguise
+ * goes instead, which is the point of it — and Eiscue's face only breaks to a
+ * physical hit. Asked before the damage lands, so that refusing it is still
+ * possible.
+ *
+ * Returns true when the hit should be thrown away.
+ */
+function shieldedByShape(turn: Turn, side: SideIndex, physical: boolean): boolean {
+  const creature = active(turn, side);
+  const rule = formRule(creature.speciesId);
+  if (!rule || rule.trigger.t !== "struck") return false;
+  if (creature.speciesId !== rule.species) return false;
+  if (rule.trigger.physical && !physical) return false;
+
+  reshape(turn, side, rule.trigger.into, rule.says);
+  // Mimikyu's disguise eats the blow; Eiscue's face does not, it only melts.
+  return !rule.trigger.physical;
+}
+
+/** Swung: what a move just used does to the shape of whoever used it. */
+function reshapeForMove(turn: Turn, side: SideIndex, moveId: string): void {
+  const creature = active(turn, side);
+  const rule = formRule(creature.speciesId);
+  if (!rule) return;
+
+  if (rule.trigger.t === "song") {
+    if (moveId === rule.trigger.move) {
+      // Back and forth: the song is a switch rather than a one-way door.
+      const into = creature.speciesId === rule.trigger.into ? rule.species : rule.trigger.into;
+      reshape(turn, side, into, rule.says);
+    }
+    return;
+  }
+
+  if (rule.trigger.t !== "swung") return;
+  const { attacking, guarding } = rule.trigger;
+  if (guarding && moveId === guarding.move) {
+    reshape(turn, side, guarding.into, rule.says);
+    return;
+  }
+  if (attacking && moveById(moveId).category !== "status") reshape(turn, side, attacking, rule.says);
+}
+
+/** Every turn: the one that alternates whether anything happened or not. */
+function reshapeForTurn(turn: Turn, side: SideIndex): void {
+  const creature = active(turn, side);
+  const rule = formRule(creature.speciesId);
+  if (!rule || rule.trigger.t !== "turn" || isFainted(creature)) return;
+  const into = creature.speciesId === rule.species ? rule.trigger.other : rule.species;
+  reshape(turn, side, into, rule.says);
+}
+
+/** Back to what it is a form *of*. Leaving the field, and the end of a battle. */
+function revertShape(turn: Turn, side: SideIndex): void {
+  const creature = active(turn, side);
+  const base = formOf(creature.speciesId);
+  if (base === creature.speciesId) return;
+  const put = { ...creature, speciesId: base };
+  setActive(turn, side, { ...put, hp: Math.min(put.hp, maxHp(put)) });
+}
+
 function setActive(turn: Turn, side: SideIndex, individual: Individual): void {
   const combatant = turn.battle.sides[side];
   combatant.team = combatant.team.map((member, index) => (index === combatant.active ? individual : member));
@@ -1604,6 +1732,16 @@ function landDamage(
     turn.events.push({ t: "volatile", side: other(side), which: left > 0 ? "decoyhit" : "decoybroke" });
     return absorbed;
   }
+
+  /*
+   * The two that break rather than bruise — see `shieldedByShape`.
+   *
+   * Here, beside the substitute, because a disguise is the same idea wearing
+   * a different face: something stands in front of the blow. Mimikyu's rag
+   * takes the whole of it and tears; Eiscue's face melts to a physical hit
+   * and the hit goes through anyway.
+   */
+  if (shieldedByShape(turn, other(side), move.category === "physical")) return 0;
 
   const defender = active(turn, other(side));
   const attacker = active(turn, side);
@@ -1768,6 +1906,9 @@ function applyDamage(turn: Turn, side: SideIndex, amount: number): number {
   const target = active(turn, side);
   const dealt = Math.max(0, Math.min(target.hp, amount));
   setActive(turn, side, { ...target, hp: target.hp - dealt });
+  // Every road to losing health comes down this one, which is why the shapes
+  // that watch their health are asked here rather than at each move.
+  if (dealt > 0) reshapeForState(turn, side);
   return dealt;
 }
 
@@ -1775,7 +1916,11 @@ function applyHeal(turn: Turn, side: SideIndex, amount: number): number {
   if (healBlocked(turn, side)) return 0;
   const target = active(turn, side);
   const healed = Math.max(0, Math.min(maxHp(target) - target.hp, amount));
-  if (healed > 0) setActive(turn, side, { ...target, hp: target.hp + healed });
+  if (healed > 0) {
+    setActive(turn, side, { ...target, hp: target.hp + healed });
+    // Back over the line is a shape change too: a Wishiwashi gathers again.
+    reshapeForState(turn, side);
+  }
   return healed;
 }
 
@@ -5240,6 +5385,12 @@ function afterMove(turn: Turn, side: SideIndex): void {
   // Still up in the air, or still gathering light. Nothing below applies to a
   // turn in which the move has not gone off yet.
   if (held.commitment === "charge" && held.committed === moveId) return;
+
+  // What was swung: Aegislash draws or guards, Meloetta changes its step.
+  // Whether it *landed* is not the question — a sword that missed is still
+  // drawn — so this is asked before the rest of this function, all of which
+  // is about a move that connected.
+  reshapeForMove(turn, side, moveId);
   // Bide keeps its own counter and clears its own commitment.
   if (held.biding) return;
 
@@ -5900,6 +6051,8 @@ export function resolveTurn(
   for (const side of [0, 1] as SideIndex[]) ageScreens(turn, side);
   for (const side of [0, 1] as SideIndex[]) ageFuture(turn, side);
   ageField(turn);
+  // Morpeko is hungrier than it was a turn ago, whatever else happened.
+  for (const side of [0, 1] as SideIndex[]) reshapeForTurn(turn, side);
 
   // What a held item does at the end of a turn, in a fixed order so two of
   // them on opposite sides always resolve the same way: the thing that hurts
@@ -6127,6 +6280,10 @@ function onArriving(turn: Turn, side: SideIndex): void {
   // Whatever was laid on the ground bites first.
   applyHazards(turn, side);
   if (roomUp(turn, "magicroom")) muffle(turn, side);
+  // Into whatever shape the sky and its health ask for, before anything it
+  // does on arrival: a Castform sent out into rain is already a Water type
+  // when the first move of the turn is aimed at it.
+  reshapeForState(turn, side);
   const arriving = active(turn, side);
   // Drought, Drizzle, Sand Stream, Snow Warning and the four Surges.
   for (const effect of effects(arriving, "summon")) {
@@ -6202,6 +6359,8 @@ function switchTo(
   // Before anything else about leaving, including a fainted one: the slot's
   // volatiles are about to be wiped, and the original goes with them.
   revertTransform(turn, side);
+  // And whatever shape it had taken: nobody walks out of a fight as a form.
+  revertShape(turn, side);
 
   // Whatever the one on its way out can do about leaving.
   onLeaving(turn, side);
@@ -6443,6 +6602,8 @@ function finish(turn: Turn, caught: Individual | null, ballsUsed: number): TurnR
   if (turn.battle.outcome) {
     revertTransform(turn, 0);
     revertTransform(turn, 1);
+    revertShape(turn, 0);
+    revertShape(turn, 1);
     returnItems(turn);
     // What was caught is what the wild side is left holding, now any item of
     // yours has been taken back off it.

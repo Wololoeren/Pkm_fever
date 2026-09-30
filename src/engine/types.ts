@@ -205,7 +205,27 @@ import { BIOME_IDS } from "./biomes";
  * roll off a weighted table with no ceiling — same average of six, but a
  * wild 31 is possible — so every creature in every seed rerolls. And Tim's
  * trading post, whose deals arrive as the `postDeal` input. */
-export const ENGINE_VERSION = 38;
+
+/**
+ * 39: egg moves.
+ *
+ * An egg is born knowing any of its own egg moves that a parent had in its
+ * four slots — see `eggMovesFrom`. Every egg a recorded save ever hatched
+ * from a parent that happened to know one comes out with a different moveset,
+ * and a moveset is what `{ t: "fight", moveIndex }` points into, so a battle
+ * later in that log would be throwing a different move. That is the whole
+ * reason this number exists.
+ */
+/**
+ * 40: the shapes.
+ *
+ * Eleven creatures change form in the middle of a fight — see `forms.ts`.
+ * Castform is whatever the sky is doing, Aegislash is whichever way it last
+ * swung, Mimikyu eats the first hit and tears. All of it changes stats, types
+ * and what a blow does in a recorded battle, so a log from before it replays
+ * into a different fight.
+ */
+export const ENGINE_VERSION = 40;
 
 // ------------------------------------------------------------------ stats
 

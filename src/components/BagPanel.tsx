@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { startDrag } from "./dnd";
 import {
   activeLures,
   EGGOMETER,
@@ -197,8 +198,14 @@ export function BagPanel({
               <button
                 key={id}
                 type="button"
-                className={`itemCard${selected === id ? " on" : ""}`}
+                className={`itemCard${selected === id ? " on" : ""}${use === "hold" || use === "creature" ? " draggable" : ""}`}
                 disabled={!usable || Boolean(why)}
+                /* Dropped on somebody, an item is given or used on them —
+                   which is the same two buttons this card opens, reached by
+                   the shorter road. Only the two that have a target to be
+                   dropped on are draggable at all. */
+                draggable={use === "hold" || use === "creature"}
+                onDragStart={(event) => startDrag(event, { t: "item", id })}
                 onClick={() => {
                   // A lure, a repel and a rope have no target to pick, so
                   // pressing one *is* using it.

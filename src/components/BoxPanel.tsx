@@ -13,6 +13,7 @@ import {
   LOADOUT_NAME_MAX,
   LOADOUTS_MAX,
   saveLoadoutRefusal,
+  storeRefusal,
   takeHeldRefusal,
   type GameState,
   type Input,
@@ -21,9 +22,11 @@ import { abilitiesOf } from "@/engine/abilities";
 import { hasItem, item } from "@/engine/items";
 import { ivTotal } from "@/engine/stats";
 import { TYPE_NAMES } from "@/engine/dex";
-import type { Individual } from "@/engine/types";
+import { GENDERS, GENDER_NAMES, GENDER_SYMBOLS } from "@/engine/gender";
+import type { Gender, Individual } from "@/engine/types";
 import { variant } from "@/engine/variants";
 import { displayName } from "@/lib/narrate";
+import { dropTarget, readDrag, startDrag } from "./dnd";
 import { eggMood, GenderMark } from "./PartyStrip";
 
 /** How a tab's cells can be ordered. "box" is the order they arrived in. */
@@ -108,13 +111,38 @@ import { EggSprite, Sprite } from "./Sprite";
  */
 
 /**
- * What a search matches against: the nickname, the species, its types, and
- * the names of its abilities.
+ * A word that asks for a gender rather than for a name, and which one.
  *
- * The abilities matter most of the three once a box is full: a hundred
+ * Its own step rather than another entry in the haystack below, for one
+ * stupid and unavoidable reason: **"female" contains "male"**. A substring
+ * search over a haystack with "male" in it answers "male" with every female
+ * in the box, which is worse than not being able to search at all — a filter
+ * that quietly includes what you asked it to exclude.
+ *
+ * So a gender word is matched whole, against the gender itself. The symbols
+ * work too, since they are what the box actually shows: typing ♂ is the
+ * shortest way to ask, and a player who copies one off a card should get what
+ * they pointed at.
+ */
+function genderAsked(word: string): Gender | null {
+  for (const gender of GENDERS) {
+    if (word === gender || word === GENDER_NAMES[gender].toLowerCase() || word === GENDER_SYMBOLS[gender]) {
+      return gender;
+    }
+  }
+  return null;
+}
+
+/**
+ * What a search matches against: the nickname, the species, its types, the
+ * names of its abilities, and its gender.
+ *
+ * The abilities matter most of the four once a box is full: a hundred
  * creatures sort by level and colour at a glance and by ability not at all,
  * and "which of these has Adaptability" is exactly the question a box of a
- * hundred cannot answer by looking.
+ * hundred cannot answer by looking. Gender is the same question one step
+ * down — "which of these can I breed with this one" — and the mark on a cell
+ * is eight pixels wide.
  */
 function matches(creature: Individual, query: string): boolean {
   const entry = speciesById(creature.speciesId);
@@ -130,7 +158,10 @@ function matches(creature: Individual, query: string): boolean {
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
-    .every((word) => haystack.includes(word));
+    .every((word) => {
+      const gender = genderAsked(word);
+      return gender ? creature.gender === gender : haystack.includes(word);
+    });
 }
 
 
@@ -378,7 +409,7 @@ export function BoxPanel({
           type="search"
           className="boxSearch"
           hidden={onLoadouts}
-          placeholder="Search name, type or ability…"
+          placeholder="Search name, type, ability or gender…"
           value={query}
           aria-label="Search the box"
           spellCheck={false}
@@ -479,6 +510,13 @@ export function BoxPanel({
               }}
               onDrop={(event) => {
                 event.preventDefault();
+                // Somebody from the party, dropped on a box: that is storing
+                // them in *that* box rather than in whichever one is open.
+                const what = readDrag(event);
+                if (what?.t === "party") {
+                  if (!storeRefusal(state, what.index, at)) onInput({ t: "store", index: what.index, tab: at });
+                  return;
+                }
                 if (dragging === null) return;
                 dropOn(at, dragging);
                 setDragging(null);
@@ -522,7 +560,22 @@ export function BoxPanel({
       {onLoadouts ? (
         <LoadoutList state={state} onInput={onInput} />
       ) : (
-      <div className="boxGrid" onContextMenu={(event) => event.preventDefault()}>
+      <div
+        className="boxGrid"
+        onContextMenu={(event) => event.preventDefault()}
+        {...dropTarget(
+          (what) => what.t === "party",
+          (what) => {
+            if (what.t !== "party") return;
+            if (storeRefusal(state, what.index, shown)) {
+              setWhy(storeRefusal(state, what.index, shown));
+              return;
+            }
+            setWhy(null);
+            onInput({ t: "store", index: what.index, tab: shown });
+          },
+        )}
+      >
         {cells.map(({ creature, index }) => {
           const hit = searching && matches(creature, query);
           const isPicked = picked.includes(creature.uid);
@@ -556,8 +609,7 @@ export function BoxPanel({
               onDragStart={(event) => {
                 // Dragging something not yet picked starts a fresh pick of one.
                 if (!isPicked && picked.length) setPicked([]);
-                event.dataTransfer.setData("text/plain", String(creature.uid));
-                event.dataTransfer.effectAllowed = "move";
+                startDrag(event, { t: "box", index, uid: creature.uid });
                 setDragging(creature.uid);
               }}
               onDragEnd={() => setDragging(null)}

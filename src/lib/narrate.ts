@@ -400,6 +400,13 @@ export function narrateParts(
       case "transformed":
         say(`${nameOf(event.side)} transformed into ${speciesById(event.into).name}!`);
         break;
+      case "reshaped":
+        // The shape it *was*, the rule's own words, and what it became:
+        // "Castform took the weather's shape — Castform-Rainy!" Its own name
+        // rather than `nameOf`, which would read the creature standing there
+        // now and call it by the shape it has this instant.
+        say(`${speciesById(event.from).name} ${event.says} — ${speciesById(event.into).name}!`);
+        break;
       case "sketched":
         say(`${nameOf(event.side)} sketched ${moveById(event.moveId).name}!`);
         break;

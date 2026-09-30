@@ -5,9 +5,14 @@ import {
   DOOMSCROLL_STEPS,
   doomscrollRefusal,
   initialState,
+  SHRED_COOLDOWN,
+  shredReady,
+  shredWait,
   stateHash,
   type GameState,
 } from "@/engine/engine";
+import { CUT_COOLDOWN, cutWait } from "@/engine/lapidary";
+import { printWait } from "@/engine/printer";
 import { eggSteps } from "@/engine/breeding";
 import { creature, testWorld } from "./helpers";
 
@@ -33,6 +38,9 @@ describe("scrolling on", () => {
     expect(doomscrollRefusal(state, 250)).toBe("not one of the three");
     expect(doomscrollRefusal({ ...state, bag: {} }, 100)).toBe("you have no feed to scroll");
     expect(doomscrollRefusal({ ...state, talking: "somebody" }, 100)).toBe("somebody is talking to you");
+    // And not with the rival behind you: a sitting is longer than the twenty
+    // moves he gives you, so it would be an ambush rather than a chase.
+    expect(doomscrollRefusal({ ...state, rivalSince: 4 }, 100)).toBe("somebody is behind you");
 
     const after = applyInput(world, state, { t: "doomscroll", steps: 500 });
     expect(after.stepsTaken).toBe(state.stepsTaken + 500);
@@ -73,5 +81,32 @@ describe("scrolling on", () => {
     // Two sittings stack.
     const twice = applyInput(world, scrolled, { t: "doomscroll", steps: 100 });
     expect(twice.stepsTaken).toBe(state.stepsTaken + 1100);
+  });
+  it("DS4: the people's clocks run too — a sitting is worth its length in moves", () => {
+    // Everything an NPC makes you wait for is counted in moves, not steps, and
+    // a sitting has to move that clock or the feed is a thing you stare at
+    // while the machine in front of you cools down by one.
+    const { world, state } = reading({
+      shreddedAt: 0,
+      cutAt: 0,
+      printedAt: 0,
+      tick: 0,
+    });
+
+    expect(shredWait(state.tick, state.shreddedAt)).toBe(SHRED_COOLDOWN);
+    expect(cutWait(state.tick, state.cutAt)).toBe(CUT_COOLDOWN);
+
+    const short = applyInput(world, state, { t: "doomscroll", steps: 100 });
+    expect(short.tick).toBe(100);
+    expect(shredWait(short.tick, short.shreddedAt)).toBe(SHRED_COOLDOWN - 100);
+    expect(shredReady(short.tick, short.shreddedAt)).toBe(false);
+
+    // And a long one clears the drum and the wheel outright.
+    const long = applyInput(world, state, { t: "doomscroll", steps: 1000 });
+    expect(long.tick).toBe(1000);
+    expect(shredReady(long.tick, long.shreddedAt)).toBe(true);
+    expect(cutWait(long.tick, long.cutAt)).toBe(0);
+    // The printer is the slowest of the three, so it is still warming up.
+    expect(printWait(long.tick, long.printedAt)).toBeGreaterThan(0);
   });
 });

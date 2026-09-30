@@ -1,4 +1,4 @@
-import { ALL_SPECIES, baseFormOf, movesAtLevel, species as speciesById } from "./dex";
+import { eggGroupsOf, eggMoves, ALL_SPECIES, baseFormOf, movesAtLevel, species as speciesById } from "./dex";
 import { gendersPair, rollGender } from "./gender";
 import { isItem, item as itemSpec } from "./items";
 import { NATURE_IDS } from "./natures";
@@ -7,7 +7,7 @@ import { heldEffects } from "./carry";
 import { fullPp } from "./pp";
 import { intBelow, intBetween, rngFor, shuffle, type Rng } from "./rng";
 import { clampIvs, IV_MAX, WILD_IV_MAX } from "./stats";
-import { expForLevel } from "./progression";
+import { MOVE_SLOTS, expForLevel } from "./progression";
 import { STAT_IDS, type Individual, type StatId, type StatTable } from "./types";
 import { appearanceId, CHROMA_IDS, TIER_COUNT, TOP_TIER, variant } from "./variants";
 
@@ -31,9 +31,6 @@ import { appearanceId, CHROMA_IDS, TIER_COUNT, TOP_TIER, variant } from "./varia
  * optimal path from a given pair. That is a feature — it turns a grind into a
  * puzzle.
  */
-
-/** Species that cannot breed at all. */
-const NO_BREEDING = "Undiscovered";
 
 /** The universal partner. */
 const DITTO = "ditto";
@@ -237,11 +234,17 @@ export function compatible(a: Individual, b: Individual): boolean {
 export function breedingRefusal(a: Individual, b: Individual): string | null {
   if (a.uid === b.uid) return "nothing breeds with itself";
 
-  const groupsA = speciesById(a.speciesId).eggGroups;
-  const groupsB = speciesById(b.speciesId).eggGroups;
-  if (groupsA.includes(NO_BREEDING) || groupsB.includes(NO_BREEDING)) {
-    return "one of these cannot breed at all";
-  }
+  /*
+   * Who each can pair with, derived rather than read — see `eggGroupsOf`.
+   *
+   * There is no "this one cannot breed at all" any more. The manifest still
+   * says so about a hundred and seventy-nine of them, and that is still what
+   * the auction and the world's loose eggs read, but a game about raising
+   * things should not hand somebody their favourite and tell them it is the
+   * one creature they can never improve.
+   */
+  const groupsA = eggGroupsOf(a.speciesId);
+  const groupsB = eggGroupsOf(b.speciesId);
 
   // Egg groups are the one rule a Ditto is exempt from: it takes the shape of
   // whatever it is paired with, so there is nothing for the groups to
@@ -254,6 +257,46 @@ export function breedingRefusal(a: Individual, b: Individual): string | null {
     return "these two share no egg group";
   }
   return null;
+}
+
+/**
+ * What the child is born knowing.
+ *
+ * Its own level-one moves, and — first, because they are the reason anybody
+ * bred for them — any of its **egg moves** a parent actually has in its four
+ * slots. Knowing one is not enough on its own: the move has to be one the
+ * child could be born with (see `eggMoves`), and it has to be *active* on a
+ * parent rather than something that parent once knew. That is the whole
+ * mechanic, and it is what makes a move on a parent worth keeping rather than
+ * overwriting.
+ *
+ * Either parent will do, including a Ditto, which is the shortest road to a
+ * move on something you have only one of.
+ *
+ * Nothing is rolled here. Two parents with the same four moves always hand
+ * the same egg the same moves, on every machine, forever — which is what lets
+ * the daycare tell you what an egg will know before it exists.
+ */
+export function eggMovesFrom(
+  speciesId: string,
+  first: Individual,
+  second: Individual,
+): string[] {
+  const wanted = new Set(eggMoves(speciesId));
+  const inherited: string[] = [];
+  // In the parents' own slot order, first parent first, so the answer does
+  // not depend on which way round two identical parents were deposited.
+  for (const parent of [first, second]) {
+    for (const moveId of parent.moves) {
+      if (wanted.has(moveId) && !inherited.includes(moveId)) inherited.push(moveId);
+    }
+  }
+
+  const born = movesAtLevel(speciesId, 1);
+  // The egg moves lead, and what is left of the four is filled with what it
+  // would have been born with anyway. Over four, the level moves are the ones
+  // that go: they can be learned again by levelling, and an egg move cannot.
+  return [...inherited, ...born.filter((moveId) => !inherited.includes(moveId))].slice(0, MOVE_SLOTS);
 }
 
 /** Where a mutation lands, with and without the catalyst. */
@@ -303,6 +346,8 @@ export function breed(
   // out the same creature it did before abilities existed — with abilities.
   const abilities = inheritAbilities(rng, first.abilities, second.abilities);
 
+  const hatchMoves = eggMovesFrom(speciesId, first, second);
+
   return {
     // The caller owns identity; it has the counter.
     uid: 0,
@@ -316,8 +361,8 @@ export function breed(
     hp: 0,
     status: null,
     sleepTurns: 0,
-    moves: movesAtLevel(speciesId, 1),
-    pp: fullPp(movesAtLevel(speciesId, 1)),
+    moves: hatchMoves,
+    pp: fullPp(hatchMoves),
     abilities,
     heldItem: null,
     nickname: null,

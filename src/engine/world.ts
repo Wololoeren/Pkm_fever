@@ -1,7 +1,7 @@
 import { rollAbilities, NIGHT_ODDS, WILD_ABILITY_ODDS } from "./abilities";
 import { rollHeld, WILD_HELD_ITEMS, WILD_HELD_PER_MILLE } from "./carry";
 import { SCHOOL_LABEL } from "./school";
-import { ALL_SPECIES, baseFormOf, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
+import { ALL_SPECIES, baseFormOf, isFabled, species as speciesById, STARTER_TYPES, startersOfType } from "./dex";
 import { INKS, ITEMS, MACHINE_ITEMS } from "./items";
 import { rollGender } from "./gender";
 import { BIOME_IDS, nameOf, placesWanted, profileFor, typesFor } from "./biomes";
@@ -1924,7 +1924,11 @@ function placeInks(
  * Sorted by id so the draw is the world's and not the manifest's order.
  */
 const FOUND_EGG_SPECIES: readonly string[] = ALL_SPECIES.filter(
-  (entry) => baseFormOf(entry.id) === entry.id && !entry.eggGroups.includes("Undiscovered"),
+  // Still what the manifest says rather than what `eggGroupsOf` derives: a
+  // legend breeding in a daycare is one thing, and one lying in the grass for
+  // anybody to walk into is another. It is also what keeps every world that
+  // has ever been generated dealing the same eggs.
+  (entry) => baseFormOf(entry.id) === entry.id && !isFabled(entry.id),
 )
   .map((entry) => entry.id)
   .sort();

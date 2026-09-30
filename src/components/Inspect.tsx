@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
+import { eggGroupsOf, isFabled, learnableAt, move as moveById, species as speciesById } from "@/engine/dex";
 import { depositRefusal, disobeys, fameLevel, holdRefusal, lockRefusal, MAX_MOVES, obedienceLevel, movesRefusal, NICKNAME_MAX, renameRefusal, storeRefusal, type GameState, type Input } from "@/engine/engine";
 import { item as itemSpec } from "@/engine/items";
 import { abilitiesOf, typesWith } from "@/engine/abilities";
@@ -437,9 +437,8 @@ export function Inspect({
               </p>
               <HeldLine world={world} creature={creature} index={index} state={state} onInput={onInput} />
               <p className="muted eggLine">
-                {entry.eggGroups.includes("Undiscovered")
-                  ? "Egg group: none — this one cannot breed at all."
-                  : `Egg group${entry.eggGroups.length > 1 ? "s" : ""}: ${entry.eggGroups.join(", ")}`}
+                {`Egg group${eggGroupsOf(entry.id).length > 1 ? "s" : ""}: ${eggGroupsOf(entry.id).join(", ")}`}
+                {isFabled(entry.id) ? " — never found in an egg, but it can still be bred." : ""}
               </p>
             </div>
           </div>

@@ -26,7 +26,19 @@ import {
   type BreedingItem,
   type DaycareState,
 } from "@/engine/breeding";
-import { ALL_SPECIES } from "@/engine/dex";
+import {
+  ALL_SPECIES,
+  eggGroupsOf,
+  eggMoves,
+  FABLED_GROUP,
+  isEggMove,
+  isFabled,
+  learnset,
+  move,
+  movesAtLevel,
+  speciesWithEggMoves,
+} from "@/engine/dex";
+import { MOVE_SLOTS } from "@/engine/progression";
 import { applyInput, collectRefusal, depositRefusal, hatchRefusal, incubateRefusal, uncubateRefusal, initialState, inTown, readyEgg, stateHash } from "@/engine/engine";
 import { gendersPair, GENDERS, rollGender } from "@/engine/gender";
 import { IV_MAX, ivTotal, WILD_IV_MAX } from "@/engine/stats";
@@ -941,5 +953,189 @@ describe("the odds on a colour", () => {
       const total = chromaOdds("tide", "ember", applied).reduce((sum, row) => sum + row.share, 0);
       expect(total).toBeCloseTo(1000, 6);
     }
+  });
+});
+
+describe("everything can be bred", () => {
+  /**
+   * The manifest puts a hundred and seventy-nine species in Undiscovered:
+   * the legends, the mythicals, the Ultra Beasts and the babies. That is
+   * faithful to the games it came from and it reads, in a game about raising
+   * things, as "your favourite is the one creature you can never improve".
+   */
+  it("BR49: nothing in the dex is unbreedable, and a baby pairs the way what it becomes does", () => {
+    for (const entry of ALL_SPECIES) {
+      const groups = eggGroupsOf(entry.id);
+      expect(groups.length, entry.id).toBeGreaterThan(0);
+      expect(groups, entry.id).not.toContain("Undiscovered");
+    }
+
+    // A baby takes the groups of what it grows into, walking as far as it has
+    // to: Pichu one step, Cosmog three.
+    expect(eggGroupsOf("pichu")).toEqual(eggGroupsOf("pikachu"));
+    expect(eggGroupsOf("happiny")).toEqual(eggGroupsOf("chansey"));
+    expect(eggGroupsOf("pichuspikyeared")).toEqual(eggGroupsOf("pikachu"));
+
+    // What no line reaches is Fabled, and Fabled is only ever that.
+    expect(eggGroupsOf("mew")).toEqual([FABLED_GROUP]);
+    expect(eggGroupsOf("kyogre")).toEqual([FABLED_GROUP]);
+    expect(eggGroupsOf("cosmog")).toEqual([FABLED_GROUP]);
+    expect(eggGroupsOf("pikachu")).not.toContain(FABLED_GROUP);
+
+    // And the manifest is untouched: it still says what it always said.
+    expect(isFabled("mew")).toBe(true);
+    expect(isFabled("pichu")).toBe(true);
+    expect(isFabled("pikachu")).toBe(false);
+  });
+
+  it("BR50: a legend pairs with a Ditto and with another legend, and the egg is the first one's own", () => {
+    const mew = creature("mew", { uid: 1, gender: "trans" });
+    const ditto = creature("ditto", { uid: 2, gender: "trans" });
+    const kyogre = creature("kyogre", { uid: 3, gender: "trans" });
+
+    expect(breedingRefusal(mew, ditto)).toBeNull();
+    expect(breedingRefusal(mew, kyogre)).toBeNull();
+    // Not with something that shares nothing with it.
+    expect(breedingRefusal(mew, creature("rattata", { uid: 4, gender: "female" }))).toBe(
+      "these two share no egg group",
+    );
+
+    // The egg is the first parent's base form, as it is for everybody else,
+    // so a legend pairing is a way to pass IVs into one rather than a way to
+    // turn one into another.
+    const egg = breed("EGGS1", mew, kyogre, 0, []);
+    expect(egg.speciesId).toBe("mew");
+    expect(breed("EGGS1", kyogre, mew, 0, []).speciesId).toBe("kyogre");
+  });
+
+  it("BR51: the manifest is untouched, so the world deals what it always dealt", () => {
+    /*
+     * The auction's pools and the eggs lying in the grass read the manifest
+     * to mean "is this a legend" rather than "can this breed", and both are
+     * drawn per seed - so if they had followed the new groups, every save in
+     * existence would be holding a world that deals different lots and
+     * different eggs. Their own tests pin the behaviour; this pins the fact
+     * underneath it.
+     */
+    const legends = ALL_SPECIES.filter((entry) => isFabled(entry.id));
+    expect(legends.length).toBe(179);
+    for (const entry of legends) expect(entry.eggGroups, entry.id).toContain("Undiscovered");
+
+    // And none of them is lying about in the grass, which is the pool that
+    // would have flooded first.
+    const world = testWorld("PKMFEVER1");
+    for (const drops of world.pickups.values()) {
+      for (const drop of drops) {
+        if (drop.egg) expect(isFabled(drop.egg.speciesId), drop.egg.speciesId).toBe(false);
+      }
+    }
+  });
+});
+
+describe("egg moves", () => {
+  /**
+   * Moves a creature can only be born with. The mechanic is one sentence -
+   * an egg knows any of its own egg moves that a parent has *active* - and
+   * every test here is a way that sentence can be got wrong.
+   */
+  const bulbasaurEgg = eggMoves("bulbasaur");
+
+  it("BR52: an egg move is one it could not have levelled into anyway", () => {
+    expect(bulbasaurEgg.length).toBeGreaterThan(0);
+    for (const moveId of bulbasaurEgg) {
+      expect(move(moveId), moveId).toBeDefined();
+      // Never something it would learn by waiting: that would be an egg move
+      // worth nothing, and noise in the handbook.
+      expect(learnset("bulbasaur").some(([, id]) => id === moveId), moveId).toBe(false);
+    }
+
+    // Not everything has them, which is the point of the word "some".
+    expect(eggMoves("mew")).toEqual([]);
+    expect(isEggMove("bulbasaur", bulbasaurEgg[0])).toBe(true);
+    expect(isEggMove("bulbasaur", "tackle")).toBe(false);
+  });
+
+  it("BR53: a parent that has one passes it on, and one that has forgotten it does not", () => {
+    const known = bulbasaurEgg[0];
+    const born = movesAtLevel("bulbasaur", 1);
+
+    const teacher = creature("bulbasaur", { uid: 1, level: 40, moves: [known, "tackle"] });
+    const plain = creature("bulbasaur", { uid: 2, level: 40, moves: ["tackle", "growl"] });
+
+    // Active on a parent: the child is born with it, and it leads.
+    const withIt = breed("EGGM1", teacher, plain, 0, []);
+    expect(withIt.moves[0]).toBe(known);
+    expect(withIt.pp).toHaveLength(withIt.moves.length);
+
+    // Neither parent has it any more: the child is born as it always was.
+    const without = breed("EGGM1", plain, plain, 0, []);
+    expect(without.moves).toEqual(born);
+    expect(without.moves).not.toContain(known);
+
+    // Either parent will do, including the one in the second slot.
+    expect(breed("EGGM1", plain, teacher, 0, []).moves).toContain(known);
+  });
+
+  it("BR54: a Ditto carries one across, which is the road for something you have one of", () => {
+    const known = bulbasaurEgg[0];
+    const ditto = creature("ditto", { uid: 1, level: 30, moves: [known, "transform"], gender: "trans" });
+    const mother = creature("bulbasaur", { uid: 2, level: 30, moves: ["tackle"], gender: "female" });
+
+    const egg = breed("EGGM2", mother, ditto, 0, []);
+    expect(egg.speciesId).toBe("bulbasaur");
+    expect(egg.moves).toContain(known);
+  });
+
+  it("BR55: four at most, and the egg moves are the ones that stay", () => {
+    const four = bulbasaurEgg.slice(0, 4);
+    expect(four).toHaveLength(4);
+    const teacher = creature("bulbasaur", { uid: 1, level: 50, moves: four });
+    const egg = breed("EGGM3", teacher, teacher, 1, []);
+
+    expect(egg.moves).toEqual(four);
+    expect(egg.moves).toHaveLength(MOVE_SLOTS);
+    // The level-one moves are the ones that gave way: they can be learned
+    // again by levelling, and an egg move cannot.
+    for (const moveId of movesAtLevel("bulbasaur", 1)) {
+      if (!four.includes(moveId)) expect(egg.moves).not.toContain(moveId);
+    }
+  });
+
+  it("BR56: nothing about it is rolled, and a move the child cannot be born with is not passed", () => {
+    const known = bulbasaurEgg[0];
+    const teacher = creature("bulbasaur", { uid: 1, level: 40, moves: [known, "tackle"] });
+    const plain = creature("bulbasaur", { uid: 2, level: 40, moves: ["tackle"] });
+
+    // The same pair hands every egg the same moves, whichever egg it is.
+    const first = breed("EGGM4", teacher, plain, 0, []);
+    const tenth = breed("EGGM4", teacher, plain, 9, []);
+    expect(first.moves).toEqual(tenth.moves);
+
+    // A move that is not one of the child's egg moves stays with the parent,
+    // however well the parent knows it.
+    const taught = creature("bulbasaur", { uid: 3, level: 40, moves: ["hyperbeam", "tackle"] });
+    expect(isEggMove("bulbasaur", "hyperbeam")).toBe(false);
+    expect(breed("EGGM4", taught, plain, 0, []).moves).not.toContain("hyperbeam");
+  });
+
+  it("BR57: every move in the manifest is real, and none is something that species levels into", () => {
+    /*
+     * The handbook prints this table, so a move id nothing can look up is a
+     * crash in a panel, and an egg move that is also a level move is a line
+     * promising something for nothing. Both are filtered when the file is
+     * built - this is the test that says the file that shipped was built that
+     * way.
+     */
+    let pairs = 0;
+    for (const { id, moves: theirs } of speciesWithEggMoves()) {
+      const byLevel = new Set(learnset(id).map(([, moveId]) => moveId));
+      for (const moveId of theirs) {
+        expect(move(moveId), `${id} > ${moveId}`).toBeDefined();
+        expect(byLevel.has(moveId), `${id} levels into ${moveId}`).toBe(false);
+        pairs += 1;
+      }
+    }
+    expect(speciesWithEggMoves().length).toBeGreaterThan(500);
+    expect(pairs).toBeGreaterThan(5_000);
   });
 });

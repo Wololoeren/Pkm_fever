@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { breed } from "@/engine/breeding";
+import { displayName } from "@/lib/narrate";
 import {
   appraisal,
   appraiseRefusal,
@@ -106,6 +108,35 @@ describe("the buyer in the north", () => {
 
     // The headline number the Appraiser quotes.
     expect(appraisal(creature("pidgey", { variantId: "shiny" })).money).toBe(5_000);
+  });
+
+
+  it("S2b: two of the same thing are the same row, word for word — so a row is keyed by uid", () => {
+    /*
+     * The Appraiser pays by shine alone and the Colour Collector by colour
+     * alone, so neither reads anything that tells two otherwise identical
+     * creatures apart. Their rows say "Sell Rattata · Lv20 for ¤0" and mean a
+     * different creature each — which is fine until something keys a list on
+     * what a row *says*.
+     *
+     * TalkPanel used to key its options by the label, and two rows under one
+     * key is a list React may shuffle, reuse nodes from or drop: arming one
+     * lit up another, and a press could land where nobody pointed. It keys on
+     * `arms` — the uid — now. This is the fact underneath that decision.
+     */
+    const one = creature("rattata", { uid: 11, level: 20 });
+    const two = creature("rattata", { uid: 12, level: 20 });
+
+    const row = (who: ReturnType<typeof creature>) =>
+      `Sell ${displayName(who)} · Lv${who.level} for ¤${appraisal(who).money}`;
+
+    expect(row(one)).toBe(row(two));
+    expect(one.uid).not.toBe(two.uid);
+
+    // A daycare is the machine that makes this ordinary: every egg from one
+    // pair is the same species at level one with no shine between them.
+    const eggs = [0, 1].map((at) => breed("ROWS1", one, two, at, []));
+    expect(row(eggs[0])).toBe(row(eggs[1]));
   });
 
   it("S3: colour is not shine, and is not paid for", () => {

@@ -1,4 +1,6 @@
 import { actsOnSomething } from "./statusmoves";
+import eggMoveData from "../data/eggmoves.json";
+import formData from "../data/forms.json";
 import learnsetData from "../data/learnsets.json";
 import machineData from "../data/machines.json";
 import moveData from "../data/moves.json";
@@ -260,7 +262,32 @@ export function effectiveness(attackType: string, defenderTypes: readonly string
   return quarters;
 }
 
-const SPECIES_BY_ID = new Map(ALL_SPECIES.map((entry) => [entry.id, entry]));
+/**
+ * The shapes a creature takes during a fight — see scripts/build-forms.mjs.
+ *
+ * Beside the roster rather than in it. `species()` resolves one, so a form's
+ * stats, its types and its sprite all work while it is out; `ALL_SPECIES`
+ * never mentions it, so the dex, the encounter tables, the auction, the prize
+ * bench, the starter pool, the found eggs and breeding carry on drawing from
+ * exactly what they drew from before. A form is a state, not a species, and
+ * this is the line that keeps it one.
+ */
+const FORM_SPECIES = formData as unknown as Record<string, SpeciesEntry & { formOf: string }>;
+
+const SPECIES_BY_ID = new Map<string, SpeciesEntry>([
+  ...ALL_SPECIES.map((entry) => [entry.id, entry] as [string, SpeciesEntry]),
+  ...Object.values(FORM_SPECIES).map((entry) => [entry.id, entry] as [string, SpeciesEntry]),
+]);
+
+/** Whether this id is a battle form rather than something in the roster. */
+export function isForm(speciesId: string): boolean {
+  return speciesId in FORM_SPECIES;
+}
+
+/** What a form goes back to when it leaves the field, or the id itself. */
+export function formOf(speciesId: string): string {
+  return FORM_SPECIES[speciesId]?.formOf ?? speciesId;
+}
 const MOVES_BY_ID = new Map(ALL_MOVES.map((entry) => [entry.id, entry]));
 
 export function species(id: string): SpeciesEntry {
@@ -361,6 +388,135 @@ export function startersOfType(type: string): string[] {
   const column = STARTER_TYPES.indexOf(type);
   if (column < 0) return [];
   return STARTER_TRIOS.map((trio) => trio[column]).filter((id) => SPECIES_BY_ID.has(id));
+}
+
+/* ----------------------------------------------------------- the egg moves
+ *
+ * Moves a creature can only be born with.
+ *
+ * Not everything is one: `src/data/eggmoves.json` is built from the same
+ * source as the learnsets (see scripts/build-eggmoves.mjs), holds the moves
+ * the data tags as coming from an egg, and drops any the species could simply
+ * level into — an egg move you could get by waiting is not a thing worth
+ * breeding for. About nine hundred species have some; a few hundred have
+ * none, and a Mew has none at all.
+ *
+ * Read from here rather than imported anywhere else, like every other part of
+ * the manifest.
+ */
+const EGG_MOVES = eggMoveData as unknown as Record<string, string[]>;
+
+/** What this one can only be born knowing. Empty for most of the dex. */
+export function eggMoves(speciesId: string): readonly string[] {
+  return EGG_MOVES[speciesId] ?? [];
+}
+
+/** Whether this move is one of that species' egg moves. */
+export function isEggMove(speciesId: string, moveId: string): boolean {
+  return eggMoves(speciesId).includes(moveId);
+}
+
+/** Every species with egg moves, for the handbook. Sorted by name. */
+export function speciesWithEggMoves(): { id: string; name: string; moves: readonly string[] }[] {
+  return Object.keys(EGG_MOVES)
+    .map((id) => ({ id, name: species(id).name, moves: eggMoves(id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* ---------------------------------------------------------- the egg groups
+ *
+ * Who can pair with whom, which is not quite what the manifest says.
+ *
+ * The manifest puts a hundred and seventy-nine species in **Undiscovered**,
+ * which in the games it came from means "this is never in an egg": the
+ * legendaries, the mythicals, the Ultra Beasts, and the babies that are only
+ * ever hatched from something above them. In a game about raising things,
+ * that reads as "your favourite is the one creature you can never improve" —
+ * a Mew is whatever the world dealt you and always will be, while a Rattata
+ * can be bred for a week into something perfect.
+ *
+ * So the groups are *derived* rather than read:
+ *
+ *   - Anything the manifest gives real groups keeps them, exactly.
+ *   - A baby takes the groups of whatever it grows into — a Pichu pairs the
+ *     way a Pikachu does, which is the answer the games would give if they
+ *     let it breed at all.
+ *   - Everything still left over is **Fabled**, one new group, so the legends
+ *     pair with each other.
+ *
+ * One new group rather than a taxonomy of them, because a second would only
+ * forbid pairings without buying anything: an egg is always the *first*
+ * parent's own base form, so the partner is there to pass on IVs, a nature
+ * and an appearance, and it makes no difference to the child whether it was
+ * a Mew or a Kyogre. A Ditto ignores groups entirely and always did.
+ *
+ * What this deliberately does not touch is the manifest itself. Two places
+ * read `eggGroups` to mean "is this a legend" rather than "can this breed" —
+ * the auction's two pools and the eggs left lying in the world — and both are
+ * drawn per seed, so changing what they see would deal a different world to
+ * every save in existence. They ask `isFabled` now, which reads the manifest
+ * and says what they actually mean.
+ */
+
+/** The group every legend and mythical shares, and nothing else is in. */
+export const FABLED_GROUP = "Fabled";
+
+/** The manifest's word for "never found in an egg". */
+const NEVER_IN_AN_EGG = "Undiscovered";
+
+/**
+ * Whether the manifest says this one is never found in an egg.
+ *
+ * The legends, the mythicals and the babies, which is the question the
+ * auction and the world's loose eggs are really asking. Breeding asks
+ * `eggGroupsOf` instead.
+ */
+export function isFabled(speciesId: string): boolean {
+  return species(speciesId).eggGroups.includes(NEVER_IN_AN_EGG);
+}
+
+const EGG_GROUPS = new Map<string, readonly string[]>();
+
+/** Who this one can pair with — the manifest's groups, or the derived ones. */
+export function eggGroupsOf(speciesId: string): readonly string[] {
+  const known = EGG_GROUPS.get(speciesId);
+  if (known) return known;
+
+  const entry = species(speciesId);
+  const real = entry.eggGroups.filter((group) => group !== NEVER_IN_AN_EGG);
+  if (real.length) {
+    EGG_GROUPS.set(speciesId, real);
+    return real;
+  }
+
+  // A baby pairs the way the thing it becomes does. Walked rather than looked
+  // up one step, because a line can be two deep before it reaches anything
+  // the manifest lets breed — Cosmog through Cosmoem, Type: Null through
+  // Silvally — and a cycle in a hand-edited manifest should not hang a
+  // daycare.
+  const seen = new Set<string>([speciesId]);
+  let ahead = entry.evolvesTo.map((step) => step.id);
+  for (let step = 0; step < 8 && ahead.length; step++) {
+    const groups = ahead
+      .filter((id) => !seen.has(id))
+      .flatMap((id) => {
+        seen.add(id);
+        return species(id).eggGroups.filter((group) => group !== NEVER_IN_AN_EGG);
+      });
+    if (groups.length) {
+      // First seen rather than sorted, so a baby's groups read exactly as the
+      // groups of what it becomes. `evolvesTo` is sorted by id at build time,
+      // so a line that branches still resolves the same way everywhere.
+      const found = [...new Set(groups)];
+      EGG_GROUPS.set(speciesId, found);
+      return found;
+    }
+    ahead = ahead.flatMap((id) => species(id).evolvesTo.map((next) => next.id));
+  }
+
+  const fabled = [FABLED_GROUP];
+  EGG_GROUPS.set(speciesId, fabled);
+  return fabled;
 }
 
 /** The bottom of this species' evolution line — what an egg hatches into. */
